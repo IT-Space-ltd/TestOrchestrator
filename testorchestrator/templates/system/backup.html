@@ -2,7 +2,9 @@
 {% block title %}Backup &amp; restore · TestOrchestrator{% endblock %}
 {% block content_class %}wide{% endblock %}
 {% block content %}
-<h1>System &rarr; Backup &amp; restore</h1>
+<div class="brand-hero">
+  <h1>System &rarr; Backup &amp; restore</h1>
+</div>
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for category, message in messages %}
   <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
