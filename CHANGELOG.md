@@ -84,7 +84,10 @@ connections upgrade unchanged).
   size-bounded background jobs, `.part`-file cleanup across
   restarts, and an export download page.
 - **Reconciliation UI** — Admin view of orphaned/ambiguous runs
-  with manual resolve actions and evidence cleanup.
+  (UNKNOWN / cancel-requested / expired-lease executions holding
+  reservations) with manual resolve actions, reservation chips,
+  state/warning badges, and explicit orphaned-evidence pruning
+  under `imported-evidence`, `workspaces` and `remote-runs`.
 - **History matrices** — durable per-suite/plan/target result
   matrices for at-a-glance failure-pattern review.
 - **Artifact manifests & lifecycle** — per-run manifests with
@@ -102,7 +105,11 @@ connections upgrade unchanged).
   Settings hub (incl. the Advanced/diagnostics card), Reporting,
   Network & certificates (toggle switch, selectable detected-
   address rows, port grid), Credentials, Health & services,
-  Changelog, and Licence.
+  Changelog, and Licence. Infrastructure, Reconciliation and
+  Backup & restore pages share the same wide layout and styling.
+- **Settings hub icons** — each Settings card now carries an
+  inline SVG icon (shield, server, key, report, users, heartbeat,
+  wrench), left-aligned and vertically centered beside the text.
 - **Users page reworked** — wide layout with a carded table
   (accent-tinted header, role/status/membership badges,
   right-aligned actions); **Create user** collapses behind a
@@ -132,6 +139,14 @@ connections upgrade unchanged).
   (now a modern toggle switch).
 - **Menu order**: …Audit → Operational Logs → Backup & restore →
   Third-party notices & licences → Changelog → Licence.
+
+### Fixed
+
+- **Reconciliation page crash on SQLite** — stored datetimes read
+  back timezone-naive while the page compared them against an
+  aware `utcnow()`, so any real UNKNOWN / expired-lease row raised
+  `TypeError`. The route now normalizes stored values to UTC and
+  binds a naive UTC `now` matching the stored format.
 
 ### Notes
 
