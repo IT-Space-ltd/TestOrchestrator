@@ -1357,6 +1357,14 @@ def reconciliation():
     and how stale its heartbeat/lease is — never a silent stall."""
     from ..execution import ResourceReservation, Runner
     now = utcnow()
+
+    from datetime import timezone as _tz
+
+    def _aware(dt):
+        # SQLite returns tz-naive datetimes; treat them as UTC before
+        # comparing against the tz-aware `now`.
+        return dt if dt is None or dt.tzinfo else dt.replace(tzinfo=_tz.utc)
+    now_sql = now.replace(tzinfo=None)   # stored values are naive UTC
     ambiguous = (Execution.query.filter(
         Execution.state.in_([ExecutionState.UNKNOWN,
                              ExecutionState.CANCEL_REQUESTED]))
@@ -1367,7 +1375,7 @@ def reconciliation():
             ExecutionState.CANCELED, ExecutionState.UNKNOWN,
             ExecutionState.CANCEL_REQUESTED, ExecutionState.QUEUED]),
         Execution.lease_expires_at.isnot(None),
-        Execution.lease_expires_at < now).all())
+        Execution.lease_expires_at < now_sql).all())
     rows = []
     for ex in ambiguous + expired_lease:
         if not current_user.project_allowed(ex.project_id or ""):
@@ -1378,10 +1386,12 @@ def reconciliation():
             if ex.runner_id else None
         rows.append({
             "ex": ex, "runner": runner, "reservations": resv,
-            "lease_age_s": ((now - ex.lease_expires_at).total_seconds()
+            "lease_age_s": ((now - _aware(ex.lease_expires_at))
+                            .total_seconds()
                             if ex.lease_expires_at
-                            and ex.lease_expires_at < now else 0),
-            "heartbeat_age_s": ((now - ex.heartbeat_at).total_seconds()
+                            and _aware(ex.lease_expires_at) < now else 0),
+            "heartbeat_age_s": ((now - _aware(ex.heartbeat_at))
+                                .total_seconds()
                                 if ex.heartbeat_at else None),
         })
     # Orphaned evidence dirs — top-level dirs under managed roots no
