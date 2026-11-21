@@ -1229,3 +1229,14 @@ details.adv-card ul { margin-top: .6rem; }
   .health-table thead th { background: rgba(91,157,255,.09); }
   .health-table tbody tr:hover td { background: rgba(91,157,255,.06); }
 }
+
+/* Settings hub: icon cards — icon left, vertically centered */
+.link-card.hub, details.adv-card summary {
+  display: flex; align-items: center; gap: 0.9rem; text-align: left;
+}
+.link-card.hub .card-icon, details.adv-card .card-icon {
+  flex: 0 0 auto; width: 2.2rem; height: 2.2rem; color: var(--accent);
+}
+.link-card.hub .hub-text, details.adv-card .hub-text { flex: 1 1 auto; }
+.link-card.hub .hub-text h2, details.adv-card .hub-text h2 { margin-top: 0; }
+.link-card.hub .hub-text p, details.adv-card .hub-text p { margin-bottom: 0; }
