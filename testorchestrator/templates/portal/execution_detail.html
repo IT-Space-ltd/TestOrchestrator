@@ -186,7 +186,7 @@
     {% endif %}
     <form method="post" action="{{ url_for('portal.refresh_report', execution_id=ex.id) }}" class="inline">
       {{ plain_form.csrf_token }}
-      <button class="button ghost" type="submit">Refresh report collection</button>
+      <button class="button secondary" type="submit">Refresh report collection</button>
     </form>
   </div>
 </section>
@@ -213,7 +213,7 @@
     {% endif %}
     <form method="post" action="{{ url_for('portal.generate_rlabs', execution_id=ex.id) }}" class="inline">
       {{ plain_form.csrf_token }}
-      <button class="button ghost" type="submit">
+      <button class="button secondary" type="submit">
         {% if ex.rl_status == 'ready' %}Regenerate{% else %}Generate{% endif %}
         reporting-labs report</button>
     </form>
