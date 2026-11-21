@@ -44,7 +44,7 @@ audited operator action.
       <td>{% if r.lease_age_s %}<span class="badge warn">{{ '%.0f'|format(r.lease_age_s) }}s</span>{% else %}—{% endif %}</td>
       <td>{% if r.heartbeat_age_s %}{{ '%.0f'|format(r.heartbeat_age_s) }}s ago{% else %}—{% endif %}</td>
       <td>{{ (r.ex.error_text or r.ex.wait_reason or '')[:120] }}</td>
-      <td><div class="cell-actions"><a class="button secondary sm"
+      <td><div class="cell-actions"><a class="button ghost sm"
              href="{{ url_for('portal.execution_detail', execution_id=r.ex.id) }}">Inspect</a></div></td>
     </tr>
     {% endfor %}
