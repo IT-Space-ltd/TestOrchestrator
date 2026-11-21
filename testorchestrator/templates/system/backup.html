@@ -9,9 +9,9 @@
   {% endfor %}
 {% endwith %}
 {% if fresh %}
-<p class="muted"><strong>Fresh installation detected.</strong> No
-   administrator exists yet — you can restore a settings backup now using
-   the one-time setup token written to
+<p class="muted"><strong>Fresh installation detected.</strong> No setup has
+   completed yet — you can restore a settings backup now using the
+   one-time setup token written to
    <code>&lt;instance&gt;/.restore-setup-token</code> on this machine
    (valid for one hour after first boot). Otherwise proceed to bootstrap
    normally.</p>
@@ -21,9 +21,9 @@
   <h2>Last backup</h2>
   {% if last %}
   <p><span class="badge accent">{{ last.created_utc }}</span>
-     format <strong>v{{ last.format_version }}</strong> · created by app
-     <strong>{{ last.app_version }}</strong> · initiated by
-     <strong>{{ last.by }}</strong></p>
+     format <span class="badge">v{{ last.format_version }}</span>
+     created by app <span class="badge">{{ last.app_version }}</span>
+     initiated by <strong>{{ last.by }}</strong></p>
   {% else %}
   <p class="muted">No backup has been created on this instance yet.</p>
   {% endif %}
@@ -31,7 +31,7 @@
 
 {% if not fresh %}
 <details class="add-block card">
-  <summary>Create backup</summary>
+  <summary class="button">Create backup</summary>
   <div class="add-body">
     <p class="muted">One encrypted <code>.tobackup</code> file containing
        the categories below. The passphrase <strong>cannot be recovered
@@ -45,7 +45,7 @@
         <tr><td><code>{{ name }}</code></td><td>{{ count }}</td></tr>
         {% endfor %}
         <tr><td><code>secret.key</code> <span class="badge">file</span></td>
-            <td>encryption key — inside the encrypted payload only</td></tr>
+            <td><span class="badge warn">encrypted payload only</span></td></tr>
       </tbody>
     </table>
     <details class="card example-block"><summary>Excluded — and why</summary>
@@ -55,19 +55,22 @@
         {% endfor %}
       </ul>
     </details>
-    <form method="post" action="{{ url_for('system.backup_create') }}">
+    <form method="post" class="add-form"
+          action="{{ url_for('system.backup_create') }}">
       {{ create_form.hidden_tag() }}
-      <div class="form-grid">
-        <div class="form-row">{{ create_form.passphrase.label }}
-          {{ create_form.passphrase(minlength=min_pp, required=true, autocomplete="new-password") }}</div>
-        <div class="form-row">{{ create_form.confirm.label }}
-          {{ create_form.confirm(required=true, autocomplete="new-password") }}</div>
-        <div class="form-row">{{ create_form.password.label }}
-          {{ create_form.password(autocomplete="current-password") }}
-          <small class="muted">Skipped if you re-authenticated in the last
-          5 minutes.</small></div>
+      <div class="field">{{ create_form.passphrase.label }}
+        {{ create_form.passphrase(minlength=min_pp, required=true, autocomplete="new-password") }}
+        <small>Minimum {{ min_pp }} characters — encrypts the archive.</small></div>
+      <div class="field">{{ create_form.confirm.label }}
+        {{ create_form.confirm(required=true, autocomplete="new-password") }}</div>
+      <div class="field">{{ create_form.password.label }}
+        {{ create_form.password(autocomplete="current-password") }}
+        <small>Skipped if you re-authenticated in the last 5 minutes.</small></div>
+      <div class="btn-row">
+        <button type="submit" class="button primary">Create &amp; download</button>
+        <button type="button" class="button secondary"
+                data-cancel-details>Cancel</button>
       </div>
-      <button type="submit" class="btn primary">Create &amp; download</button>
     </form>
   </div>
 </details>
@@ -83,20 +86,20 @@
   <form method="post" enctype="multipart/form-data"
         action="{{ url_for('system.backup_restore_stage') }}">
     {{ stage_form.hidden_tag() }}
-    <div class="form-grid">
-      <div class="form-row">{{ stage_form.backup_file.label }}
-        {{ stage_form.backup_file(required=true, accept=".tobackup") }}</div>
-      <div class="form-row">{{ stage_form.passphrase.label }}
-        {{ stage_form.passphrase(required=true, autocomplete="off") }}</div>
-      <div class="form-row">
-        {% if fresh %}
-          {{ stage_form.credential.label("Fresh-install setup token") }}
-        {% else %}
-          {{ stage_form.credential.label("Your password (re-authentication)") }}
-        {% endif %}
-        {{ stage_form.credential(required=true, autocomplete="off") }}</div>
+    <div class="field">{{ stage_form.backup_file.label }}
+      {{ stage_form.backup_file(required=true, accept=".tobackup") }}</div>
+    <div class="field">{{ stage_form.passphrase.label }}
+      {{ stage_form.passphrase(required=true, autocomplete="off") }}</div>
+    <div class="field">
+      {% if fresh %}
+        {{ stage_form.credential.label("Fresh-install setup token") }}
+      {% else %}
+        {{ stage_form.credential.label("Your password (re-authentication)") }}
+      {% endif %}
+      {{ stage_form.credential(required=true, autocomplete="off") }}</div>
+    <div class="btn-row">
+      <button type="submit" class="button primary">Upload &amp; validate</button>
     </div>
-    <button type="submit" class="btn primary">Upload &amp; validate</button>
   </form>
 </section>
 {% endblock %}

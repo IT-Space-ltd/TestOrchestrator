@@ -10,14 +10,12 @@
 {% endwith %}
 
 <section class="card">
-  <h2>Backup verified</h2>
-  <p>Format <strong>v{{ manifest.format_version }}</strong> · created by
-     app <strong>{{ manifest.app_version }}</strong> · db revision
-     <code>{{ manifest.db_revision }}</code> ·
+  <h2>Backup verified <span class="badge accent">checksums ok</span></h2>
+  <p>Format <span class="badge">v{{ manifest.format_version }}</span>
+     created by app <span class="badge">{{ manifest.app_version }}</span>
+     db revision <code>{{ manifest.db_revision }}</code> ·
      <span class="badge accent">{{ manifest.created_utc }}</span> ·
      {{ manifest.platform }}</p>
-  <p class="muted">Checksums verified for every section below; the archive
-     authentication tag is valid.</p>
   <table class="audit-table">
     <thead><tr><th>Section</th><th>Rows</th><th>SHA-256</th></tr></thead>
     <tbody>
@@ -46,29 +44,30 @@
   <form method="post" action="{{ url_for('system.backup_restore_apply') }}">
     {{ apply_form.hidden_tag() }}
     {{ apply_form.staged_id }}
-    <div class="form-grid">
-      <div class="form-row">{{ apply_form.mode.label }}
-        {% for sub in apply_form.mode %}
-        <label class="radio-row">{{ sub() }} {{ sub.label.text }}</label>
-        {% endfor %}</div>
-      <div class="form-row">{{ apply_form.passphrase.label }}
-        {{ apply_form.passphrase(required=true, autocomplete="off") }}</div>
-      <div class="form-row">
-        {% if fresh %}
-          {{ apply_form.credential.label("Fresh-install setup token") }}
-        {% else %}
-          {{ apply_form.credential.label("Your password (re-authentication)") }}
-        {% endif %}
-        {{ apply_form.credential(required=true, autocomplete="off") }}</div>
+    <fieldset class="field"><legend>{{ apply_form.mode.label }}</legend>
+      {% for sub in apply_form.mode %}
+      <div class="checkbox">{{ sub() }} {{ sub.label }}</div>
+      {% endfor %}
+    </fieldset>
+    <div class="field">{{ apply_form.passphrase.label }}
+      {{ apply_form.passphrase(required=true, autocomplete="off") }}</div>
+    <div class="field">
+      {% if fresh %}
+        {{ apply_form.credential.label("Fresh-install setup token") }}
+      {% else %}
+        {{ apply_form.credential.label("Your password (re-authentication)") }}
+      {% endif %}
+      {{ apply_form.credential(required=true, autocomplete="off") }}</div>
+    <div class="btn-row">
+      <button type="submit" class="button primary"
+              onclick="return confirm('Apply this restore? All restored sessions and API tokens will be revoked.')">
+        Apply restore</button>
     </div>
-    <button type="submit" class="btn primary"
-            onclick="return confirm('Apply this restore? All restored sessions and API tokens will be revoked.')">
-      Apply restore</button>
   </form>
-  <form method="post" class="inline-form"
+  <form method="post" class="btn-row"
         action="{{ url_for('system.backup_restore_cancel', stage_id=staged_id) }}">
     {{ apply_form.csrf_token }}
-    <button type="submit" class="btn">Cancel</button>
+    <button type="submit" class="button secondary">Cancel</button>
   </form>
 </section>
 {% endblock %}

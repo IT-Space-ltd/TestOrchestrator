@@ -4,7 +4,7 @@
 {% block content %}
 <h1>System &rarr; Backup &amp; restore &rarr; Report</h1>
 <section class="card">
-  <h2>Restore applied — {{ "fresh installation" if mode == "fresh" else "configuration replaced" }}</h2>
+  <h2>Restore applied <span class="badge accent">{{ "fresh installation" if mode == "fresh" else "configuration replaced" }}</span></h2>
   <table class="audit-table">
     <thead><tr><th>Section</th><th>Rows restored</th></tr></thead>
     <tbody>
@@ -27,7 +27,7 @@
         again and re-issue CI tokens.</li>
     <li>Runners and runtime connections are marked
         <em>needs verification</em> — re-run connection checks under
-        System &rarr; Infrastructure before scheduling work.</li>
+        System &rarr; Workers &amp; runtimes before scheduling work.</li>
     <li>Host-specific settings (ports, paths, TLS certificates, instance
         URL, service accounts) may differ on this machine — review System
         &rarr; Network &amp; certificates.</li>
@@ -36,6 +36,7 @@
         <code>&lt;instance&gt;/backups/</code>.</li>
     {% endif %}
   </ul>
-  <p><a class="btn primary" href="{{ url_for('portal.projects') if not fresh else url_for('auth.login') }}">Continue</a></p>
+  <p><a class="button primary"
+        href="{{ url_for('portal.projects') if not fresh else url_for('auth.login') }}">Continue</a></p>
 </section>
 {% endblock %}
