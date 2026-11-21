@@ -1,97 +1,114 @@
 {% extends "base.html" %}
-{% block title %}Execution {{ ex.id[:8] }} · TestOrchestrator{% if ex %}
-<section class="card">
-  <h2>Report publication</h2>
-  <p>Status: <span class="badge">{{ ex.report_pub_status }}</span>
-  {% if ex.report_pub_dir %}
-    · <code>{{ ex.report_pub_dir }}</code> on
-    <code>{{ ex.report_pub_branch }}</code>
-  {% endif %}
-  {% if ex.report_pub_error %}
-    <br><span class="warn">{{ ex.report_pub_error }}</span>
-  {% endif %}</p>
-  {% if can_edit %}
-  <form method="post" action="{{ url_for('portal.publish_execution_report', execution_id=ex.id) }}" class="inline">
-    {{ plain_form.csrf_token }}
-    <button class="button secondary" type="submit">Publish / retry</button></form>
-  <form method="post" action="{{ url_for('portal.delete_execution', execution_id=ex.id) }}" class="inline"
-        onsubmit="return confirm('Delete this execution AND its report from the repository branch? Git history is preserved — this is branch-removal only.');">
-    {{ plain_form.csrf_token }}
-    <button class="button secondary" type="submit">Delete</button></form>
-  {% endif %}
-  {% if ex.deletion_status != "none" %}
-  <p class="warn">Deletion: {{ ex.deletion_status }}
-    {% if ex.deletion_error %} — {{ ex.deletion_error }}{% endif %}</p>
-  {% endif %}
-</section>
-{% endif %}
-{% endblock %}
+{% block title %}Execution {{ ex.id[:8] }} · TestOrchestrator{% endblock %}
 {% block content_class %}content-wide{% endblock %}
 {% block content %}
 <p><a class="button ghost sm" href="{{ url_for('portal.project_detail', project_id=ex.project_id) }}">← Back to project</a></p>
-<h1>Execution <code>{{ ex.id[:8] }}</code></h1>
+<h1>Execution <code>{{ ex.id[:8] }}</code>
+  <span class="badge {{ ex.state.value }}">{{ ex.state.value }}</span>
+  <span class="badge outcome-{{ ex.outcome.value }}">{{ ex.outcome.value }}</span>
+</h1>
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for category, message in messages %}
   <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
   {% endfor %}
 {% endwith %}
 
-<dl class="about-facts">
-  <dt>Suite</dt><dd>{{ ex.snapshot().get('suite_name') }} (v{{ ex.snapshot().get('suite_version') }})</dd>
-  <dt>Source SHA</dt><dd><code>{{ ex.source_sha or "—" }}</code></dd>
-  <dt>State</dt><dd><strong>{{ ex.state.value }}</strong></dd>
-  {% if ex.wait_reason %}
-  <dt>Waiting because</dt><dd>{{ ex.wait_reason }}</dd>
+<section class="card">
+  <h2>Details</h2>
+  <dl class="about-facts">
+    <dt>Suite</dt><dd>{{ ex.snapshot().get('suite_name') }} (v{{ ex.snapshot().get('suite_version') }})</dd>
+    <dt>Source SHA</dt><dd><code>{{ ex.source_sha or "—" }}</code></dd>
+    <dt>State</dt><dd><span class="badge {{ ex.state.value }}">{{ ex.state.value }}</span>
+      {% if ex.wait_reason %}<br><small class="muted">{{ ex.wait_reason }}</small>{% endif %}</dd>
+    <dt>Outcome</dt><dd><span class="badge outcome-{{ ex.outcome.value }}">{{ ex.outcome.value }}</span></dd>
+    <dt>Orchestrator run</dt><dd><code>{{ ex.dispatch_id or "—" }}</code></dd>
+    {% if ex.snapshot().get('attempt', 1) > 1 or ex.snapshot().get('retry_of') %}
+    <dt>Attempt</dt><dd>#{{ ex.snapshot().get('attempt', 1) }}
+      {% if ex.snapshot().get('retry_of') %}
+        — retry of <a href="{{ url_for('portal.execution_detail', execution_id=ex.snapshot()['retry_of']) }}"><code>{{ ex.snapshot()['retry_of'][:8] }}</code></a>
+      {% endif %}</dd>
+    {% endif %}
+    <dt>Worker</dt><dd>{{ ex.runner.name if ex.runner else "—" }}</dd>
+    <dt>Runtime</dt><dd>{{ ex.runtime.name if ex.runtime else "—" }}</dd>
+    {% set rc = ex.snapshot().get('run_config') or {} %}
+    <dt>Browser</dt><dd>
+      {% if rc.get('remote_webdriver_url') %}
+        Remote WebDriver @ <code>{{ rc.remote_webdriver_url }}</code>
+        ({{ rc.get('remote_webdriver_type') or 'driver type unset' }})
+      {% else %}
+        {{ rc.get('browser') or 'Chrome (headless)' }} — runs on the KRE host
+      {% endif %}</dd>
+    {% if rc.get('timeout_seconds') %}
+    <dt>Timeout</dt><dd>{{ rc.timeout_seconds }}s (running time from
+      process launch)</dd>
+    {% endif %}
+    <dt>Retry policy</dt><dd>
+      {% if rc.get('retry_enabled', True) %}enabled — up to
+      {{ rc.get('max_attempts') or 3 }} attempt(s) total after a confirmed
+      worker interruption{% else %}disabled — an interrupted attempt goes
+      UNKNOWN for reconciliation, no automatic relaunch{% endif %}</dd>
+    <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
+    <dt>Finished</dt><dd>{{ ex.finished_at or "—" }}</dd>
+    <dt>Exit status</dt><dd>{{ ex.exit_status if ex.exit_status is not none else "—" }}</dd>
+    <dt>Git sync</dt><dd>{{ ex.git_state.value }}</dd>
+    {% if ex.origin == "imported" %}
+    {% set imp = ex.snapshot().get('import', {}) %}
+    <dt>Origin</dt><dd><span class="badge imported">imported</span>
+      by {{ ex.imported_by }} at {{ (ex.imported_at|string)[:19] }}</dd>
+    <dt>Source repository</dt><dd><code>{{ ex.source_repo or "—" }}</code></dd>
+    <dt>Source commit</dt><dd><code>{{ ex.source_commit or "—" }}</code></dd>
+    <dt>Source path</dt><dd><code>{{ ex.source_path or "—" }}</code></dd>
+    <dt>Parser</dt><dd><code>{{ imp.get('parser') or "—" }}</code></dd>
+    {% if imp.get('warnings') %}
+    <dt>Import warnings</dt><dd>
+      {% for w in imp.warnings %}<small class="muted">{{ w }}</small><br>{% endfor %}
+    </dd>
+    {% endif %}
+    {% endif %}
+    {% if ex.error_kind %}
+    <dt>Error</dt><dd><span class="badge danger">{{ ex.error_kind }}</span>
+      {{ ex.error_text }}</dd>
+    {% endif %}
+  </dl>
+
+  {% set show_cancel = ex.state.value not in ("completed", "failed", "canceled")
+     and ex.origin != "imported" and current_user.role.value != "po" %}
+  {% set show_unknown = ex.state.value == "unknown" and current_user.is_admin %}
+  {% set show_retry = ex.state.value in ("completed", "failed", "canceled", "unknown")
+     and ex.outcome.value != "passed" and ex.origin != "imported"
+     and current_user.role.value != "po" %}
+  {% if show_cancel or show_unknown or show_retry %}
+  <div class="btn-row">
+    {% if show_cancel %}
+    <form method="post" action="{{ url_for('portal.cancel_execution', execution_id=ex.id) }}" class="inline">
+      {{ plain_form.csrf_token }}
+      <button type="submit" class="button danger">Cancel execution</button>
+    </form>
+    {% endif %}
+    {% if show_retry %}
+    <form method="post" action="{{ url_for('portal.retry_execution', execution_id=ex.id) }}" class="inline">
+      {{ plain_form.csrf_token }}
+      <button type="submit" class="button secondary">Retry (new attempt)</button>
+    </form>
+    {% endif %}
+  </div>
+  {% if show_unknown %}
+  <form method="post" action="{{ url_for('portal.resolve_unknown', execution_id=ex.id) }}">
+    {{ plain_form.csrf_token }}
+    <input type="hidden" name="confirm_stopped" value="yes">
+    <div class="field"><label>Confirmation note (required)</label>
+      <input type="text" name="reason" required maxlength="400"
+             placeholder="how the original process was confirmed stopped"></div>
+    <button type="submit" class="button secondary">Resolve UNKNOWN
+      (administrative — does NOT stop a process)</button>
+    <small class="muted">UNKNOWN holds the worker's slot. Confirm on the
+      execution host that the original process and its children have
+      stopped before resolving — this records an administrative
+      resolution, not proof the run completed or failed normally.</small>
+  </form>
   {% endif %}
-  <dt>Outcome</dt><dd>{{ ex.outcome.value }}</dd>
-  <dt>Orchestrator run</dt><dd><code>{{ ex.dispatch_id or "—" }}</code></dd>
-  {% if ex.snapshot().get('attempt', 1) > 1 or ex.snapshot().get('retry_of') %}
-  <dt>Attempt</dt><dd>#{{ ex.snapshot().get('attempt', 1) }}
-    {% if ex.snapshot().get('retry_of') %}
-      — retry of <a href="{{ url_for('portal.execution_detail', execution_id=ex.snapshot()['retry_of']) }}"><code>{{ ex.snapshot()['retry_of'][:8] }}</code></a>
-    {% endif %}</dd>
   {% endif %}
-  <dt>Worker</dt><dd>{{ ex.runner.name if ex.runner else "—" }}</dd>
-  <dt>Runtime</dt><dd>{{ ex.runtime.name if ex.runtime else "—" }}</dd>
-  {% set rc = ex.snapshot().get('run_config') or {} %}
-  <dt>Browser</dt><dd>
-    {% if rc.get('remote_webdriver_url') %}
-      Remote WebDriver @ <code>{{ rc.remote_webdriver_url }}</code>
-      ({{ rc.get('remote_webdriver_type') or 'driver type unset' }})
-    {% else %}
-      {{ rc.get('browser') or 'Chrome (headless)' }} — runs on the KRE host
-    {% endif %}</dd>
-  {% if rc.get('timeout_seconds') %}
-  <dt>Timeout</dt><dd>{{ rc.timeout_seconds }}s (running time from
-    process launch)</dd>
-  {% endif %}
-  <dt>Retry policy</dt><dd>
-    {% if rc.get('retry_enabled', True) %}enabled — up to
-    {{ rc.get('max_attempts') or 3 }} attempt(s) total after a confirmed
-    worker interruption{% else %}disabled — an interrupted attempt goes
-    UNKNOWN for reconciliation, no automatic relaunch{% endif %}</dd>
-  <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
-  <dt>Finished</dt><dd>{{ ex.finished_at or "—" }}</dd>
-  <dt>Exit status</dt><dd>{{ ex.exit_status if ex.exit_status is not none else "—" }}</dd>
-  <dt>Git sync</dt><dd>{{ ex.git_state.value }}</dd>
-  {% if ex.origin == "imported" %}
-  {% set imp = ex.snapshot().get('import', {}) %}
-  <dt>Origin</dt><dd><span class="badge imported">imported</span>
-    by {{ ex.imported_by }} at {{ (ex.imported_at|string)[:19] }}</dd>
-  <dt>Source repository</dt><dd><code>{{ ex.source_repo or "—" }}</code></dd>
-  <dt>Source commit</dt><dd><code>{{ ex.source_commit or "—" }}</code></dd>
-  <dt>Source path</dt><dd><code>{{ ex.source_path or "—" }}</code></dd>
-  <dt>Parser</dt><dd><code>{{ imp.get('parser') or "—" }}</code></dd>
-  {% if imp.get('warnings') %}
-  <dt>Import warnings</dt><dd>
-    {% for w in imp.warnings %}<small class="muted">{{ w }}</small><br>{% endfor %}
-  </dd>
-  {% endif %}
-  {% endif %}
-  {% if ex.error_kind %}
-  <dt>Error</dt><dd>{{ ex.error_kind }} — {{ ex.error_text }}</dd>
-  {% endif %}
-</dl>
+</section>
 
 {% if parent %}
 <section class="card">
@@ -102,7 +119,7 @@
 {% if units %}
 <section class="card">
   <h2>Unit run — {{ units|length }} units</h2>
-  <p>Requested concurrency {{ units|length }}; actual concurrent
+  <p class="muted">Requested concurrency {{ units|length }}; actual concurrent
      units now: <b>{{ actual_concurrency }}</b>. Units marked queued
      are waiting for a capacity slot on their target.</p>
   <table class="audit-table">
@@ -111,144 +128,136 @@
     {% for u in units %}
     <tr>
       <td>{{ u.unit_key }}</td>
-      <td><span class="badge">{{ u.state.value }}</span>
+      <td><span class="badge {{ u.state.value }}">{{ u.state.value }}</span>
           {% if u.state.value == "queued" %}
-          <br><small>queued — capacity slot not yet free</small>{% endif %}</td>
-      <td>{{ u.outcome.value }}</td>
+          <br><small class="muted">queued — capacity slot not yet free</small>{% endif %}</td>
+      <td><span class="badge outcome-{{ u.outcome.value }}">{{ u.outcome.value }}</span></td>
       <td>{{ u.runner.name if u.runner else "—" }}</td>
       <td>{{ u.started_at or "—" }}</td>
       <td>{{ u.finished_at or "—" }}</td>
-      <td><a href="{{ url_for('portal.execution_detail', execution_id=u.id) }}">detail</a></td>
+      <td><a class="button secondary sm" href="{{ url_for('portal.execution_detail', execution_id=u.id) }}">detail</a></td>
     </tr>
     {% endfor %}
   </table>
 </section>
 {% endif %}
-{% if ex.state.value not in ("completed", "failed", "canceled")
-   and ex.origin != "imported"
-   and current_user.role.value != "po" %}
-<form method="post" action="{{ url_for('portal.cancel_execution', execution_id=ex.id) }}" class="inline">
-  {{ plain_form.csrf_token }}
-  <button type="submit" class="button secondary">Cancel execution</button>
-</form>
-{% endif %}
 
-{% if ex.state.value == "unknown" and current_user.is_admin %}
-<form method="post" action="{{ url_for('portal.resolve_unknown', execution_id=ex.id) }}" class="inline">
-  {{ plain_form.csrf_token }}
-  <input type="hidden" name="confirm_stopped" value="yes">
-  <div class="field"><label>Confirmation note (required)</label>
-    <input type="text" name="reason" required maxlength="400"
-           placeholder="how the original process was confirmed stopped"></div>
-  <button type="submit" class="button secondary">Resolve UNKNOWN
-    (administrative — does NOT stop a process)</button>
-  <small class="muted">UNKNOWN holds the worker's slot. Confirm on the
-    execution host that the original process and its children have
-    stopped before resolving — this records an administrative
-    resolution, not proof the run completed or failed normally.</small>
-</form>
-{% endif %}
-
-{% if ex.state.value in ("completed", "failed", "canceled", "unknown")
-   and ex.outcome.value != "passed" and ex.origin != "imported"
-   and current_user.role.value != "po" %}
-<form method="post" action="{{ url_for('portal.retry_execution', execution_id=ex.id) }}" class="inline">
-  {{ plain_form.csrf_token }}
-  <button type="submit" class="button secondary">Retry (new attempt)</button>
-</form>
-{% endif %}
-
-<h2>Results{% if ex.results %} — {{ counts }}{% endif %}</h2>
-{% if ex.results %}
-<table class="audit-table">
-  <thead><tr><th>Case</th><th>Status</th><th>Attempt</th><th>Duration</th><th>Message</th></tr></thead>
-  <tbody>
-    {% for r in ex.results %}
-    <tr class="result-{{ r.status.value }}">
-      <td><code>{{ r.case_name }}</code>{% if r.unresolved %} <em>(unresolved mapping)</em>{% endif %}</td>
-      <td>{{ r.status.value }}</td><td>{{ r.attempt }}</td>
-      <td>{{ "%.2f"|format(r.duration_s) }}s</td>
-      <td>{{ r.message[:200] }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% else %}
-<p class="muted">No parsed results — {% if ex.state.value in ("queued","dispatched","preparing","running") %}execution pending{% else %}missing results are never shown as a zero-test pass{% endif %}.</p>
-{% endif %}
-
-<h2>Report</h2>
-<p>Status: <strong>{{ ex.report_status or 'pending' }}</strong>
-  {% if ex.report_status == 'partial' %}(results/evidence present, no
-  viewable report entry — incomplete, not a false ready){% endif %}
-  {% if ex.report_status == 'failed' %}(collection error — outcome
-  unchanged){% endif %}</p>
-<p>
-  {% if ex.report_status == 'ready' %}
-    <a class="btn" href="{{ url_for('portal.view_report', execution_id=ex.id) }}">View report</a>
-    <a class="btn" href="{{ url_for('portal.download_report', execution_id=ex.id) }}">Download report (.zip)</a>
+<section class="card">
+  <h2>Results{% if ex.results %} — {{ counts }}{% endif %}</h2>
+  {% if ex.results %}
+  <table class="audit-table">
+    <thead><tr><th>Case</th><th>Status</th><th>Attempt</th><th>Duration</th><th>Message</th></tr></thead>
+    <tbody>
+      {% for r in ex.results %}
+      <tr>
+        <td><code>{{ r.case_name }}</code>{% if r.unresolved %} <em>(unresolved mapping)</em>{% endif %}</td>
+        <td><span class="badge outcome-{{ r.status.value }}">{{ r.status.value }}</span></td>
+        <td>{{ r.attempt }}</td>
+        <td>{{ "%.2f"|format(r.duration_s) }}s</td>
+        <td>{{ r.message[:200] }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No parsed results — {% if ex.state.value in ("queued","dispatched","preparing","running") %}execution pending{% else %}missing results are never shown as a zero-test pass{% endif %}.</p>
   {% endif %}
-  {% if ex.artifacts %}
-    <a class="btn" href="{{ url_for('portal.download_artifacts', execution_id=ex.id) }}">Download original artifacts (.zip)</a>
-  {% endif %}
-</p>
-<form method="post" action="{{ url_for('portal.refresh_report', execution_id=ex.id) }}">
-  {{ plain_form.csrf_token }}
-  <button class="btn" type="submit">Refresh report collection</button>
-</form>
+</section>
+
+<section class="card">
+  <h2>Report</h2>
+  <p>Status:
+    {% if ex.report_status == 'ready' %}<span class="badge success">ready</span>
+    {% elif ex.report_status == 'failed' %}<span class="badge danger">failed</span>
+    {% elif ex.report_status == 'partial' %}<span class="badge warn">partial</span>
+    {% else %}<span class="badge">{{ ex.report_status or 'pending' }}</span>{% endif %}
+    {% if ex.report_status == 'partial' %}<small class="muted">(results/evidence
+      present, no viewable report entry — incomplete, not a false
+      ready)</small>{% endif %}
+    {% if ex.report_status == 'failed' %}<small class="muted">(collection
+      error — outcome unchanged)</small>{% endif %}</p>
+  <div class="btn-row">
+    {% if ex.report_status == 'ready' %}
+      <a class="button secondary" href="{{ url_for('portal.view_report', execution_id=ex.id) }}">View report</a>
+      <a class="button secondary" href="{{ url_for('portal.download_report', execution_id=ex.id) }}">Download report (.zip)</a>
+    {% endif %}
+    {% if ex.artifacts %}
+      <a class="button secondary" href="{{ url_for('portal.download_artifacts', execution_id=ex.id) }}">Download original artifacts (.zip)</a>
+    {% endif %}
+    <form method="post" action="{{ url_for('portal.refresh_report', execution_id=ex.id) }}" class="inline">
+      {{ plain_form.csrf_token }}
+      <button class="button ghost" type="submit">Refresh report collection</button>
+    </form>
+  </div>
+</section>
 
 {% if rl_enabled or ex.rl_status not in ('pending', 'missing') %}
-<h2>Report <small class="muted">(reporting-labs)</small></h2>
-{% if unresolved %}
-<p class="form-error"><strong>{{ unresolved }} unresolved
-  result{{ 's' if unresolved != 1 }}</strong> — displayed as
-  <em>skipped</em> by this reporting backend (reporting-labs has no
-  'unknown' status). Review the unresolved-result details above before
-  interpreting the report's skip/pass totals.</p>
-{% endif %}
-<p>Status: <strong>{{ ex.rl_status or 'pending' }}</strong>
-  {% if ex.rl_version %}— reporting-labs {{ ex.rl_version }}{% endif %}</p>
-<p>
-  {% if ex.rl_status in ('ready', 'failed') and ex.rl_path %}
-    <a class="btn" href="{{ url_for('portal.view_rlabs', execution_id=ex.id) }}" target="_blank" rel="noopener noreferrer">Open reporting-labs report (new tab)</a>
-    <a class="btn" href="{{ url_for('portal.download_rlabs', execution_id=ex.id) }}">Download reporting-labs report (.zip)</a>
+<section class="card">
+  <h2>Report <small class="muted">(reporting-labs)</small></h2>
+  {% if unresolved %}
+  <p class="flash flash-error" role="alert"><strong>{{ unresolved }} unresolved
+    result{{ 's' if unresolved != 1 }}</strong> — displayed as
+    <em>skipped</em> by this reporting backend (reporting-labs has no
+    'unknown' status). Review the unresolved-result details above before
+    interpreting the report's skip/pass totals.</p>
   {% endif %}
-</p>
-<form method="post" action="{{ url_for('portal.generate_rlabs', execution_id=ex.id) }}">
-  {{ plain_form.csrf_token }}
-  <button class="btn" type="submit">
-    {% if ex.rl_status == 'ready' %}Regenerate{% else %}Generate{% endif %}
-    reporting-labs report</button>
-</form>
+  <p>Status:
+    {% if ex.rl_status == 'ready' %}<span class="badge success">ready</span>
+    {% elif ex.rl_status == 'failed' %}<span class="badge danger">failed</span>
+    {% else %}<span class="badge">{{ ex.rl_status or 'pending' }}</span>{% endif %}
+    {% if ex.rl_version %}<small class="muted">— reporting-labs {{ ex.rl_version }}</small>{% endif %}</p>
+  <div class="btn-row">
+    {% if ex.rl_status in ('ready', 'failed') and ex.rl_path %}
+      <a class="button secondary" href="{{ url_for('portal.view_rlabs', execution_id=ex.id) }}" target="_blank" rel="noopener noreferrer">Open reporting-labs report (new tab)</a>
+      <a class="button secondary" href="{{ url_for('portal.download_rlabs', execution_id=ex.id) }}">Download reporting-labs report (.zip)</a>
+    {% endif %}
+    <form method="post" action="{{ url_for('portal.generate_rlabs', execution_id=ex.id) }}" class="inline">
+      {{ plain_form.csrf_token }}
+      <button class="button ghost" type="submit">
+        {% if ex.rl_status == 'ready' %}Regenerate{% else %}Generate{% endif %}
+        reporting-labs report</button>
+    </form>
+  </div>
+</section>
 {% endif %}
 
-<h2>Logs</h2>
-<ul class="notice-list">
-  <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-invocation.log') }}">kre-invocation.log</a> (recorded argv)</li>
-  <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-stdout.log') }}">kre-stdout.log</a></li>
-  <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-stderr.log') }}">kre-stderr.log</a></li>
-</ul>
+<section class="card">
+  <h2>Logs</h2>
+  <ul class="notice-list">
+    <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-invocation.log') }}">kre-invocation.log</a> <small class="muted">(recorded argv)</small></li>
+    <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-stdout.log') }}">kre-stdout.log</a></li>
+    <li><a href="{{ url_for('portal.view_log', execution_id=ex.id, name='kre-stderr.log') }}">kre-stderr.log</a></li>
+  </ul>
+</section>
 
-<h2>Evidence ({{ ex.artifacts | length }} files)</h2>
-{% if ex.artifacts %}
-<table class="audit-table">
-  <thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256</th><th></th></tr></thead>
-  <tbody>
-    {% for a in ex.artifacts %}
-    <tr>
-      <td><code>{{ a.rel_path }}</code>{% if not a.mapped %} <em>(unmapped)</em>{% endif %}</td>
-      <td>{{ a.kind }}</td><td>{{ a.size }}</td>
-      <td><code>{{ a.sha256[:12] }}</code></td>
-      <td><a href="{{ url_for('portal.download_artifact', execution_id=ex.id, artifact_id=a.id) }}">download</a></td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-{% endif %}
+<section class="card">
+  <h2>Evidence <small class="muted">({{ ex.artifacts | length }} files)</small></h2>
+  {% if ex.artifacts %}
+  <table class="audit-table">
+    <thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256</th><th></th></tr></thead>
+    <tbody>
+      {% for a in ex.artifacts %}
+      <tr>
+        <td><code>{{ a.rel_path }}</code>{% if not a.mapped %} <em>(unmapped)</em>{% endif %}</td>
+        <td><span class="badge">{{ a.kind }}</span></td>
+        <td>{{ a.size }}</td>
+        <td><code>{{ a.sha256[:12] }}</code></td>
+        <td class="cell-actions"><a class="button secondary sm" href="{{ url_for('portal.download_artifact', execution_id=ex.id, artifact_id=a.id) }}">download</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No evidence files collected.</p>
+  {% endif %}
+</section>
 
-<h2>Snapshot</h2>
-<pre class="changelog">{{ ex.snapshot_json }}</pre>
-{% if ex %}
+<details class="card">
+  <summary style="cursor:pointer"><h2 style="display:inline">Snapshot</h2>
+    <small class="muted">— dispatch snapshot (debug)</small></summary>
+  <pre class="changelog">{{ ex.snapshot_json }}</pre>
+</details>
+
 <section class="card">
   <h2>Report publication</h2>
   <p>Status: <span class="badge">{{ ex.report_pub_status }}</span>
@@ -257,21 +266,22 @@
     <code>{{ ex.report_pub_branch }}</code>
   {% endif %}
   {% if ex.report_pub_error %}
-    <br><span class="warn">{{ ex.report_pub_error }}</span>
+    <br><span class="badge danger">{{ ex.report_pub_error }}</span>
   {% endif %}</p>
   {% if can_edit %}
-  <form method="post" action="{{ url_for('portal.publish_execution_report', execution_id=ex.id) }}" class="inline">
-    {{ plain_form.csrf_token }}
-    <button class="button secondary" type="submit">Publish / retry</button></form>
-  <form method="post" action="{{ url_for('portal.delete_execution', execution_id=ex.id) }}" class="inline"
-        onsubmit="return confirm('Delete this execution AND its report from the repository branch? Git history is preserved — this is branch-removal only.');">
-    {{ plain_form.csrf_token }}
-    <button class="button secondary" type="submit">Delete</button></form>
+  <div class="btn-row">
+    <form method="post" action="{{ url_for('portal.publish_execution_report', execution_id=ex.id) }}" class="inline">
+      {{ plain_form.csrf_token }}
+      <button class="button secondary" type="submit">Publish / retry</button></form>
+    <form method="post" action="{{ url_for('portal.delete_execution', execution_id=ex.id) }}" class="inline"
+          onsubmit="return confirm('Delete this execution AND its report from the repository branch? Git history is preserved — this is branch-removal only.');">
+      {{ plain_form.csrf_token }}
+      <button class="button danger" type="submit">Delete</button></form>
+  </div>
   {% endif %}
   {% if ex.deletion_status != "none" %}
-  <p class="warn">Deletion: {{ ex.deletion_status }}
+  <p><span class="badge warn">Deletion: {{ ex.deletion_status }}</span>
     {% if ex.deletion_error %} — {{ ex.deletion_error }}{% endif %}</p>
   {% endif %}
 </section>
-{% endif %}
 {% endblock %}
