@@ -110,6 +110,18 @@ connections upgrade unchanged).
 - **Settings hub icons** — each Settings card now carries an
   inline SVG icon (shield, server, key, report, users, heartbeat,
   wrench), left-aligned and vertically centered beside the text.
+- **Execution detail page modernized** — every section (Details,
+  unit runs, Results, Report, reporting-labs, Logs, Evidence,
+  Snapshot, Report publication) is now a card; state, outcome,
+  error, report-status and artifact-kind values render as badges;
+  action buttons use the shared primary/secondary/danger styles;
+  the dispatch snapshot collapsed behind a details disclosure.
+  Also fixes a markup bug where the Report publication card was
+  duplicated inside the document `<title>`.
+- **Secondary action buttons** now use the IT-Space brand yellow
+  (`#f1cf6e`, navy text) so they are clearly visible on white
+  cards — applied globally (execution detail, Users, Reconciliation,
+  and all other secondary actions).
 - **Users page reworked** — wide layout with a carded table
   (accent-tinted header, role/status/membership badges,
   right-aligned actions); **Create user** collapses behind a
