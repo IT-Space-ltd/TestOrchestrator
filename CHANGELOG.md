@@ -67,6 +67,72 @@ connections upgrade unchanged).
   requirements table, and prerequisites text on the run forms and
   Infrastructure page.
 
+- **Concurrency & queueing.** True concurrent independent runs with
+  framework-specific parallelism, durable parent/child aggregation,
+  resource-aware admission (job slots + process budgets via CAS
+  reservations), explicit concurrency controls and capacity
+  enforcement, fair queueing with actionable wait reasons, queue
+  deadlines, UNKNOWN-capacity holds, and schedule overlap /
+  missed-fire (`allow`|`skip`, `late`|`skip`) policies.
+- **CI API & webhooks** — token-authenticated REST endpoints to
+  trigger, poll, cancel, and retry runs, plus outbound webhook
+  notifications on execution completion. Bearer tokens are stored
+  as SHA-256 only (shown once at creation), scope/project-limited,
+  revocable; idempotent via `client_ref`.
+- **Operational log export** — admin-exportable CSV/JSON of the
+  operational log with redaction of secrets in both formats,
+  size-bounded background jobs, `.part`-file cleanup across
+  restarts, and an export download page.
+- **Reconciliation UI** — Admin view of orphaned/ambiguous runs
+  with manual resolve actions and evidence cleanup.
+- **History matrices** — durable per-suite/plan/target result
+  matrices for at-a-glance failure-pattern review.
+- **Artifact manifests & lifecycle** — per-run manifests with
+  retention enforcement.
+- **Project membership enforcement** — explicit project
+  assignment for non-admin roles across UI, audit, token, and
+  dispatch paths; administrators reach all projects via the role.
+
+### Changed
+
+- **System pages modernized** to a shared design language — wide
+  layout, cards, accent headings and table headers, status/kind
+  badges, consistent primary/secondary/danger buttons, collapsible
+  add/create sections, responsive grids, accessible controls:
+  Settings hub (incl. the Advanced/diagnostics card), Reporting,
+  Network & certificates (toggle switch, selectable detected-
+  address rows, port grid), Credentials, Health & services,
+  Changelog, and Licence.
+- **Users page reworked** — wide layout with a carded table
+  (accent-tinted header, role/status/membership badges,
+  right-aligned actions); **Create user** collapses behind a
+  button with project assignment at creation time; **Reset
+  password** opens a full-width expandable panel under the row
+  instead of a popover; red **Delete** action with self-delete and
+  last-admin guards (`user.deleted` audited).
+- **Operational Logs** — Live Tail moved out of the filter-button
+  row into a dedicated toolbar (pill switch + status left, row
+  count right) so polling no longer shifts Apply/Reset/export
+  buttons. Operational Logs, Audit Trail, Log Export and Changelog
+  are all wide-layout.
+- **Changelog rendering fixed** — the markdown renderer now joins
+  paragraphs and list continuations correctly (previously every
+  soft-wrapped line became its own paragraph and `&amp;` entities
+  double-escaped).
+- **IT-Space branding** — full-page tiled logo mosaic on the login
+  page (seamless mirrored tiles, dark-mode aware); Changelog,
+  Licence and Backup & restore headings render over the page-wide
+  IT-SPACE logo hero; Licence gained a branded vendor-credit
+  footer (IT-Space Ltd, info@it-space.info, it-space.info).
+- **Licence page in the sidebar** — Admin → Licence (directly
+  under Changelog) with the modern add-licence card; previously
+  reachable only by URL.
+- **`reportinglabs_enabled` now defaults to on** — HTML reports
+  are generated unless explicitly disabled on the Reporting page
+  (now a modern toggle switch).
+- **Menu order**: …Audit → Operational Logs → Backup & restore →
+  Third-party notices & licences → Changelog → Licence.
+
 ### Notes
 
 - Node.js, the project's Playwright/Cypress dependencies, and the
