@@ -207,7 +207,9 @@
   <h2>First-attempt vs final pass rate</h2>
   <p class="muted"><small><b>Logical runs</b> — share of each day's
     cohort passing on the first attempt vs after retries resolve.
-    Run-level metric, not comparable with case-level pass rate.</small></p>
+    Run-level metric, not comparable with case-level pass rate.
+    No drill-through — the cohort is defined by the first attempt's
+    finish day, which the executions list cannot filter on.</small></p>
   <div id="adv-first-final" data-adv="first_final"
        {% if adv.fig_first_final != 'null' %}
        data-plotly-fig='{{ adv.fig_first_final }}'{% endif %}></div>

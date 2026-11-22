@@ -586,6 +586,27 @@ the hidden-field contract.
 
 ## Group A — Advanced Analytics acceptance closeout
 
+**ACCEPTANCE: CLOSED** (source-level, at `175094f`). Qualifications
+carried in the record:
+
+- History columns represent **attempts** — retries appear as separate
+  columns.
+- Suite duration is **resolved-attempt wall-clock** — child durations
+  are never summed.
+- Turnaround means **enqueue→finished**, not results-ready feedback
+  time (no such timestamp exists — documented instrumentation gap).
+- First-attempt vs final pass rate has **no drill-through** — the
+  executions-list filters cannot express its cohort; accepted as an
+  explicit Group A limitation and now stated on the card itself.
+- Live verification used **source-run Waitress** on `/tmp/manual251`
+  at `175094f` — **not** packaged-candidate evidence.
+
+**Attribution**: full-suite + live acceptance at `175094f`; reported
+head `d10f25c`; `175094f..d10f25c` diff verified **documentation-only**
+(ledger append, +86). The six initial regressions + fixes stay as
+historical evidence; the final tally is the clean single batch
+(852/1/1), not a combined rerun total.
+
 **Feature revision**: `80cd41f` (Group A implementation; includes the
 Executions Worker-filter fix — the template iterated `workers` while
 the route passed `runners`, verified via `git log -S`).
@@ -657,6 +678,17 @@ ISO T/Z timestamps).
   (renamed `data-table`), three split literal strings in
   settings/secrets guidance, users-page unassigned wording — all
   fixed and re-verified green at `2e7e882`+.
+
+### Status board
+
+| Area | Status |
+|---|---|
+| Advanced Analytics Group A | **Source-level acceptance closed** at `175094f` |
+| Advanced Analytics Group B | On hold — NOT authorized by Group A acceptance |
+| Backup and Restore | Completion not established by this report |
+| Windows W1–W15 | Real-host acceptance outstanding |
+| Clean packaged candidate + final matrix | Outstanding |
+| External licence-issuer-key test | Blocked — missing external private key |
 
 ### Remaining gates (unchanged, still open)
 
