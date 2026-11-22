@@ -51,7 +51,7 @@
         "<td>" + p.active + (p.queued ? " (" + p.queued + " queued)" : "") + "</td>" +
         "<td>" + (p.pass_rate === null ? "—" : p.pass_rate + "% <span class='muted'>of " + p.pass_total + "</span>") + "</td>" +
         "<td>" + esc((p.next_run_at || "—").slice(0, 16)) + "</td>" +
-        "<td><a href='/projects/" + esc(p.id) + "'>Open</a></td></tr>";
+        "<td class='cell-actions'><a class='button secondary sm' href='/projects/" + esc(p.id) + "'>Open</a></td></tr>";
     }).join("");
   }
 
