@@ -96,6 +96,43 @@ connections upgrade unchanged).
   assignment for non-admin roles across UI, audit, token, and
   dispatch paths; administrators reach all projects via the role.
 
+- **Advanced analytics (Group A)** — new on-demand section under
+  each dashboard's existing content, using the vendored Plotly.js
+  and the shared semantic palette (counting policy:
+  `docs/analytics-counting.md`). Existing charts, metric strips
+  and tables are unchanged.
+  Main Dashboard:
+  - *Project outcome comparison* — horizontal stacked bars of
+    terminal **logical runs** per project by final resolved
+    outcome (counts/% toggle; click-through to filtered
+    executions).
+  - *First-attempt vs final pass rate* — paired run-level lines
+    over the same cohort (hover shows numerator/denominator and
+    retry count).
+  - *Queue wait & turnaround* — median + p95 per enqueue day for
+    dispatchable attempts; turnaround is honestly labelled
+    enqueue→finished (no dedicated results-ready timestamp exists
+    — the instrumentation gap is documented).
+  Project Dashboard (follows the page's existing filters):
+  - *Test-result history* — case × attempt heatmap; color AND a
+    P/F/E/S letter per cell (never color alone), empty cells for
+    "case not in run", click-through to the run's evidence.
+  - *Suite-duration distribution* — box plots of logical-run
+    duration per suite (unit shards count inside their parent).
+  - *Environment comparison* — suite × environment heatmap with
+    selectable metric (case pass rate / run pass rate / median
+    duration), sequential blue scale, "(unset)" column, cell
+    drill-through.
+  Infrastructure: `analytics.py` aggregation (membership-scoped,
+  bounded, disclosed truncation), `/dashboard/analytics` and
+  `/projects/<id>/analytics` JSON + CSV endpoints, manual Refresh
+  (never the 5 s live poll — zoom/legend preserved via
+  `uirevision`), collapsible data tables under every chart, and
+  Executions-list `suite_id`/`environment` filters for
+  drill-through. Group B charts (activity heatmap, project
+  first-vs-final, duration regression, evidence freshness) follow
+  after Group A acceptance.
+
 ### Changed
 
 - **System pages modernized** to a shared design language — wide
@@ -154,6 +191,12 @@ connections upgrade unchanged).
 
 ### Fixed
 
+- **Executions list Worker filter never populated** — the
+  template iterated `workers` while the route passed `runners`,
+  so the dropdown was always empty.
+- **Project Access tab out of design** — the link rendered as a
+  plain hyperlink next to the styled tab labels; it now uses the
+  same tab-label treatment.
 - **Reconciliation page crash on SQLite** — stored datetimes read
   back timezone-naive while the page compared them against an
   aware `utcnow()`, so any real UNKNOWN / expired-lease row raised
