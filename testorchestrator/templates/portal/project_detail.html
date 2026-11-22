@@ -174,7 +174,7 @@
               <code class="muted">{{ c.item.path }}</code>
               <span class="muted">· {{ c.repo }}</span></td>
             <td>—</td>
-            <td>{{ c.stats.last|localdate }}</td>
+            <td>{{ c.stats.last|localdate if c.stats and c.stats.last else '—' }}</td>
             <td>{{ c.item.created_at|localdate }}</td>
             <td>{{ c.stats.execs if c.stats else '—' }}</td>
             <td>{{ c.stats.avg_dur ~ 's' if c.stats and c.stats.avg_dur is not none else '—' }}</td>
@@ -220,7 +220,7 @@
         <tr><td><a href="{{ url_for('portal.suite_detail', suite_id=s.id) }}">{{ s.name }}</a> v{{ s.version }}</td>
             <td><code class="muted">app</code></td>
             <td>—</td>
-            <td>{{ se.ex.finished_at|localdate }}</td>
+            <td>{{ se.ex.finished_at|localdate if se and se.ex and se.ex.finished_at else '—' }}</td>
             <td>{% if se and se.ex %}<span class="st st-p">{{ se.cnt.passed }}</span>{% else %}—{% endif %}</td>
             <td>{% if se and se.ex %}<span class="st st-f">{{ se.cnt.failed }}</span>{% else %}—{% endif %}</td>
             <td>{% if se and se.ex %}<span class="st st-e">{{ se.cnt.error }}</span>{% else %}—{% endif %}</td>

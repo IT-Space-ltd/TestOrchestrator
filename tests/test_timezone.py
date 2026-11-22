@@ -308,6 +308,15 @@ class TestAnalyticsZones:
                 from datetime import date
                 assert (date.fromisoformat(bday)
                         - date.fromisoformat(uday)).days == 1
+            # first-vs-final assigns the cohort to the first
+            # attempt's finish day — also viewer-local
+            u_ff = {r["day"] for r in utc_data["first_final"]}
+            b_ff = {r["day"] for r in bp_data["first_final"]}
+            if u_ff and b_ff:
+                from datetime import date
+                assert (min(date.fromisoformat(d) for d in b_ff)
+                        - min(date.fromisoformat(d)
+                              for d in u_ff)).days == 1
 
     def test_activity_heatmap_local_weekday_hour(self, app):
         from testorchestrator import analytics

@@ -5,9 +5,10 @@
 Feature release — Playwright Test, headless Cypress E2E and Robot
 Framework as first-class runners on the existing Buildbot/SSH
 execution paths.
-Schema change: `runtime_connections.runtime_kind`
+Schema changes: `runtime_connections.runtime_kind`
 (`kre`|`playwright`|`cypress`|`robot`, default `kre` — existing
-connections upgrade unchanged).
+connections upgrade unchanged) and `users.timezone` (IANA name,
+default `UTC` — existing users keep identical display).
 
 ### Added
 
@@ -161,6 +162,28 @@ connections upgrade unchanged).
   aggregation only runs when the tab is requested; the standalone
   `/projects/<id>/dashboard` URL still works and now uses the
   wide layout).
+- **Per-user display time zones** — each user picks an IANA time
+  zone (e.g. `Europe/Budapest`) via a searchable dropdown on
+  Create User, the admin user edit page and the new
+  **My Account** self-service page; the label shows the current
+  UTC offset and notes it varies with the date. Existing users
+  migrate to UTC unchanged; a browser-detected zone is only a
+  suggestion, never an override. Stored instants stay UTC —
+  dashboards, execution lists/details, attempt history, audit
+  trail, operational logs, schedule/upcoming displays, releases,
+  admin pages, log-export jobs and app-generated report summaries
+  render in the viewer's zone with a numeric offset (repeated
+  DST local times stay distinguishable; machine-facing output
+  never gets a `Z`). Analytics — including Group A/B charts —
+  bucket by the viewer's local calendar day, weekday and hour,
+  and date filters convert local-midnight boundaries to UTC;
+  CSV exports keep named UTC columns and add localized columns
+  with the zone identified. Schedules still fire at their stored
+  UTC instant — the form states the execution zone vs the
+  display zone. Settings backup round-trips the preference;
+  older backups default to UTC and invalid identifiers warn and
+  fall back safely. `tzdata` is pinned so packaged Windows and
+  Linux installs carry the IANA database for `zoneinfo`.
 
 ### Changed
 
