@@ -30,7 +30,7 @@
           {% elif u.assigned_project_ids() %}
             <span class="badge">{{ u.assigned_project_ids()|length }} assigned</span>
           {% else %}
-            <span class="badge warn">none assigned</span>
+            <span class="badge warn">none — needs assignment</span>
           {% endif %}
           <a class="button ghost sm" href="{{ url_for('system.user_access', user_id=u.id) }}">Edit</a>
           </div>

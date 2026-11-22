@@ -44,7 +44,7 @@
     <thead><tr>
       <th>Project</th><th>Latest execution</th><th>Outcome</th>
       <th>Active</th><th>Pass rate · {{ data.period_days }}d</th>
-      <th>Next scheduled</th><th></th>
+      <th>Next scheduled</th><th class="actions-head">Actions</th>
     </tr></thead>
     <tbody id="proj-rows">
       {% for p in data.projects %}
@@ -189,7 +189,7 @@
     them.</small></p>
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
-    <table class="audit-table" id="adv-tbl-comparison">
+    <table class="data-table" id="adv-tbl-comparison">
       <thead><tr><th>Project</th><th>passed</th><th>failed</th>
         <th>incomplete</th><th>no outcome</th></tr></thead>
       <tbody>{% for r in adv.data.project_outcomes %}
@@ -216,7 +216,7 @@
     period.</p>
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
-    <table class="audit-table" id="adv-tbl-first_final">
+    <table class="data-table" id="adv-tbl-first_final">
       <thead><tr><th>Day</th><th>runs</th><th>first ✓</th>
         <th>final ✓</th><th>retried</th></tr></thead>
       <tbody>{% for r in adv.data.first_final %}
@@ -251,7 +251,7 @@
     period.</p>
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
-    <table class="audit-table" id="adv-tbl-queue">
+    <table class="data-table" id="adv-tbl-queue">
       <thead><tr><th>Day</th><th>metric</th><th>n</th><th>median s</th>
         <th>p95 s</th></tr></thead>
       <tbody>

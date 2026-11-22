@@ -137,7 +137,7 @@ body {
 .content { flex: 1; padding: 2rem; max-width: 60rem; }
 .content.wide { max-width: 96rem; }
 .badge { white-space: nowrap; }
-.audit-table .type-cell { white-space: nowrap; }
+.audit-table, .data-table .type-cell { white-space: nowrap; }
 
 a { color: var(--accent); }
 
@@ -265,8 +265,8 @@ a { color: var(--accent); }
   padding: .05rem .3rem; }
 .changelog a { word-break: break-word; }
 
-.audit-table { border-collapse: collapse; width: 100%; }
-.audit-table th, .audit-table td {
+.audit-table, .data-table { border-collapse: collapse; width: 100%; }
+.audit-table, .data-table th, .audit-table, .data-table td {
   border: 1px solid var(--border);
   padding: 0.4rem 0.6rem;
   text-align: left;
@@ -607,27 +607,27 @@ pre.example {
   border-color: transparent; }
 
 /* --- tables --- */
-.audit-table {
+.audit-table, .data-table {
   width: 100%; border-collapse: collapse; font-size: var(--fs-sm);
 }
-.audit-table th {
+.audit-table, .data-table th {
   text-align: left; padding: 0.5rem 0.6rem; font-size: var(--fs-xs);
   text-transform: uppercase; letter-spacing: .03em;
   color: var(--muted); border-bottom: 2px solid var(--border);
   font-weight: 700;
 }
-.audit-table td {
+.audit-table, .data-table td {
   padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border);
   vertical-align: middle;
 }
-.audit-table tbody tr:hover { background: var(--bg); }
-.audit-table tbody tr.selected { background: rgba(26,86,219,.07); }
-.audit-table .checksum {
+.audit-table, .data-table tbody tr:hover { background: var(--bg); }
+.audit-table, .data-table tbody tr.selected { background: rgba(26,86,219,.07); }
+.audit-table, .data-table .checksum {
   display: inline-block; max-width: 34ch; overflow-wrap: anywhere;
   font-size: .8em; vertical-align: middle;
 }
-.audit-table { table-layout: auto; }
-.audit-table td:last-child { white-space: nowrap; }
+.audit-table, .data-table { table-layout: auto; }
+.audit-table, .data-table td:last-child { white-space: nowrap; }
 
 /* --- tabs polish --- */
 .tab-bar label, .tab-bar a.tsub {
@@ -913,8 +913,8 @@ td .row-actions{min-width:9rem}
 .inline-details .edit-form .button,.inline-details .edit-form
   .button.danger{align-self:flex-start;margin-right:.4rem}
 .runner-rts td:last-child{vertical-align:top;min-width:10rem}
-.audit-table td{overflow-wrap:anywhere}
-.audit-table .conn-cell{max-width:13rem}
+.audit-table, .data-table td{overflow-wrap:anywhere}
+.audit-table, .data-table .conn-cell{max-width:13rem}
 .inline-details .manage-menu{display:flex;flex-wrap:wrap;gap:.4rem;
   margin-top:.5rem;padding:.6rem .8rem;background:var(--bg-subtle);
   border:1px solid var(--border);border-radius:var(--radius);
@@ -1213,7 +1213,9 @@ details.adv-card ul { margin-top: .6rem; }
 .secrets-table tbody td { padding: .55rem .7rem;
   border-bottom: 1px solid var(--border); }
 .secrets-table tbody tr:hover td { background: rgba(26,86,219,.04); }
+.actions-head { text-align: right; }
 .secrets-table .actions-head { text-align: right; }
+.data-table .cell-actions { justify-content: flex-end; }
 .secrets-table .cell-actions { justify-content: flex-end; }
 @media (prefers-color-scheme: dark) {
   .secrets-table thead th { background: rgba(91,157,255,.09); }

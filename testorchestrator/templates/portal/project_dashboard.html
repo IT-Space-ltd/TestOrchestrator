@@ -148,7 +148,7 @@
     suite/status/environment filters to reach the rest.</small></p>
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
-    <table class="audit-table" id="adv-tbl-history">
+    <table class="data-table" id="adv-tbl-history">
       <thead><tr><th>Case</th><th>Run</th><th>Attempt</th>
         <th>Status</th><th>Duration</th></tr></thead>
       <tbody>
@@ -185,7 +185,7 @@
     — the rest are truncated; filter by suite to reach them.</small></p>
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
-    <table class="audit-table" id="adv-tbl-durations">
+    <table class="data-table" id="adv-tbl-durations">
       <thead><tr><th>Suite</th><th>Duration s</th>
         <th>Execution</th></tr></thead>
       <tbody>
@@ -239,7 +239,7 @@
     the rest.</small></p>
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
-    <table class="audit-table" id="adv-tbl-env">
+    <table class="data-table" id="adv-tbl-env">
       <thead><tr><th>Suite</th><th>Environment</th><th>Runs</th>
         <th>Run pass %</th><th>Case pass %</th><th>Median s</th></tr></thead>
       <tbody>{% for c in adv.data.env_cells %}
