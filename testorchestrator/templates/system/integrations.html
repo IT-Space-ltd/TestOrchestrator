@@ -72,15 +72,15 @@ git_export_ref: main</pre></details>
       <td>{{ t.name }}</td>
       <td>{{ t.scope }}</td>
       <td>{{ t.allowed_projects if t.allowed_projects != '[]' else 'all' }}</td>
-      <td>{{ t.created_at }}</td>
-      <td>{{ t.last_used_at or '—' }}</td>
+      <td>{{ t.created_at|localtime_short }}</td>
+      <td>{{ t.last_used_at|localtime_short }}</td>
       <td>{% if not t.revoked_at %}
         <form method="post" style="display:inline"
               action="{{ url_for('system.revoke_api_token', token_id=t.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="button secondary" type="submit">Revoke</button>
         </form>
-      {% else %}revoked {{ t.revoked_at }}{% endif %}</td>
+      {% else %}revoked {{ t.revoked_at|localtime_short }}{% endif %}</td>
     </tr>
     {% endfor %}
   </table>

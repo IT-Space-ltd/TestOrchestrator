@@ -53,6 +53,11 @@ class User(UserMixin, db.Model):
     # (empty list) and sees only explicitly assigned ones; membership
     # never grants capabilities beyond the role itself.
     allowed_projects = db.Column(db.Text, nullable=False, default="[]")
+    # IANA display zone ("Europe/Budapest"), never a fixed offset —
+    # instants stay UTC; this only affects rendering. Existing users
+    # migrate to "UTC" (identical to prior behaviour).
+    timezone = db.Column(db.String(64), nullable=False, default="UTC",
+                         server_default="UTC")
     created_at = db.Column(
         db.DateTime(timezone=True),
         nullable=False,

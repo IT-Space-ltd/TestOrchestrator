@@ -82,7 +82,7 @@
     <tbody id="log-rows">
       {% for r in rows %}
       <tr data-ts="{{ r.occurred_at.isoformat() }}">
-        <td><code>{{ r.occurred_at.strftime("%H:%M:%S") }}</code></td>
+        <td><code>{{ r.occurred_at|localtime_short }}</code></td>
         <td><span class="badge sev-{{ r.severity }}">{{ r.severity }}</span></td>
         <td>{{ r.component }}</td>
         <td>{{ r.category }}</td>
@@ -124,7 +124,7 @@
     {% if sink_status.last_error %}· last error:
       <code>{{ sink_status.last_error }}</code>{% endif %}
     {% if sink_status.last_write_at %}· last write
-      {{ sink_status.last_write_at }}{% endif %}
+      {{ sink_status.last_write_at|localtime }}{% endif %}
     — counters are per-process; file delivery is best-effort, the
     database is authoritative.</small></p>
 </div>

@@ -343,11 +343,12 @@ def env_comparison(cells, suites, envs, metric: str) -> str:
 
 
 def activity_heatmap(rows, mode: str, from_date: str = "",
-                     to_date: str = "") -> str:
-    """rows: [{dow, hour, count}] — day-of-week (Mon=0) × hour (UTC)
-    activity for logical runs. Sequential scale — magnitude, not
-    outcome. Cell customdata → exact executions-list cohort (same
-    period bound as the chart, so the list matches the count)."""
+                     to_date: str = "", zone: str = "UTC") -> str:
+    """rows: [{dow, hour, count}] — day-of-week (Mon=0) × hour in the
+    viewer's zone (`zone`) for logical runs. Sequential scale —
+    magnitude, not outcome. Cell customdata → exact executions-list
+    cohort (same period bound as the chart, so the list matches the
+    count)."""
     if not rows:
         return "null"
     dows = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
@@ -371,11 +372,12 @@ def activity_heatmap(rows, mode: str, from_date: str = "",
              "colorscale": _SEQ_SCALE, "showscale": True,
              "zmin": 0, "xgap": 1, "ygap": 1,
              "hovertemplate":
-                 "%{y} %{x}:00–%{x}:59 UTC — %{z} logical run(s)"
+                 "%{y} %{x}:00–%{x}:59 " + zone +
+                 " — %{z} logical run(s)"
                  "<extra>" + mode + "</extra>"}
     return _fig([trace],
                 {"showlegend": False,
-                 "xaxis": {"title": "hour (UTC)"},
+                 "xaxis": {"title": "hour (" + zone + ")"},
                  "yaxis": {"automargin": True,
                            "categoryorder": "array",
                            "categoryarray": dows},

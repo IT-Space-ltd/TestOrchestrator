@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}My Account · TestOrchestrator{% endblock %}
+{% block content %}
+<h1>My Account</h1>
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+  <p class="flash flash-{{ category }}" role="alert">{{ message }}</p>
+  {% endfor %}
+{% endwith %}
+<dl class="about-facts">
+  <dt>Username</dt><dd>{{ current_user.username }}</dd>
+  <dt>Display name</dt><dd>{{ current_user.display_name or "—" }}</dd>
+  <dt>Role</dt><dd>{{ current_user.role.label }}</dd>
+</dl>
+<section class="card">
+  <h2>Display preferences</h2>
+  <form method="post">
+    {{ form.csrf_token }}
+    <div class="field">
+      {{ form.timezone.label }}
+      {{ form.timezone(list="tz-options", autocomplete="off",
+                       placeholder="e.g. Europe/Budapest or UTC") }}
+      {% include "_tz_datalist.html" %}
+      <p class="muted">IANA zone name — the offset shown next to each
+         entry is the current offset; it varies by date. Timestamps
+         across the app render in this zone with a numeric UTC offset;
+         stored instants always stay UTC.</p>
+      {% for e in form.timezone.errors %}
+      <p class="flash flash-error">{{ e }}</p>
+      {% endfor %}
+    </div>
+    <p class="muted" id="tz-detect-note" hidden>
+      Browser suggests <strong id="tz-detected"></strong>
+      <button type="button" class="button secondary sm"
+              id="tz-use-detected">Use detected</button>
+    </p>
+    <button type="submit" class="button">Save preferences</button>
+  </form>
+</section>
+<script>
+(function () {
+  // Suggestion only — never overrides the saved preference or
+  // auto-submits. The user must press the button explicitly.
+  try {
+    var detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    var input = document.getElementById("timezone");
+    if (detected && input && detected !== input.value) {
+      document.getElementById("tz-detected").textContent = detected;
+      document.getElementById("tz-detect-note").hidden = false;
+      document.getElementById("tz-use-detected").addEventListener(
+        "click", function () { input.value = detected; });
+    }
+  } catch (e) { /* detection unavailable — page works without it */ }
+})();
+</script>
+{% endblock %}

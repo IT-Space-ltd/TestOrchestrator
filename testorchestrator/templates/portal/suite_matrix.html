@@ -38,7 +38,7 @@ passes. Unresolved case mappings are marked.</p>
     <th><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"
            title="{{ e.id }} — {{ e.outcome.value if e.outcome else '' }}">
         {{ e.id[:6] }}</a><br>
-        <small>{{ e.created_at.strftime('%m-%d %H:%M') if e.created_at }}</small></th>
+        <small>{{ e.created_at|localtime_short }}</small></th>
     {% endfor %}
   </tr>
   {% for c in cases %}

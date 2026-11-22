@@ -29,6 +29,15 @@ Every chart states its counting unit on the card.
 
 ## Time-window assignment
 
+All "day" buckets are the **viewer's local calendar day** — the
+signed-in user's saved IANA display zone (`users.timezone`, UTC by
+default and for any zone value that fails to load). Stored instants
+stay UTC; the zone only changes bucketing and labels. Charts, data
+tables, CSV exports and drill-down URLs all carry the zone the
+payload was computed in (`timezone` field / `tz` CSV column), so a
+preference change refreshes analytics under the new zone rather than
+mixing old-zone buckets with new-zone labels.
+
 - A **logical run** belongs to the day/period in which its *final
   resolved attempt* finished — except in the first-vs-final chart,
   where the cohort is assigned to the day the *first* attempt finished
@@ -63,8 +72,8 @@ this same definition drive the project-dashboard copy of the chart —
 there is no second calculation.
 
 **Execution activity** — unit: logical run, counted exactly once.
-Day-of-week (Mon=0) × hour buckets in **UTC** over the selected
-period. Two modes: `submitted` uses the chain head's `created_at`;
+Day-of-week (Mon=0) × hour buckets in the **viewer's display zone**
+(axis + hover label it) over the selected period. Two modes: `submitted` uses the chain head's `created_at`;
 `started` uses the earliest `started_at` across the chain's members —
 runs that never started are excluded from `started` mode, not bucketed
 at enqueue time. Retries and unit shards never inflate: a chain head
@@ -195,7 +204,7 @@ bounded scope shown — the flags in the JSON payload
 - **Environment cell** → `/executions?project_id&suite_id&environment&final=1` — the final resolved attempts that produced the cell's run metrics; case-level metrics derive from those same runs' results.
 - **History cell** → `/executions/<id>` — the exact attempt (unambiguous).
 - **Queue-chart point** → `/executions?from_date&to_date&role=dispatch` — that day's enqueue cohort of dispatchable attempts; the median/p95 sample additionally requires both timestamps, which the list cannot express (documented difference, not a silent filter).
-- **Activity cell** → `/executions?activity=<mode>&dow&hour&from_date&to_date` — the bounded activity filter resolves logical runs the same way the chart does and shows exactly the resolved attempts in that UTC day-of-week×hour bucket inside the same period; the list count equals the cell count.
+- **Activity cell** → `/executions?activity=<mode>&dow&hour&from_date&to_date` — the bounded activity filter resolves logical runs the same way the chart does and shows exactly the resolved attempts in that day-of-week×hour bucket (viewer zone) inside the same period; the list count equals the cell count.
 - **Regression table row** → the contributing executions are linked directly (`/executions/<id>`) for both periods.
 - **Freshness cell** → `/executions/<id>` — the exact attempt that produced the latest usable result.
 - **First-vs-final chart** — intentionally no click-through: the cohort is defined by the *first* attempt's finish day, which ordinary list filters cannot express ("final attempts whose chain head finished on day X"). A list filtered by final-attempt day would show a *different* cohort — showing that silently would be wrong.

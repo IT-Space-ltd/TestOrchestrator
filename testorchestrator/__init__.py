@@ -96,6 +96,19 @@ def create_app(config_object=Config) -> Flask:
     app.jinja_env.filters["regex_replace"] = (
         lambda s, p, r: _re.sub(p, r, str(s)))
 
+    # Per-user display zone: event instants render in the signed-in
+    # user's saved IANA zone with a numeric offset (never a `Z`).
+    from . import usertz as _utz
+    app.jinja_env.filters["localtime"] = (
+        lambda dt: _utz.fmt_local(dt, _utz.request_tz()) or "—")
+    app.jinja_env.filters["localtime_short"] = (
+        lambda dt: _utz.fmt_local(dt, _utz.request_tz(),
+                                  seconds=False) or "—")
+    app.jinja_env.filters["localdate"] = (
+        lambda dt: _utz.fmt_local_date(dt, _utz.request_tz()) or "—")
+    app.jinja_env.globals["TZ_NAME"] = _utz.request_tz_name
+    app.jinja_env.globals["UTC_ISO"] = _utz.utc_iso
+
     app.wsgi_app = TrustedProxyFix(
         app.wsgi_app, app.config["TRUSTED_PROXY_IPS"]
     )

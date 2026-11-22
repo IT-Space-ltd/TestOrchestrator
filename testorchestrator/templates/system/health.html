@@ -45,7 +45,7 @@
   {% endif %}
   {% if last_restart %}
   <p class="muted">Last request: {{ last_restart.requested_by }} at
-    {{ last_restart.requested_at }} — result:
+    {{ last_restart.requested_at|localtime }} — result:
     <strong>{{ last_restart.result }}</strong></p>
   {% endif %}
 </section>

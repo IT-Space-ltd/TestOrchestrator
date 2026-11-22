@@ -41,6 +41,9 @@ COLUMNS = [
     "event_name", "actor_id", "actor_name", "project_id",
     "execution_id", "parent_execution_id", "unit_id", "attempt_id",
     "target_id", "request_id", "outcome", "message", "details_json",
+    # timestamp_utc stays canonical; the local columns carry the
+    # numeric offset + the zone the requester had selected.
+    "timestamp_local", "timezone",
 ]
 
 # Spreadsheet-active leading characters — formula injection protection
@@ -118,24 +121,28 @@ def audit_query(filters: dict):
                       AuditEvent.id.desc())
 
 
-def _audit_row(r) -> list:
+def _audit_row(r, tz=None, tz_name="UTC") -> list:
     from .logschema import redact_text
+    from . import usertz as _utz
     return [f"audit-{r.id}", _utc_iso(r.occurred_at), "audit", "info",
             "audit", r.event, "", r.username, "", "", "", "", "", "",
             "", "", redact_text(r.detail),
             json.dumps({"detail": redact_text(r.detail)},
-                       ensure_ascii=False) if r.detail else ""]
+                       ensure_ascii=False) if r.detail else "",
+            _utz.fmt_local(r.occurred_at, tz or _utz.UTC), tz_name]
 
 
-def _operational_row(r) -> list:
+def _operational_row(r, tz=None, tz_name="UTC") -> list:
     from .logschema import redact_text, redact_details
+    from . import usertz as _utz
     details = redact_details(r.details)
     return [f"op-{r.id}", _utc_iso(r.occurred_at), "operational",
             r.severity, r.category, "", "", "", r.project_id or "",
             r.execution_id or "", "", "", "", r.worker_id or "",
             r.correlation_id or "", "", redact_text(r.message),
             json.dumps(details, ensure_ascii=False, default=str)
-            if details else ""]
+            if details else "",
+            _utz.fmt_local(r.occurred_at, tz or _utz.UTC), tz_name]
 
 
 def query_for(kind: str, filters: dict):
@@ -166,12 +173,15 @@ class GenerationOverflowError(Exception):
     loudly rather than emitting a silently truncated file."""
 
 
-def csv_lines(kind: str, q, cutoff, hard_limit=None):
+def csv_lines(kind: str, q, cutoff, hard_limit=None, tz_name="UTC"):
     """Yield CSV text — header first, then one chunk per row batch.
     Caller passes a query already ordered + selection-bounded.
     ``hard_limit`` re-enforces the row cap during generation (the
     selection bound makes it unreachable in practice — belt for
-    defence-in-depth)."""
+    defence-in-depth). `tz_name` is the requester's captured display
+    zone for the appended local-timestamp columns."""
+    from . import usertz as _utz
+    tz = _utz.coerce_zone(tz_name)
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
     buf.write("\ufeff")
@@ -186,7 +196,8 @@ def csv_lines(kind: str, q, cutoff, hard_limit=None):
         if hard_limit is not None and written > hard_limit:
             raise GenerationOverflowError(
                 f"generation exceeded {hard_limit} rows")
-        w.writerow([csv_field(v) for v in row_fn(r)])
+        w.writerow([csv_field(v) for v in
+                    row_fn(r, tz, tz_name)])
         yield buf.getvalue()
         buf.seek(0)
         buf.truncate()
@@ -219,14 +230,16 @@ def bounded_query(kind: str, filters: dict, max_id: int):
     return query_for(kind, filters).filter(_id_col(kind) <= max_id)
 
 
-def stream_csv(app, kind: str, filters: dict, cutoff, max_id: int):
+def stream_csv(app, kind: str, filters: dict, cutoff, max_id: int,
+               tz_name: str = "UTC"):
     """Streaming generator that keeps an app context alive — Response
     consumes it after the view returns and the request context is gone.
     Query + iteration both happen inside."""
     def gen():
         with app.app_context():
             yield from csv_lines(kind, bounded_query(kind, filters,
-                                                     max_id), cutoff)
+                                                     max_id), cutoff,
+                                 tz_name=tz_name)
     return gen()
 
 
@@ -315,7 +328,8 @@ def purge_expired() -> None:
         pass
 
 
-def request_export(kind: str, filters: dict, username: str):
+def request_export(kind: str, filters: dict, username: str,
+                 tz_name: str = "UTC"):
     """Decide inline-stream vs background job. Returns
     (mode, job_or_None, count, cutoff, max_id) — raises
     TooManyRowsError over the hard cap so the caller fails loudly
@@ -341,7 +355,7 @@ def request_export(kind: str, filters: dict, username: str):
     job = LogExportJob(
         created_by=username, kind=kind,
         filters_json=json.dumps(
-            dict(filters, __max_id=max_id),
+            dict(filters, __max_id=max_id, __tz=tz_name),
             ensure_ascii=False, default=str),
         cutoff_utc=cutoff, status="queued", row_count=count,
         file_name=export_filename(kind, uuid.uuid4().hex[:8], cutoff),
@@ -377,6 +391,7 @@ def _run_job(app, job_id: str) -> None:
                 db.session.commit()
                 stored = json.loads(job.filters_json)
                 max_id = stored.pop("__max_id", None)
+                job_tz = stored.pop("__tz", "UTC")
                 filters = stored
                 # Date bounds round-trip through JSON as strings —
                 # restore datetimes so DB comparisons stay typed.
@@ -398,7 +413,8 @@ def _run_job(app, job_id: str) -> None:
                 written = 0
                 with open(tmp, "w", encoding="utf-8", newline="") as fh:
                     for chunk in csv_lines(job.kind, q, job.cutoff_utc,
-                                           hard_limit=job.row_count):
+                                           hard_limit=job.row_count,
+                                           tz_name=job_tz):
                         fh.write(chunk)
                         written += 1
                 protect_file(tmp)

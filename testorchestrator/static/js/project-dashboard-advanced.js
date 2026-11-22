@@ -117,8 +117,8 @@
       (tables.evidence_freshness || []).forEach(function (r) {
         var age = r.age_s === null || r.age_s === undefined ?
           "—" : (r.age_s / 86400).toFixed(1) + "d";
-        var when = r.last_finished_at ?
-          r.last_finished_at.slice(0, 19).replace("T", " ") : "—";
+        var when = r.last_finished_at_local || (r.last_finished_at ?
+          r.last_finished_at.slice(0, 19).replace("T", " ") : "—");
         var ev = r.last_execution_id ?
           "<a href='/executions/" + esc(r.last_execution_id) +
           "'><code>" + esc(r.last_execution_id.slice(0, 8)) +
@@ -154,7 +154,9 @@
         });
         if (updatedEl) {
           updatedEl.textContent =
-            "Updated " + data.generated_at.slice(0, 19).replace("T", " ") + " UTC";
+            "Updated " + (data.generated_at_local ||
+              data.generated_at.slice(0, 19).replace("T", " ") + " +00:00") +
+            " (" + (data.timezone || "UTC") + ")";
         }
       })
       .catch(function () {

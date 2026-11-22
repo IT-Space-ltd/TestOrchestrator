@@ -27,7 +27,7 @@ from ..security import role_required
 from . import system_bp
 from .forms import (AddressForm, ApplyForm, GenerateCertForm, ImportCertForm,
                     PortsForm, ResetForm, RunnerForm, RuntimeForm, SecretForm,
-                    UserForm)
+                    UserForm, UserTimezoneForm)
 
 
 def _context():
@@ -506,14 +506,22 @@ def _op_log_filters():
         "correlation_id": request.args.get("corr") or None,
         "q": request.args.get("q") or None,
     }
+    from .. import usertz as _utz
     for bound in ("since", "until"):
         raw = (request.args.get(bound) or "").strip()
         if raw:
+            if len(raw) == 10:
+                # local calendar day → UTC instant (viewer zone)
+                try:
+                    lo, hi = _utz.local_day_bounds(raw, raw,
+                                                   _utz.request_tz())
+                    filters[bound] = (lo if bound == "since"
+                                      else hi).replace(tzinfo=None)
+                except ValueError:
+                    pass
+                continue
             try:
-                dt = datetime.fromisoformat(raw)
-                if bound == "until" and len(raw) == 10:
-                    dt = dt + timedelta(days=1)
-                filters[bound] = dt
+                filters[bound] = datetime.fromisoformat(raw)
             except ValueError:
                 pass
     return filters
@@ -593,7 +601,10 @@ def operational_logs_tail():
                     logs.OperationalLog.occurred_at)
         except ValueError:
             pass
+    from .. import usertz as _utz
+    _tzv = _utz.request_tz()
     rows = [{"id": r.id, "ts": r.occurred_at.isoformat(),
+             "ts_local": _utz.fmt_local(r.occurred_at, _tzv),
              "severity": r.severity, "component": r.component,
              "category": r.category, "project": r.project_id,
              "execution": r.execution_id, "worker": r.worker_id,
@@ -601,7 +612,10 @@ def operational_logs_tail():
              "message": logs.redact(r.message)}
             for r in q.limit(200)]
     return {"rows": rows,
-            "generated_at": datetime.now(timezone.utc).isoformat()}
+            "timezone": _utz.request_tz_name(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at_local": _utz.fmt_local(
+                datetime.now(timezone.utc), _tzv)}
 
 
 @system_bp.route("/logs/export")
@@ -611,6 +625,7 @@ def operational_logs_export():
     when bounded, a background job for large exports. Audited with
     filters + count (never content); nothing is silently truncated."""
     from .. import logexport
+    from .. import usertz as _utz
     from ..models import record_audit
     fmt = request.args.get("format", "csv")
     if fmt not in ("csv", "jsonl"):
@@ -618,7 +633,8 @@ def operational_logs_export():
     filters = _op_log_filters()
     try:
         mode, job, count, cutoff, max_id = logexport.request_export(
-            "operational", filters, current_user.username)
+            "operational", filters, current_user.username,
+            tz_name=_utz.request_tz_name())
     except logexport.TooManyRowsError as exc:
         record_audit(current_user.username, "logs.export.denied",
                      f"operational export refused: {exc}")
@@ -648,7 +664,8 @@ def operational_logs_export():
             headers={"Content-Disposition":
                      f"attachment; filename={fname}l"})
     return Response(
-        logexport.stream_csv(app, "operational", filters, cutoff, max_id),
+        logexport.stream_csv(app, "operational", filters, cutoff, max_id,
+                             tz_name=_utz.request_tz_name()),
         mimetype="text/csv; charset=utf-8",
         headers={"Content-Disposition":
                  f"attachment; filename={fname}"})
@@ -697,11 +714,13 @@ def users():
     from ..models import User
     from ..execution import Project
     record_audit(current_user.username, "page.users")
+    from ..usertz import tz_choices
     return render_template(
         "system/users.html",
         users=User.query.order_by(User.username).all(),
         projects=Project.query.order_by(Project.name).all(),
-        form=UserForm(), reset_form=ResetForm(), apply_form=ApplyForm())
+        form=UserForm(), reset_form=ResetForm(), apply_form=ApplyForm(),
+        tz_options=tz_choices())
 
 
 @system_bp.route("/users", methods=["POST"])
@@ -718,6 +737,7 @@ def create_user():
             username=username,
             display_name=form.display_name.data or "",
             role=Role(form.role.data),
+            timezone=(form.timezone.data or "UTC").strip(),
             must_change_password=True,  # mandatory first change (§16)
         )
         user.set_password(form.temporary_password.data)
@@ -817,14 +837,17 @@ def user_access(user_id):
     'all projects through role' — no ineffective deny controls."""
     from ..models import User
     from ..execution import Project
+    from ..usertz import tz_choices
     user = db.session.get(User, user_id)
     if user is None:
         abort(404)
     projects = Project.query.order_by(Project.name).all()
+    tz_form = UserTimezoneForm(timezone=user.timezone)
     return render_template(
         "system/user_access.html", u=user, projects=projects,
         assigned=set(user.assigned_project_ids()),
-        apply_form=ApplyForm())
+        apply_form=ApplyForm(), tz_form=tz_form,
+        tz_options=tz_choices())
 
 
 @system_bp.route("/users/<int:user_id>/access", methods=["POST"])
@@ -852,6 +875,33 @@ def save_user_access(user_id):
         f"{user.username}: {sorted(before)} -> {sorted(after)}")
     flash(f"Project access for {user.username} saved "
           f"({len(after)} assigned).", "info")
+    return redirect(url_for("system.user_access", user_id=user.id))
+
+
+@system_bp.route("/users/<int:user_id>/timezone", methods=["POST"])
+@role_required(Role.ADMIN)
+def save_user_timezone(user_id):
+    """Change a user's display zone — audited; touches neither the
+    role nor project memberships."""
+    from ..models import User
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    form = UserTimezoneForm()
+    if form.validate_on_submit():
+        new = form.timezone.data.strip()
+        old = user.timezone or "UTC"
+        if new != old:
+            user.timezone = new
+            db.session.commit()
+            record_audit(current_user.username, "user.timezone",
+                         f"{user.username}: {old} -> {new}")
+            flash(f"Display time zone for {user.username} set to "
+                  f"{new}.", "info")
+    else:
+        for errs in form.errors.values():
+            for e in errs:
+                flash(str(e), "error")
     return redirect(url_for("system.user_access", user_id=user.id))
 
 

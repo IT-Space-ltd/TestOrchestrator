@@ -3,7 +3,7 @@ from flask_wtf.file import FileAllowed, FileField, FileRequired
 from wtforms import (BooleanField, IntegerField, PasswordField, RadioField,
                      SelectMultipleField, StringField, TextAreaField)
 from wtforms.validators import (DataRequired, Length, NumberRange,
-                                Optional)
+                                Optional, ValidationError)
 
 
 class AddressForm(FlaskForm):
@@ -76,6 +76,14 @@ class ApplyForm(FlaskForm):
     pass
 
 
+def _iana_zone(form, field):
+    from ..usertz import valid_zone
+    if not valid_zone((field.data or "").strip()):
+        raise ValidationError(
+            "Unknown time zone — pick an IANA name such as "
+            "Europe/Budapest or UTC.")
+
+
 class UserForm(FlaskForm):
     """Admin user management (§16): create accounts and reset temporary
     passwords; mandatory first change applies to both."""
@@ -88,10 +96,24 @@ class UserForm(FlaskForm):
                  ("tester", "Tester"), ("po", "PO")],
         default="tester",
     )
+    timezone = StringField(
+        "Display time zone",
+        validators=[Optional(), Length(max=64), _iana_zone],
+        default="UTC",
+        description="IANA zone name — the shown offset varies by date.")
     temporary_password = PasswordField(
         "Temporary password",
         validators=[DataRequired(), Length(min=12)],
     )
+
+
+class UserTimezoneForm(FlaskForm):
+    """Admin → Users → Edit → display time zone (audited; does not
+    touch role or project membership)."""
+    timezone = StringField(
+        "Display time zone",
+        validators=[DataRequired(), Length(max=64), _iana_zone],
+        description="IANA zone name — the shown offset varies by date.")
 
 
 class ResetForm(FlaskForm):

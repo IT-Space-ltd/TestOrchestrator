@@ -5,7 +5,7 @@ from ..bootstrap import rate_limit_exceeded, reset_attempts
 from ..models import User, record_audit
 from ..settings import mark_setup_complete
 from . import auth_bp
-from .forms import ChangePasswordForm, LoginForm
+from .forms import AccountForm, ChangePasswordForm, LoginForm
 
 
 def _licence_unsupported() -> bool:
@@ -119,3 +119,28 @@ def change_password():
         "auth/change_password.html", form=form,
         bootstrap=current_user.must_change_password,
     )
+
+
+@auth_bp.route("/account", methods=["GET", "POST"])
+@login_required
+def account():
+    """My Account — self-service display preferences. The browser's
+    detected zone is offered as a suggestion only; it never overrides
+    the saved preference. Role and project membership are untouched."""
+    from ..extensions import db
+    from ..usertz import tz_choices
+    form = AccountForm()
+    if form.validate_on_submit():
+        new = form.timezone.data.strip()
+        old = current_user.timezone or "UTC"
+        if new != old:
+            current_user.timezone = new
+            db.session.commit()
+            record_audit(current_user.username, "user.timezone",
+                         f"self: {old} -> {new}")
+            flash(f"Display time zone set to {new}.", "info")
+            return redirect(url_for("auth.account"))
+    elif request.method == "GET":
+        form.timezone.data = current_user.timezone or "UTC"
+    return render_template(
+        "auth/account.html", form=form, tz_options=tz_choices())

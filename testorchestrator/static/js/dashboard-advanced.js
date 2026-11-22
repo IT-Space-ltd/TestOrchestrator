@@ -115,7 +115,9 @@
         });
         if (updatedEl) {
           updatedEl.textContent =
-            "Updated " + data.generated_at.slice(0, 19).replace("T", " ") + " UTC";
+            "Updated " + (data.generated_at_local ||
+              data.generated_at.slice(0, 19).replace("T", " ") + " +00:00") +
+            " (" + (data.timezone || "UTC") + ")";
         }
       })
       .catch(function () {

@@ -57,7 +57,7 @@
     {% endif %}
     <dl class="proj-meta">
       <div><dt>Last execution</dt>
-        <dd>{{ (c.latest.finished_at|string)[:16]|replace("T"," ") if c.latest else "—" }}</dd></div>
+        <dd>{{ c.latest.finished_at|localtime_short if c.latest else "—" }}</dd></div>
       <div><dt>Active work</dt><dd>{{ c.active }}</dd></div>
       <div><dt>Executions</dt><dd>{{ c.total }}</dd></div>
     </dl>

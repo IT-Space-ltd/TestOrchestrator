@@ -474,8 +474,10 @@ def _project_dashboard_ctx(project):
     state = request.args.get("state", "")
     source_ref = request.args.get("source_ref", "")
     environment = request.args.get("environment", "")
+    from .. import usertz as _utz
     data = summary(project.id, days=days, suite=suite, state=state,
-                   source_ref=source_ref, environment=environment)
+                   source_ref=source_ref, environment=environment,
+                   tz=_utz.user_zone(current_user))
     # filter option sets for the controls (authorized project scope)
     refs = sorted({x for (x,) in db.session.query(Execution.source_ref)
                    .filter_by(project_id=project.id)
@@ -524,12 +526,14 @@ def _proj_adv(project_id: str, args):
     reg_mode = args.get("reg_mode") or "seconds"
     if reg_mode not in ("seconds", "percent"):
         reg_mode = "seconds"
+    from .. import usertz as _utz
+    tz = _utz.user_zone(current_user)
     data = analytics.project_analytics(
         project_id, days,
         suite=args.get("suite", ""),
         state=args.get("state", ""),
         source_ref=args.get("source_ref", ""),
-        environment=args.get("environment", ""))
+        environment=args.get("environment", ""), tz=tz)
     return {
         "data": data, "env_metric": env_metric, "reg_mode": reg_mode,
         "fig_history": result_history(data["history"]),
@@ -594,7 +598,8 @@ def project_analytics(project_id):
             {"suite": r["suite"], "environment": r["env"],
              "state": r["state"], "age_s": r["age_s"],
              "last_execution_id": r["last_execution_id"],
-             "last_finished_at": r["last_finished_at"],
+             "last_finished_at_utc": r["last_finished_at"],
+             "last_finished_at_local": r["last_finished_at_local"],
              "outcome": r["outcome"],
              "beyond_window": r["beyond_window"]}
             for r in d["evidence_freshness"]]
@@ -616,20 +621,27 @@ def project_analytics(project_id):
                  "insufficient"], reg_rows),
             "evidence_freshness": (
                 ["suite", "environment", "state", "age_s",
-                 "last_execution_id", "last_finished_at", "outcome",
+                 "last_execution_id", "last_finished_at_utc",
+                 "last_finished_at_local", "outcome",
                  "beyond_window"], fresh_rows),
         }
         if name not in rows_map:
             return jsonify({"error": "unknown chart"}), 404
         header, rows = rows_map[name]
+        zone = d.get("timezone", "UTC")
         buf = io.StringIO()
-        w = csv.DictWriter(buf, fieldnames=header, extrasaction="ignore")
+        w = csv.DictWriter(buf, fieldnames=header + ["tz"],
+                           extrasaction="ignore")
         w.writeheader()
-        w.writerows(rows)
+        for r in rows:
+            w.writerow({**r, "tz": zone})
         return Response(buf.getvalue(), mimetype="text/csv",
                         headers={"Content-Disposition":
                                  f"attachment; filename={name}.csv"})
     return jsonify({"generated_at": adv["data"]["generated_at"],
+                    "generated_at_local":
+                        adv["data"]["generated_at_local"],
+                    "timezone": adv["data"]["timezone"],
                     "period_days": adv["data"]["period_days"],
                     "tables": adv["data"],
                     "charts": {"history": json.loads(adv["fig_history"]),
@@ -1483,14 +1495,15 @@ def executions():
             scope = scope.filter(
                 Execution.project_id.in_(member_ids))
         mode = args["activity"]
-        lo = hi = None
+        # from_date/to_date are LOCAL-day bounds in the viewer's zone;
+        # bucket weekday/hour are also local — consistent with the
+        # heatmap cells that generated this URL.
+        from .. import usertz as _utz
+        _tzv = _utz.user_zone(current_user)
         try:
-            lo = datetime.strptime(args.get("from_date", ""),
-                                   "%Y-%m-%d") \
-                if args.get("from_date") else None
-            hi = datetime.strptime(args.get("to_date", ""),
-                                   "%Y-%m-%d") + timedelta(days=1) \
-                if args.get("to_date") else None
+            lo, hi = _utz.local_day_bounds(
+                args.get("from_date") or None,
+                args.get("to_date") or None, _tzv)
         except ValueError:
             lo = hi = None
         ids = []
@@ -1505,31 +1518,35 @@ def executions():
             if t.tzinfo is None:
                 from datetime import timezone as _tz
                 t = t.replace(tzinfo=_tz.utc)
-            t = t.replace(tzinfo=None)
             if (lo and t < lo) or (hi and t >= hi):
                 continue
-            if t.weekday() == dow and t.hour == hour:
+            lt = t.astimezone(_tzv)
+            if lt.weekday() == dow and lt.hour == hour:
                 ids.append((r["final"] or r["head"]).id)
         q = q.filter(Execution.id.in_(ids))
     if args.get("origin", "") in ("live", "imported"):
         q = q.filter(Execution.origin == args["origin"])
     if args.get("framework", ""):
         q = q.filter(Execution.framework == args["framework"])
-    if not activity_mode and args.get("from_date", ""):
+    if not activity_mode and (args.get("from_date")
+                              or args.get("to_date")):
+        # Date filters are the viewer's local calendar days — the
+        # entered bounds convert to UTC instants before querying
+        # (a local "today" is not the UTC day boundary).
+        from .. import usertz as _utz
         try:
-            q = q.filter(Execution.created_at >=
-                         datetime.strptime(args["from_date"],
-                                           "%Y-%m-%d"))
+            _lo, _hi = _utz.local_day_bounds(
+                args.get("from_date") or None,
+                args.get("to_date") or None,
+                _utz.user_zone(current_user))
         except ValueError:
-            pass
-    if not activity_mode and args.get("to_date", ""):
-        try:
-            q = q.filter(Execution.created_at <
-                         datetime.strptime(args["to_date"],
-                                           "%Y-%m-%d")
-                         + timedelta(days=1))
-        except ValueError:
-            pass
+            _lo = _hi = None
+        if _lo is not None:
+            q = q.filter(Execution.created_at
+                         >= _lo.replace(tzinfo=None))
+        if _hi is not None:
+            q = q.filter(Execution.created_at
+                         < _hi.replace(tzinfo=None))
     page = max(1, int(args.get("page", 1) or 1))
     per = 50
     total = q.count()

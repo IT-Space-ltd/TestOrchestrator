@@ -57,7 +57,7 @@
   <tbody>
     {% for event in events %}
     <tr>
-      <td>{{ event.occurred_at }}</td>
+      <td>{{ event.occurred_at|localtime }}</td>
       <td>{{ event.username }}</td>
       <td>{{ event.event }}</td>
       <td>{{ event.detail }}</td>

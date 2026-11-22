@@ -22,7 +22,8 @@
     var tr = document.createElement("tr");
     tr.dataset.ts = r.ts;
     tr.innerHTML =
-      "<td><code>" + esc((r.ts || "").split("T")[1].slice(0, 8)) +
+      "<td><code>" + esc(r.ts_local ||
+        ((r.ts || "").split("T")[1].slice(0, 8))) +
       "</code></td><td><span class='badge sev-" + esc(r.severity) + "'>" +
       esc(r.severity) + "</span></td><td>" + esc(r.component) + "</td><td>" +
       esc(r.category) + "</td><td class='log-msg'>" + esc(r.message) +
@@ -68,7 +69,9 @@
       .then(function (d) {
         if (!d || g !== gen) return;  // stale: paused or re-toggled
         setStatus("live · updated " +
-                  String(d.generated_at).split("T")[1].slice(0, 8), "live");
+                  (d.generated_at_local ||
+                    String(d.generated_at).split("T")[1].slice(0, 8) +
+                    " UTC"), "live");
         (d.rows || []).forEach(function (r) {
           tbody.insertBefore(rowFrom(r), tbody.firstChild);
         });

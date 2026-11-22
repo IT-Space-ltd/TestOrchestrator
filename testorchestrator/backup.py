@@ -477,6 +477,18 @@ def apply_restore(app, payload: dict, mode: str,
                         # re-arm already mutated raw_row — re-serialize
                         clean = {k: _restore_cell(v, cols[k].type)
                                  for k, v in raw_row.items() if k in cols}
+                if name == "users" and "timezone" in clean:
+                    # Older backups lack the key → model default UTC
+                    # applies silently. A present-but-invalid identifier
+                    # is an explicit warning + safe UTC fallback —
+                    # never a broken login.
+                    from .usertz import valid_zone
+                    if not valid_zone(clean.get("timezone") or ""):
+                        report["attention"].append(
+                            f"user {raw_row.get('username', '?')}: "
+                            f"invalid time zone "
+                            f"{clean.get('timezone')!r} — reset to UTC")
+                        clean["timezone"] = "UTC"
                 db.session.add(model(**clean))
                 inserted += 1
             report["restored"][name] = inserted

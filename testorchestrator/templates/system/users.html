@@ -11,7 +11,7 @@
 
 <section class="card">
   <table class="audit-table users-table">
-    <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Project access</th><th>Actions</th></tr></thead>
+    <thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Time zone</th><th>Project access</th><th>Actions</th></tr></thead>
     <tbody>
       {% for u in users %}
       <tr>
@@ -23,6 +23,7 @@
           {% else %}<span class="badge danger">disabled</span>{% endif %}
           {% if u.must_change_password %}<span class="badge warn">must change</span>{% endif %}
         </td>
+        <td><code>{{ u.timezone or "UTC" }}</code></td>
         <td>
           <div class="cell-actions">
           {% if u.role.value == "admin" %}
@@ -55,7 +56,7 @@
         </td>
       </tr>
       <tr class="reset-row">
-        <td colspan="5">
+        <td colspan="6">
           <form method="post" class="reset-panel"
                 action="{{ url_for('system.reset_user', user_id=u.id) }}">
             {{ reset_form.csrf_token }}
@@ -79,6 +80,12 @@
     {{ form.csrf_token }}
     <div class="field">{{ form.username.label }} {{ form.username() }}</div>
     <div class="field">{{ form.display_name.label }} {{ form.display_name() }}</div>
+    <div class="field">{{ form.timezone.label }}
+      {{ form.timezone(list="tz-options", autocomplete="off",
+                       placeholder="e.g. Europe/Budapest or UTC") }}
+      {% include "_tz_datalist.html" %}
+      <p class="muted">IANA zone name — display only; the shown offset
+         varies by date. Defaults to UTC.</p></div>
     <fieldset class="field"><legend>{{ form.role.label }}</legend>
       {% for sub in form.role %}<div class="checkbox">{{ sub() }} {{ sub.label }}</div>{% endfor %}
     </fieldset>

@@ -37,11 +37,12 @@ MAX_FRESHNESS_SUITES = 12
 MAX_FRESHNESS_ENVS = 8
 
 
-def _first_final_rows(runs: list, since) -> list:
+def _first_final_rows(runs: list, since, tz=None) -> list:
     """First-attempt vs final pass-rate cohort (Group A/B shared).
 
-    One row per first-attempt finish day: total logical runs, first
-    passed, final resolved passed, retried. Head must be terminal."""
+    One row per first-attempt finish day — in the viewer's local
+    calendar (`tz`, default UTC): total logical runs, first passed,
+    final resolved passed, retried. Head must be terminal."""
     by_day: dict[str, dict] = {}
     for r in runs:
         head = r["head"]
@@ -50,7 +51,7 @@ def _first_final_rows(runs: list, since) -> list:
             # exists, so attribute the exclusion to the submission day
             # (disclosed in the counting doc).
             if head.created_at and _aw(head.created_at) >= since:
-                d = _day(head.created_at)
+                d = _day(head.created_at, tz)
                 by_day.setdefault(
                     d, {"day": d, "total": 0, "first_passed": 0,
                         "final_passed": 0, "retried": 0,
@@ -58,8 +59,8 @@ def _first_final_rows(runs: list, since) -> list:
             continue
         if _aw(head.finished_at) < since:
             continue
-        row = by_day.setdefault(_day(head.finished_at),
-                                {"day": _day(head.finished_at),
+        row = by_day.setdefault(_day(head.finished_at, tz),
+                                {"day": _day(head.finished_at, tz),
                                  "total": 0, "first_passed": 0,
                                  "final_passed": 0, "retried": 0,
                                  "excluded": 0})
@@ -79,8 +80,13 @@ def _aw(dt):
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
-def _day(dt) -> str:
-    return _aw(dt).date().isoformat()
+def _day(dt, tz=None) -> str:
+    """Local calendar-day key — UTC when tz is None (callers pass the
+    viewer's zone; buckets group by the user's local day)."""
+    aware = _aw(dt)
+    if tz is not None:
+        aware = aware.astimezone(tz)
+    return aware.date().isoformat()
 
 
 def _attempt(e: Execution) -> int:
@@ -145,8 +151,12 @@ def _visible_executions(user, days: int):
 # ---------------------------------------------------------------- main
 
 
-def main_analytics(user, days: int) -> dict:
-    """Group-A advanced analytics for the Main Dashboard."""
+def main_analytics(user, days: int, tz=None) -> dict:
+    """Group-A advanced analytics for the Main Dashboard.
+
+    `tz` = the viewer's display zone (IANA). Daily buckets, first-vs-
+    final cohort days and the activity heatmap group by the user's
+    LOCAL calendar; instants in the payload stay UTC."""
     days = max(1, min(int(days or 30), MAX_PERIOD_DAYS))
     now = datetime.now(timezone.utc)
     since = now - timedelta(days=days)
@@ -180,7 +190,7 @@ def main_analytics(user, days: int) -> dict:
     cmp_rows = cmp_rows[:MAX_COMPARISON_PROJECTS]
 
     # --- 2. first-attempt vs final pass rate (same cohort)
-    first_final = _first_final_rows(runs, since)
+    first_final = _first_final_rows(runs, since, tz)
 
     # --- 3. queue wait / turnaround (dispatchable attempts)
     wait_d: dict[str, list] = {}
@@ -190,7 +200,7 @@ def main_analytics(user, days: int) -> dict:
             continue
         if _aw(e.created_at) < since:
             continue
-        d = _day(e.created_at)
+        d = _day(e.created_at, tz)
         if e.started_at:
             w = (_aw(e.started_at) - _aw(e.created_at)).total_seconds()
             if w >= 0:
@@ -214,19 +224,24 @@ def main_analytics(user, days: int) -> dict:
     # --- 4. execution activity (logical runs once — retries and unit
     # shards never inflate the count). Submitted = chain-head
     # created_at; started = earliest member started_at (never-started
-    # runs excluded from started mode). UTC buckets.
+    # runs excluded from started mode). Weekday/hour buckets are the
+    # viewer's LOCAL weekday/hour (tz; UTC when not passed).
     act_sub, act_start = [], []
     for r in runs:
         head = r["head"]
         if head.created_at and _aw(head.created_at) >= since:
             t = _aw(head.created_at)
+            if tz is not None:
+                t = t.astimezone(tz)
             act_sub.append({"dow": t.weekday(), "hour": t.hour,
                             "exec_id": (r["final"] or head).id})
         first_start = min((_aw(m.started_at) for m in r["members"]
                            if m.started_at), default=None)
         if first_start and first_start >= since:
-            act_start.append({"dow": first_start.weekday(),
-                              "hour": first_start.hour,
+            lt = first_start.astimezone(tz) if tz is not None \
+                else first_start
+            act_start.append({"dow": lt.weekday(),
+                              "hour": lt.hour,
                               "exec_id": (r["final"] or head).id})
     def _matrix(rows):
         cells = {}
@@ -235,8 +250,12 @@ def main_analytics(user, days: int) -> dict:
                 cells.get((x["dow"], x["hour"]), 0) + 1
         return [{"dow": d, "hour": h, "count": n}
                 for (d, h), n in sorted(cells.items())]
+    from . import usertz as _utz
     return {
         "generated_at": now.isoformat(),
+        "generated_at_local": _utz.fmt_local(now, tz or _utz.UTC),
+        "timezone": (getattr(tz, "key", None)
+                     or ("UTC" if tz is None else str(tz))),
         "period_days": days,
         "project_outcomes": cmp_rows,
         "project_outcomes_truncated": comparison_truncated,
@@ -297,12 +316,15 @@ def _project_executions(project_id: str, days: int, suite: str = "",
 
 def project_analytics(project_id: str, days: int, suite: str = "",
                       state: str = "", source_ref: str = "",
-                      environment: str = "") -> dict:
+                      environment: str = "", tz=None) -> dict:
     """Group-A advanced analytics for the Project Dashboard.
 
     Runs the same filters the page applies so the advanced section is
-    consistent with the existing charts."""
+    consistent with the existing charts. `tz` = viewer's display
+    zone — history labels, first-vs-final days, baseline dates and
+    freshness instants are local for display while instants stay UTC."""
     days = max(1, min(int(days or 30), MAX_PERIOD_DAYS))
+    from . import usertz as _utz
     exes = _project_executions(project_id, days, suite, state,
                                source_ref, environment)
     exes.sort(key=lambda e: e.finished_at)
@@ -328,7 +350,7 @@ def project_analytics(project_id: str, days: int, suite: str = "",
     cases_truncated = len(case_ids) > MAX_HISTORY_CASES
     case_ids = case_ids[-MAX_HISTORY_CASES:]
     cells = {k: v for k, v in cells.items() if k[0] in set(case_ids)}
-    run_meta = [{"id": e.id, "label": _day(e.finished_at) + " · "
+    run_meta = [{"id": e.id, "label": _day(e.finished_at, tz) + " · "
                  + e.id[:8], "attempt": _attempt(e),
                 "sha": (e.source_sha or "")[:8],
                 "env": e.environment or "(unset)",
@@ -421,9 +443,10 @@ def project_analytics(project_id: str, days: int, suite: str = "",
     since = now - timedelta(days=days)
 
     # --- 4. first-attempt vs final pass rate — same Group A cohort
-    # policy (grouped by first-attempt finish day), project filters
-    # applied. No drill-through: accepted limitation.
-    proj_first_final = _first_final_rows(runs, since)
+    # policy (grouped by first-attempt finish day, now the viewer's
+    # local day), project filters applied. No drill-through: accepted
+    # limitation.
+    proj_first_final = _first_final_rows(runs, since, tz)
 
     # --- 5. suite-duration regression — median resolved-attempt
     # wall-clock, current period vs the previous equal-length period,
@@ -553,6 +576,8 @@ def project_analytics(project_id: str, days: int, suite: str = "",
                           <= EVIDENCE_STALE_DAYS * 86400 else "stale"),
                 "last_execution_id": c["exec"].id,
                 "last_finished_at": c["at"].isoformat(),
+                "last_finished_at_local": _utz.fmt_local(
+                    c["at"], tz or _utz.UTC),
                 "outcome": c["exec"].outcome.value,
                 "age_s": round(age),
                 "beyond_window": c["at"] < since,
@@ -560,8 +585,12 @@ def project_analytics(project_id: str, days: int, suite: str = "",
     fresh_rows.sort(key=lambda r: (r["age_s"] is None,
                                    -(r["age_s"] or 0), r["suite"]))
 
+    _tzl = tz or _utz.UTC
     return {
         "generated_at": now.isoformat(),
+        "generated_at_local": _utz.fmt_local(now, _tzl),
+        "timezone": (getattr(tz, "key", None)
+                     or ("UTC" if tz is None else str(tz))),
         "period_days": days,
         "history": history,
         "suite_durations": box_rows,
@@ -575,10 +604,10 @@ def project_analytics(project_id: str, days: int, suite: str = "",
         "duration_regression": reg_rows,
         "duration_regression_truncated": reg_truncated,
         "regression_baseline": {
-            "from": (since - timedelta(days=days)).date().isoformat(),
-            "to": since.date().isoformat(),
-            "current_from": since.date().isoformat(),
-            "current_to": now.date().isoformat(),
+            "from": _day(since - timedelta(days=days), tz),
+            "to": _day(since, tz),
+            "current_from": _day(since, tz),
+            "current_to": _day(now, tz),
         },
         "evidence_freshness": fresh_rows,
         "freshness_suites": fr_suites,

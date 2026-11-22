@@ -47,14 +47,14 @@
       {{ rc.get('max_attempts') or 3 }} attempt(s) total after a confirmed
       worker interruption{% else %}disabled — an interrupted attempt goes
       UNKNOWN for reconciliation, no automatic relaunch{% endif %}</dd>
-    <dt>Started</dt><dd>{{ ex.started_at or "—" }}</dd>
-    <dt>Finished</dt><dd>{{ ex.finished_at or "—" }}</dd>
+    <dt>Started</dt><dd>{{ ex.started_at|localtime }}</dd>
+    <dt>Finished</dt><dd>{{ ex.finished_at|localtime }}</dd>
     <dt>Exit status</dt><dd>{{ ex.exit_status if ex.exit_status is not none else "—" }}</dd>
     <dt>Git sync</dt><dd>{{ ex.git_state.value }}</dd>
     {% if ex.origin == "imported" %}
     {% set imp = ex.snapshot().get('import', {}) %}
     <dt>Origin</dt><dd><span class="badge imported">imported</span>
-      by {{ ex.imported_by }} at {{ (ex.imported_at|string)[:19]|replace("T"," ") }}</dd>
+      by {{ ex.imported_by }} at {{ ex.imported_at|localtime }}</dd>
     <dt>Source repository</dt><dd><code>{{ ex.source_repo or "—" }}</code></dd>
     <dt>Source commit</dt><dd><code>{{ ex.source_commit or "—" }}</code></dd>
     <dt>Source path</dt><dd><code>{{ ex.source_path or "—" }}</code></dd>
@@ -133,8 +133,8 @@
           <br><small class="muted">queued — capacity slot not yet free</small>{% endif %}</td>
       <td><span class="badge outcome-{{ u.outcome.value }}">{{ u.outcome.value }}</span></td>
       <td>{{ u.runner.name if u.runner else "—" }}</td>
-      <td>{{ u.started_at or "—" }}</td>
-      <td>{{ u.finished_at or "—" }}</td>
+      <td>{{ u.started_at|localtime_short }}</td>
+      <td>{{ u.finished_at|localtime_short }}</td>
       <td><a class="button secondary sm" href="{{ url_for('portal.execution_detail', execution_id=u.id) }}">detail</a></td>
     </tr>
     {% endfor %}

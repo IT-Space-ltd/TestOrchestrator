@@ -80,7 +80,9 @@ def _main_adv(user, args):
                           queue_wait_trend, activity_heatmap)
     days = max(1, min(int(args.get("days", 30, type=int) or 30),
                       analytics.MAX_PERIOD_DAYS))
-    data = analytics.main_analytics(user, days)
+    from .. import usertz as _utz
+    tz = _utz.user_zone(user)
+    data = analytics.main_analytics(user, days, tz=tz)
     cmp_mode = (args.get("cmp_mode") or "count")
     cmp_mode = "percent" if cmp_mode == "percent" else "count"
     queue_mode = (args.get("queue") or "both")
@@ -93,9 +95,13 @@ def _main_adv(user, args):
     t = data["turnaround"] if queue_mode in ("turnaround", "both") else []
     act_rows = (data["activity_submitted"] if act_mode == "submitted"
                 else data["activity_started"])
-    from datetime import date, timedelta as _td
-    to_d = date.today().isoformat()
-    from_d = (date.today() - _td(days=days)).isoformat()
+    # Activity drill bounds are LOCAL-day dates (interpreted back in
+    # the viewer's zone by the executions route — never server-local).
+    from datetime import datetime as _dt, timedelta as _td, \
+        timezone as _tz
+    _today_l = _dt.now(_tz.utc).astimezone(tz).date()
+    to_d = _today_l.isoformat()
+    from_d = (_today_l - _td(days=days)).isoformat()
     merged = dict(data)
     merged["activity_rows"] = act_rows
     return {
@@ -107,7 +113,8 @@ def _main_adv(user, args):
         "fig_first_final": first_final_trend(data["first_final"]),
         "fig_queue": queue_wait_trend(w, t),
         "fig_activity": activity_heatmap(act_rows, act_mode,
-                                       from_d, to_d),
+                                       from_d, to_d,
+                                       zone=data["timezone"]),
         "activity_rows": act_rows,
     }
 
@@ -143,14 +150,20 @@ def dashboard_analytics():
         if name not in rows_map:
             return jsonify({"error": "unknown chart"}), 404
         header, rows = rows_map[name]
+        zone = d.get("timezone", "UTC")
         buf = io.StringIO()
-        w = csv.DictWriter(buf, fieldnames=header, extrasaction="ignore")
+        w = csv.DictWriter(buf, fieldnames=header + ["tz"],
+                           extrasaction="ignore")
         w.writeheader()
-        w.writerows(rows)
+        for r in rows:
+            w.writerow({**r, "tz": zone})
         return Response(buf.getvalue(), mimetype="text/csv",
                         headers={"Content-Disposition":
                                  f"attachment; filename={name}.csv"})
     return jsonify({"generated_at": adv["data"]["generated_at"],
+                    "generated_at_local":
+                        adv["data"]["generated_at_local"],
+                    "timezone": adv["data"]["timezone"],
                     "period_days": adv["data"]["period_days"],
                     "tables": adv["data"],
                     "charts": {"comparison": json.loads(
@@ -350,8 +363,14 @@ def audit():
 
 
 def _audit_filters() -> dict:
-    """Current Audit Trail filters — shared by the page and export."""
-    return {
+    """Current Audit Trail filters — shared by the page and export.
+
+    Date-only bounds are the viewer's local calendar days; they're
+    converted to naive-UTC instant strings here so the shared query
+    + the stored job filters bound the same instants."""
+    from .. import usertz as _utz
+    tz = _utz.request_tz()
+    out = {
         "q": request.args.get("q", "").strip(),
         "event": request.args.get("event", "").strip(),
         "actor": request.args.get("actor", "").strip(),
@@ -359,6 +378,16 @@ def _audit_filters() -> dict:
         "from": request.args.get("from", "").strip(),
         "to": request.args.get("to", "").strip(),
     }
+    for bound in ("from", "to"):
+        raw = out[bound]
+        if len(raw) == 10:
+            try:
+                lo, hi = _utz.local_day_bounds(raw, raw, tz)
+            except ValueError:
+                continue
+            inst = lo if bound == "from" else hi
+            out[bound] = inst.replace(tzinfo=None).isoformat()
+    return out
 
 
 @main_bp.route("/system/audit/export")
@@ -370,8 +399,10 @@ def audit_export():
     from .. import logexport
     filters = _audit_filters()
     try:
+        from .. import usertz as _utz
         mode, job, count, cutoff, max_id = logexport.request_export(
-            "audit", filters, current_user.username)
+            "audit", filters, current_user.username,
+            tz_name=_utz.request_tz_name())
     except logexport.TooManyRowsError as exc:
         record_audit(current_user.username, "logs.export.denied",
                      f"audit export refused: {exc}")
@@ -391,8 +422,10 @@ def audit_export():
                                 job_id=job.id))
     fname = logexport.export_filename("audit", "inline", cutoff)
     app = current_app._get_current_object()
+    from .. import usertz as _utz
     return Response(logexport.stream_csv(app, "audit", filters, cutoff,
-                                         max_id),
+                                         max_id,
+                                         tz_name=_utz.request_tz_name()),
                     mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition":
                              f"attachment; filename={fname}"})

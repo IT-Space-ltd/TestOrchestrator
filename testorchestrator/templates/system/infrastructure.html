@@ -85,7 +85,7 @@ or license KRE.</p>
             <span class="badge {{ 'danger' if r.health in ('unhealthy','down','unreachable') else ('warn' if r.health in ('unknown','stale') else 'ok') }}">{{ r.health }}</span>
           {% endif %}
         </td>
-        <td><small>{{ r.check_at or "—" }}{% if r.check_error %}<br>{{ r.check_error }}{% endif %}</small></td>
+        <td><small>{{ r.check_at|localtime_short }}{% if r.check_error %}<br>{{ r.check_error }}{% endif %}</small></td>
         <td class="conn-cell">
           {% if r.target_type == "local" %}
             <small class="muted">controller-local worker</small>
@@ -275,7 +275,7 @@ or license KRE.</p>
       <span class="badge {{ 'warn' if r.health in ('unknown','stale') else 'ok' }}">{{ r.health }}</span>
       {% if r.draining %}<span class="badge">draining</span>{% endif %}
       <span class="muted">Last seen
-        {{ r.heartbeat_at or "never" }}
+        {{ r.heartbeat_at|localtime_short if r.heartbeat_at else "never" }}
         {% if r.fresh %}(live){% elif r.heartbeat_at %}(stale){% endif %}</span>
       
     </div>
@@ -301,7 +301,7 @@ or license KRE.</p>
             {% elif "re-check" in rt.last_diagnostic|lower %}
             <span class="badge">Re-check required</span>
             {% else %}<span class="badge ok">Check passed</span>{% endif %}
-            <small class="muted">{{ rt.last_check_at or "" }}
+            <small class="muted">{{ rt.last_check_at|localtime_short if rt.last_check_at else "" }}
               {%- if rt.last_diagnostic and not rt.last_diagnostic.startswith('{') %}<br>{{ rt.last_diagnostic[:200] }}{% endif %}</small></td>
           <td class="actions-cell"><span class="row-actions">
             {% if r.connection_mode == "local" %}

@@ -5,7 +5,7 @@
 <h1>Dashboard</h1>
 <p class="muted" id="dash-status" role="status">
   Live view — updates ≈ every 5&nbsp;s (near-real-time poll).
-  <span id="dash-updated">Updated {{ data.generated_at[:19]|replace("T"," ") }} UTC</span>
+  <span id="dash-updated">Updated {{ data.generated_at|localtime }} ({{ data.timezone or "UTC" }})</span>
   <span id="dash-stale" class="badge warn" hidden>stale — reconnecting…</span>
 </p>
 <form method="get" class="dash-period">
@@ -30,7 +30,7 @@
     reruns are separate attempts. "Passed/failed" counts terminal
     attempts finished in the last {{ data.period_days }} days;
     "active" = any non-terminal state. Next scheduled run:
-    <span data-m="next_schedule_at">{{ (data.metrics.next_schedule_at or "—")[:19]|replace("T"," ") }}</span></small></p>
+    <span data-m="next_schedule_at">{{ data.metrics.next_schedule_at_local or "—" }}</span></small></p>
 </section>
 
 <section class="card">
@@ -51,11 +51,11 @@
       <tr data-name="{{ p.name|lower }}">
         <td><a href="{{ url_for('portal.project_detail', project_id=p.id) }}"><strong>{{ p.name }}</strong></a>
             <div class="muted">{{ p.description[:80] }}</div></td>
-        <td>{{ (p.latest_finished_at or "—")[:16]|replace("T"," ") }}</td>
+        <td>{{ p.latest_finished_at_local or "—" }}</td>
         <td>{% if p.latest_outcome %}<span class="badge outcome-{{ p.latest_outcome }}">{{ p.latest_outcome }}</span>{% else %}—{% endif %}</td>
         <td>{{ p.active }}{% if p.queued %} ({{ p.queued }} queued){% endif %}</td>
         <td>{% if p.pass_rate is not none %}{{ p.pass_rate }}% <span class="muted">of {{ p.pass_total }}</span>{% else %}—{% endif %}</td>
-        <td>{{ (p.next_run_at or "—")[:16]|replace("T"," ") }}</td>
+        <td>{{ p.next_run_at_local or "—" }}</td>
         <td><div class="cell-actions"><a class="button secondary sm"
            href="{{ url_for('portal.project_detail', project_id=p.id) }}">Open</a></div></td>
       </tr>
@@ -138,7 +138,7 @@
     <h2>Advanced analytics</h2>
     <span>
       <span id="adv-updated" class="muted">Updated
-        {{ adv.data.generated_at[:19]|replace("T"," ") }} UTC</span>
+        {{ adv.data.generated_at|localtime }} ({{ adv.data.timezone or "UTC" }})</span>
       <button id="adv-refresh" class="button secondary sm"
               type="button">Refresh</button>
     </span>
@@ -287,7 +287,8 @@
 <div class="dash-2col">
 <section class="card">
   <h2>Execution activity</h2>
-  <p class="muted"><small>Day-of-week × hour (<b>UTC</b>), last
+  <p class="muted"><small>Day-of-week × hour
+    (<b>{{ adv.data.timezone or "UTC" }}</b>), last
     {{ period }} days — each <b>logical run</b> counts once; retries
     and unit shards never inflate. Mode:
     <a href="{{ url_for('main.dashboard', days=period,
@@ -308,7 +309,7 @@
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
     <table class="data-table" id="adv-tbl-activity">
-      <thead><tr><th>Day</th><th>Hour (UTC)</th>
+      <thead><tr><th>Day</th><th>Hour ({{ adv.data.timezone or "UTC" }})</th>
         <th>logical runs</th></tr></thead>
       <tbody>{% for r in adv.activity_rows %}
         <tr><td>{{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][r.dow] }}</td>
