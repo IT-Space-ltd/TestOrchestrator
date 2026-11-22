@@ -202,6 +202,13 @@ connections upgrade unchanged).
   aware `utcnow()`, so any real UNKNOWN / expired-lease row raised
   `TypeError`. The route now normalizes stored values to UTC and
   binds a naive UTC `now` matching the stored format.
+- **Dashboard "Open" project link out of design** — the five-second
+  live poll rebuilt project rows with a bare hyperlink, undoing the
+  styled button the template rendered. The poll now emits the same
+  `secondary sm` button.
+- **Release timeline names truncated** — names were ellipsized at a
+  fixed 10 rem; they now wrap so the full name (e.g.
+  "R2026.11 — Documentation Demo") is readable.
 
 ### Notes
 
