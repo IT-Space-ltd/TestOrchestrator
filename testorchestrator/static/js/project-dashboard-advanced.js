@@ -83,6 +83,51 @@
           "</td><td>" + na(c.case_pass_rate) + "</td><td>" +
           na(c.median_duration) + "</td></tr>");
       });
+    } else if (key === "first_final") {
+      (tables.first_final || []).forEach(function (r) {
+        rows.push("<tr><td>" + esc(r.day) + "</td><td>" + r.total +
+          "</td><td>" + r.first_passed + "</td><td>" + r.final_passed +
+          "</td><td>" + r.retried + "</td><td>" + (r.excluded || 0) +
+          "</td></tr>");
+      });
+    } else if (key === "regression") {
+      (tables.duration_regression || []).forEach(function (r) {
+        var nn = function (v) {
+          return v === null || v === undefined ? "N/A" : v;
+        };
+        var mm = function (v, n) {
+          return (v === null || v === undefined ? "—" : v) + " (" + n + ")";
+        };
+        var links = (r.current_executions || []).map(function (eid) {
+          return "<a href='/executions/" + esc(eid) + "'><code>" +
+            esc(eid.slice(0, 8)) + "</code></a>";
+        }).join(" ");
+        var base = (r.baseline_executions || []).map(function (eid) {
+          return "<a href='/executions/" + esc(eid) + "'><code>" +
+            esc(eid.slice(0, 8)) + "</code></a>";
+        }).join(" ");
+        if (base) links += " <span class='muted'>| base:</span> " + base;
+        rows.push("<tr><td>" + esc(r.suite) + "</td><td>" +
+          mm(r.current_median_s, r.current_n) + "</td><td>" +
+          mm(r.baseline_median_s, r.baseline_n) + "</td><td>" +
+          nn(r.delta_s) + "</td><td>" + nn(r.delta_pct) + "</td><td>" +
+          links + "</td></tr>");
+      });
+    } else if (key === "freshness") {
+      (tables.evidence_freshness || []).forEach(function (r) {
+        var age = r.age_s === null || r.age_s === undefined ?
+          "—" : (r.age_s / 86400).toFixed(1) + "d";
+        var when = r.last_finished_at ?
+          r.last_finished_at.slice(0, 19).replace("T", " ") : "—";
+        var ev = r.last_execution_id ?
+          "<a href='/executions/" + esc(r.last_execution_id) +
+          "'><code>" + esc(r.last_execution_id.slice(0, 8)) +
+          "</code></a>" : "—";
+        rows.push("<tr><td>" + esc(r.suite) + "</td><td>" + esc(r.env) +
+          "</td><td>" + esc(r.state) + (r.beyond_window ? "*" : "") +
+          "</td><td>" + age + "</td><td>" + esc(when) + "</td><td>" +
+          esc(r.outcome || "—") + "</td><td>" + ev + "</td></tr>");
+      });
     }
     return rows.join("");
   }
@@ -99,7 +144,8 @@
       })
       .then(function (data) {
         if (seq !== serial) return;
-        ["history", "durations", "env"].forEach(function (k) {
+        ["history", "durations", "env", "first_final", "regression",
+          "freshness"].forEach(function (k) {
           draw(k, data.charts[k]);
           var tbl = document.getElementById("adv-tbl-" + k);
           if (tbl && tbl.tBodies && tbl.tBodies[0]) {

@@ -159,13 +159,16 @@ def first_final_trend(rows) -> str:
             y.append(round(100 * r[field] / r["total"], 1)
                      if r["total"] else None)
             cd.append({"num": r[field], "den": r["total"],
-                       "retried": r["retried"]})
+                       "retried": r["retried"],
+                       "excl": r.get("excluded", 0)})
         return {"type": "scatter", "mode": "lines+markers",
                 "name": name, "x": days, "y": y, "customdata": cd,
                 "line": {"color": color},
                 "hovertemplate":
                     "%{y}%  (%{customdata.num}/%{customdata.den}"
-                    " logical runs, %{customdata.retried} retried)"
+                    " logical runs, %{customdata.retried} retried,"
+                    " %{customdata.excl} excluded — first attempt"
+                    " never terminated)"
                     "<extra>" + name + "</extra>"}
 
     return _fig([_series("first_passed", "First attempt",
@@ -337,3 +340,140 @@ def env_comparison(cells, suites, envs, metric: str) -> str:
                            "categoryarray": suites},
                  "height": max(215, 40 * len(suites) + 90),
                  "uirevision": "adv-env"})
+
+
+def activity_heatmap(rows, mode: str, from_date: str = "",
+                     to_date: str = "") -> str:
+    """rows: [{dow, hour, count}] — day-of-week (Mon=0) × hour (UTC)
+    activity for logical runs. Sequential scale — magnitude, not
+    outcome. Cell customdata → exact executions-list cohort (same
+    period bound as the chart, so the list matches the count)."""
+    if not rows:
+        return "null"
+    dows = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+    hours = list(range(24))
+    zmap = {(r["dow"], r["hour"]): r["count"] for r in rows}
+    z, txt, cd = [], [], []
+    for di, dname in enumerate(dows):
+        zr, tr, cr = [], [], []
+        for h in hours:
+            n = zmap.get((di, h), 0)
+            zr.append(n)
+            tr.append(str(n) if n else "")
+            cr.append(_exec_url(activity=mode, dow=di, hour=h,
+                                from_date=from_date, to_date=to_date)
+                      if n else "")
+        z.append(zr); txt.append(tr); cd.append(cr)
+    trace = {"type": "heatmap", "z": z,
+             "x": [f"{h:02d}" for h in hours], "y": dows,
+             "text": txt, "texttemplate": "%{text}",
+             "customdata": cd,
+             "colorscale": _SEQ_SCALE, "showscale": True,
+             "zmin": 0, "xgap": 1, "ygap": 1,
+             "hovertemplate":
+                 "%{y} %{x}:00–%{x}:59 UTC — %{z} logical run(s)"
+                 "<extra>" + mode + "</extra>"}
+    return _fig([trace],
+                {"showlegend": False,
+                 "xaxis": {"title": "hour (UTC)"},
+                 "yaxis": {"automargin": True,
+                           "categoryorder": "array",
+                           "categoryarray": dows},
+                 "height": 240,
+                 "uirevision": "adv-activity-" + mode})
+
+
+def duration_regression_bars(rows, mode: str = "seconds") -> str:
+    """rows: [{suite, delta_s, delta_pct, current_median_s,
+    baseline_median_s, current_n, baseline_n, insufficient}].
+    Horizontal bars ranked by increase. mode 'seconds'|'percent'.
+    N/A rows (no/zero baseline) carry no bar; insufficient rows are
+    greyed so small samples don't read as reliable regressions."""
+    if not rows:
+        return "null"
+    key = "delta_pct" if mode == "percent" else "delta_s"
+    unit = "%" if mode == "percent" else "s"
+    y, x, colors, hov, text = [], [], [], [], []
+    for r in reversed(rows):          # plotly draws bottom-up
+        v = r[key]
+        y.append(r["suite"])
+        x.append(v if v is not None else 0)
+        colors.append("#9aa5b1" if r["insufficient"]
+                      else _PALETTE["running"])
+        base = ("baseline n=%d med %.1fs"
+                % (r["baseline_n"], r["baseline_median_s"])
+                if r["baseline_median_s"] is not None
+                else "no baseline")
+        cur = ("current n=%d med %.1fs"
+               % (r["current_n"], r["current_median_s"])
+               if r["current_median_s"] is not None
+               else "no current samples")
+        hov.append("%s — %s | %s%s" % (cur, base,
+                   ("Δ %+.*f" % (1, v) if v is not None else "N/A"),
+                   unit))
+        text.append(("insufficient (n<%d)" %
+                     (r["current_n"] if r["current_n"] < 3 else
+                      r["baseline_n"])) if r["insufficient"]
+                    else ("N/A" if v is None else ""))
+    trace = {"type": "bar", "orientation": "h",
+             "y": y, "x": x,
+             "marker": {"color": colors},
+             "text": text, "textposition": "outside",
+             "hovertext": hov,
+             "hovertemplate": "%{hovertext}<extra></extra>"}
+    return _fig([trace],
+                {"showlegend": False,
+                 "xaxis": {"title": ("median Δ %" if mode == "percent"
+                                     else "median Δ seconds"),
+                           "zeroline": True},
+                 "yaxis": {"automargin": True},
+                 "height": max(200, 26 * len(rows) + 80),
+                 "uirevision": "adv-regression-" + mode})
+
+
+def freshness_heatmap(rows, suites, envs,
+                      stale_days: float) -> str:
+    """rows: [{suite, env, state, age_s, last_execution_id,
+    last_finished_at, outcome}]. Age heatmap (sequential scale —
+    magnitude, not outcome). 'never' cells are unfilled with a label;
+    observed cells carry the execution link as customdata."""
+    if not rows:
+        return "null"
+    by = {(r["suite"], r["env"]): r for r in rows}
+    z, txt, hov, cd = [], [], [], []
+    for s in suites:
+        zr, tr, hr, cr = [], [], [], []
+        for e in envs:
+            r = by.get((s, e))
+            if r is None or r["state"] == "never":
+                zr.append(None)
+                tr.append("never")
+                hr.append(f"{s} · {e}<br>never observed")
+                cr.append("")
+                continue
+            days = (r["age_s"] or 0) / 86400
+            zr.append(round(days, 2))
+            tr.append(f"{days:.1f}d")
+            hr.append(f"{s} · {e}<br>{r['state']} — "
+                      f"{days:.1f} days since usable result<br>"
+                      f"last: {r['last_finished_at']} · "
+                      f"{r['outcome']}")
+            cr.append("/executions/" + r["last_execution_id"])
+        z.append(zr); txt.append(tr); hov.append(hr); cd.append(cr)
+    trace = {"type": "heatmap", "z": z,
+             "x": envs, "y": suites,
+             "text": txt, "texttemplate": "%{text}",
+             "hovertext": hov,
+             "hovertemplate": "%{hovertext}<extra></extra>",
+             "customdata": cd,
+             "colorscale": _SEQ_SCALE,
+             "colorbar": {"title": "days"}, "zmin": 0,
+             "xgap": 2, "ygap": 2}
+    return _fig([trace],
+                {"showlegend": False,
+                 "xaxis": {"title": "environment", "automargin": True},
+                 "yaxis": {"automargin": True,
+                           "categoryorder": "array",
+                           "categoryarray": suites},
+                 "height": max(200, 26 * len(suites) + 90),
+                 "uirevision": "adv-fresh"})

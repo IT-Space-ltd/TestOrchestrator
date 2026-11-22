@@ -27,7 +27,7 @@ from ..execution import (DiscoveredItem, Execution, ExecutionState,
                          Outcome, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)
 from ..extensions import db
-from ..models import Role, record_audit
+from ..models import Role, User, record_audit
 from ..security import role_required
 from . import portal_bp
 from .. import results as results_mod
@@ -396,6 +396,8 @@ def project_detail(project_id):
                          kind='suite').all()],
         suite_form=suite_form, plain_form=PlainForm(),
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
+        users=(User.query.order_by(User.username).all()
+               if current_user.role.value == "admin" else []),
         executions=Execution.query.filter_by(project_id=project_id)
         .order_by(Execution.created_at.desc()).limit(25).all(),
         discovered=_discovery_summary(project_id),
@@ -418,7 +420,6 @@ def project_access(project_id):
     with their roles — the inverse view of Users → Project access.
     Both edit the SAME membership list (User.allowed_projects);
     Administrator rows show 'through role', not a checkbox."""
-    from ..models import User
     project = _project_or_404(project_id)
     users = User.query.order_by(User.username).all()
     return render_template(
@@ -429,7 +430,6 @@ def project_access(project_id):
 @portal_bp.route("/projects/<project_id>/access", methods=["POST"])
 @role_required(Role.ADMIN)
 def save_project_access(project_id):
-    from ..models import User
     project = _project_or_404(project_id)
     PlainForm().validate_on_submit()
     wanted = {int(x) for x in request.form.getlist("user_ids")
@@ -455,8 +455,8 @@ def save_project_access(project_id):
         flash(f"Access updated ({len(changes)} change(s)).", "info")
     else:
         flash("No changes.", "info")
-    return redirect(url_for("portal.project_access",
-                            project_id=project.id))
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="access"))
 
 
 @portal_bp.route("/projects/<project_id>/dashboard")
@@ -502,12 +502,16 @@ def _proj_adv(project_id: str, args):
     by /projects/<id>/analytics."""
     from .. import analytics
     from ..charts import (env_comparison, result_history,
-                          suite_duration_box)
+                          suite_duration_box, first_final_trend,
+                          duration_regression_bars, freshness_heatmap)
     days = args.get("period", 30, type=int) or 30
     env_metric = args.get("env_metric") or "case_pass_rate"
     if env_metric not in ("case_pass_rate", "run_pass_rate",
                           "median_duration"):
         env_metric = "case_pass_rate"
+    reg_mode = args.get("reg_mode") or "seconds"
+    if reg_mode not in ("seconds", "percent"):
+        reg_mode = "seconds"
     data = analytics.project_analytics(
         project_id, days,
         suite=args.get("suite", ""),
@@ -515,12 +519,18 @@ def _proj_adv(project_id: str, args):
         source_ref=args.get("source_ref", ""),
         environment=args.get("environment", ""))
     return {
-        "data": data, "env_metric": env_metric,
+        "data": data, "env_metric": env_metric, "reg_mode": reg_mode,
         "fig_history": result_history(data["history"]),
         "fig_durations": suite_duration_box(data["suite_durations"]),
         "fig_env": env_comparison(
             data["env_cells"], data["env_suites"], data["env_envs"],
             env_metric),
+        "fig_first_final": first_final_trend(data["first_final"]),
+        "fig_regression": duration_regression_bars(
+            data["duration_regression"], reg_mode),
+        "fig_freshness": freshness_heatmap(
+            data["evidence_freshness"], data["freshness_suites"],
+            data["freshness_envs"], data["freshness_threshold_days"]),
     }
 
 
@@ -559,6 +569,23 @@ def project_analytics(project_id):
              "case_total": c["case_total"],
              "median_duration_s": c["median_duration"]}
             for c in d["env_cells"]]
+        reg_rows = [
+            {"suite": r["suite"],
+             "current_median_s": r["current_median_s"],
+             "baseline_median_s": r["baseline_median_s"],
+             "current_n": r["current_n"],
+             "baseline_n": r["baseline_n"],
+             "delta_s": r["delta_s"], "delta_pct": r["delta_pct"],
+             "insufficient": r["insufficient"]}
+            for r in d["duration_regression"]]
+        fresh_rows = [
+            {"suite": r["suite"], "environment": r["env"],
+             "state": r["state"], "age_s": r["age_s"],
+             "last_execution_id": r["last_execution_id"],
+             "last_finished_at": r["last_finished_at"],
+             "outcome": r["outcome"],
+             "beyond_window": r["beyond_window"]}
+            for r in d["evidence_freshness"]]
         rows_map = {
             "history": (["case", "run", "execution_id", "attempt",
                          "status", "duration_s"], hist_rows),
@@ -568,6 +595,17 @@ def project_analytics(project_id):
                              "runs_passed", "run_pass_rate",
                              "case_pass_rate", "case_total",
                              "median_duration_s"], env_rows),
+            "first_final": (["day", "total", "first_passed",
+                             "final_passed", "retried", "excluded"],
+                            d["first_final"]),
+            "duration_regression": (
+                ["suite", "current_median_s", "baseline_median_s",
+                 "current_n", "baseline_n", "delta_s", "delta_pct",
+                 "insufficient"], reg_rows),
+            "evidence_freshness": (
+                ["suite", "environment", "state", "age_s",
+                 "last_execution_id", "last_finished_at", "outcome",
+                 "beyond_window"], fresh_rows),
         }
         if name not in rows_map:
             return jsonify({"error": "unknown chart"}), 404
@@ -585,8 +623,15 @@ def project_analytics(project_id):
                     "charts": {"history": json.loads(adv["fig_history"]),
                                "durations": json.loads(
                                    adv["fig_durations"]),
-                               "env": json.loads(adv["fig_env"])},
-                    "env_metric": adv["env_metric"]})
+                               "env": json.loads(adv["fig_env"]),
+                               "first_final": json.loads(
+                                   adv["fig_first_final"]),
+                               "regression": json.loads(
+                                   adv["fig_regression"]),
+                               "freshness": json.loads(
+                                   adv["fig_freshness"])},
+                    "env_metric": adv["env_metric"],
+                    "reg_mode": adv["reg_mode"]})
 
 
 @portal_bp.route("/projects/<project_id>/bindings", methods=["POST"])
@@ -1407,18 +1452,65 @@ def executions():
         runs = _an.resolve_logical_runs(scope.limit(50000).all())
         final_ids = [r["final"].id for r in runs if r["final"]]
         q = q.filter(Execution.id.in_(final_ids))
+    activity_mode = (args.get("activity") in ("submitted", "started")
+                     and args.get("dow") is not None
+                     and args.get("hour") is not None)
+    if activity_mode:
+        # Exact drill-through for the activity heatmap: logical runs
+        # whose submitted time (head created_at) or first-execution
+        # start (earliest member started_at) falls in this UTC
+        # weekday×hour bucket, inside the chart's period window
+        # (from_date/to_date bound the BUCKET timestamp here, not the
+        # row's created_at, so the listed cohort equals the count).
+        # Retries/units never inflate — the run's resolved attempt (or
+        # head when unresolved) is shown.
+        from .. import analytics as _an
+        dow, hour = int(args["dow"]), int(args["hour"])
+        scope = Execution.query
+        if member_ids is not None:
+            scope = scope.filter(
+                Execution.project_id.in_(member_ids))
+        mode = args["activity"]
+        lo = hi = None
+        try:
+            lo = datetime.strptime(args.get("from_date", ""),
+                                   "%Y-%m-%d") \
+                if args.get("from_date") else None
+            hi = datetime.strptime(args.get("to_date", ""),
+                                   "%Y-%m-%d") + timedelta(days=1) \
+                if args.get("to_date") else None
+        except ValueError:
+            lo = hi = None
+        ids = []
+        for r in _an.resolve_logical_runs(scope.limit(50000).all()):
+            if mode == "submitted":
+                t = r["head"].created_at
+            else:
+                t = min((m.started_at for m in r["members"]
+                         if m.started_at), default=None)
+            if t is None:
+                continue
+            if t.tzinfo is None:
+                from datetime import timezone as _tz
+                t = t.replace(tzinfo=_tz.utc)
+            t = t.replace(tzinfo=None)
+            if (lo and t < lo) or (hi and t >= hi):
+                continue
+            if t.weekday() == dow and t.hour == hour:
+                ids.append((r["final"] or r["head"]).id)
+        q = q.filter(Execution.id.in_(ids))
     if args.get("origin", "") in ("live", "imported"):
         q = q.filter(Execution.origin == args["origin"])
     if args.get("framework", ""):
         q = q.filter(Execution.framework == args["framework"])
-    if args.get("from_date", ""):
+    if not activity_mode and args.get("from_date", ""):
         try:
             q = q.filter(Execution.created_at >=
                          datetime.strptime(args["from_date"],
                                            "%Y-%m-%d"))
         except ValueError:
             pass
-    if args.get("to_date", ""):
+    if not activity_mode and args.get("to_date", ""):
         try:
             q = q.filter(Execution.created_at <
                          datetime.strptime(args["to_date"],

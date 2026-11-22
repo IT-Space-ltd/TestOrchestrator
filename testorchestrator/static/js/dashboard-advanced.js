@@ -70,7 +70,8 @@
       (tables.first_final || []).forEach(function (r) {
         rows.push("<tr><td>" + esc(r.day) + "</td><td>" + r.total +
           "</td><td>" + r.first_passed + "</td><td>" + r.final_passed +
-          "</td><td>" + r.retried + "</td></tr>");
+          "</td><td>" + r.retried + "</td><td>" + (r.excluded || 0) +
+          "</td></tr>");
       });
     } else if (key === "queue") {
       (tables.queue_wait || []).forEach(function (r) {
@@ -80,6 +81,13 @@
       (tables.turnaround || []).forEach(function (r) {
         rows.push("<tr><td>" + esc(r.day) + "</td><td>turnaround</td><td>" +
           r.n + "</td><td>" + r.median + "</td><td>" + r.p95 + "</td></tr>");
+      });
+    } else if (key === "activity") {
+      var DOW = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+      (tables.activity_rows || []).forEach(function (r) {
+        var h = ("0" + r.hour).slice(-2);
+        rows.push("<tr><td>" + DOW[r.dow] + "</td><td>" + h +
+          ":00–" + h + ":59</td><td>" + r.count + "</td></tr>");
       });
     }
     return rows.join("");
@@ -97,7 +105,8 @@
       })
       .then(function (data) {
         if (seq !== serial) return;            // stale response
-        ["comparison", "first_final", "queue"].forEach(function (k) {
+        ["comparison", "first_final", "queue", "activity"]
+          .forEach(function (k) {
           draw(k, data.charts[k]);
           var tbl = document.getElementById("adv-tbl-" + k);
           if (tbl && tbl.tBodies && tbl.tBodies[0]) {

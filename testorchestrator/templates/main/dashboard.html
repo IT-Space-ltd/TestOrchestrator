@@ -220,11 +220,11 @@
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
     <table class="data-table" id="adv-tbl-first_final">
       <thead><tr><th>Day</th><th>runs</th><th>first ✓</th>
-        <th>final ✓</th><th>retried</th></tr></thead>
+        <th>final ✓</th><th>retried</th><th>excluded</th></tr></thead>
       <tbody>{% for r in adv.data.first_final %}
         <tr><td>{{ r.day }}</td><td>{{ r.total }}</td>
           <td>{{ r.first_passed }}</td><td>{{ r.final_passed }}</td>
-          <td>{{ r.retried }}</td></tr>
+          <td>{{ r.retried }}</td><td>{{ r.excluded }}</td></tr>
       {% endfor %}</tbody></table></details>
   <p><a class="button secondary sm" href="{{ url_for(
       'main.dashboard_analytics', days=period, format='csv',
@@ -284,6 +284,43 @@
 </section>
 </div>
 
+<div class="dash-2col">
+<section class="card">
+  <h2>Execution activity</h2>
+  <p class="muted"><small>Day-of-week × hour (<b>UTC</b>), last
+    {{ period }} days — each <b>logical run</b> counts once; retries
+    and unit shards never inflate. Mode:
+    <a href="{{ url_for('main.dashboard', days=period,
+        activity='submitted', cmp_mode=adv.cmp_mode,
+        queue=adv.queue_mode) }}">submitted</a> ·
+    <a href="{{ url_for('main.dashboard', days=period,
+        activity='started', cmp_mode=adv.cmp_mode,
+        queue=adv.queue_mode) }}">started</a>
+    — currently <b>{{ adv.act_mode }}</b>
+    {%- if adv.act_mode == 'started' %} (runs that never started are
+      excluded){% endif %}. Click a cell for the exact cohort.</small></p>
+  <div id="adv-activity" data-adv="activity"
+       {% if adv.fig_activity != 'null' %}
+       data-plotly-fig='{{ adv.fig_activity }}'{% endif %}></div>
+  {% if adv.fig_activity == 'null' %}
+  <p class="muted">Insufficient data — no logical runs in this
+    period.</p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="data-table" id="adv-tbl-activity">
+      <thead><tr><th>Day</th><th>Hour (UTC)</th>
+        <th>logical runs</th></tr></thead>
+      <tbody>{% for r in adv.activity_rows %}
+        <tr><td>{{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][r.dow] }}</td>
+          <td>{{ '%02d'|format(r.hour) }}:00–{{ '%02d'|format(r.hour) }}:59</td>
+          <td>{{ r.count }}</td></tr>
+      {% endfor %}</tbody></table></details>
+  <p><a class="button secondary sm" href="{{ url_for(
+      'main.dashboard_analytics', days=period, format='csv',
+      chart='activity', activity=adv.act_mode) }}">CSV</a></p>
+</section>
+</div>
+
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 
@@ -293,5 +330,6 @@
         defer
         data-url="{{ url_for('main.dashboard_analytics', days=period,
                             cmp_mode=adv.cmp_mode,
-                            queue=adv.queue_mode) }}"></script>
+                            queue=adv.queue_mode,
+                            activity=adv.act_mode) }}"></script>
 {% endblock %}

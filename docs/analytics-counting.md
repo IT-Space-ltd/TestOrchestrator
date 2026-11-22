@@ -53,9 +53,24 @@ disclosed, never silently dropped.
 **First-attempt vs final pass rate** — unit: logical run. Per day
 (first-attempt finish day): `first` = share of terminal head attempts
 with outcome `passed`; `final` = share of the same cohort whose final
-resolved attempt passed. Hover shows passed/total and the retry count.
+resolved attempt passed. Hover shows passed/total, the retry count,
+and `excluded` — logical runs dropped that day because their first
+attempt never terminated; with no finish day to group by, the
+exclusion is attributed to the submission day (disclosed, not hidden).
 Run-level metric — not comparable with the case-level pass-rate chart
-on the project dashboard.
+on the project dashboard. The same `_first_final_rows` aggregation and
+this same definition drive the project-dashboard copy of the chart —
+there is no second calculation.
+
+**Execution activity** — unit: logical run, counted exactly once.
+Day-of-week (Mon=0) × hour buckets in **UTC** over the selected
+period. Two modes: `submitted` uses the chain head's `created_at`;
+`started` uses the earliest `started_at` across the chain's members —
+runs that never started are excluded from `started` mode, not bucketed
+at enqueue time. Retries and unit shards never inflate: a chain head
+plus its retry contributes one count to one bucket. The card shows the
+timezone, period and exact per-cell counts (cell text + data table +
+CSV all carry the same numbers).
 
 **Queue wait & turnaround** — unit: dispatchable attempt
 (`role in ("", "unit")`; `role="parent"` rows own no process and are
@@ -112,6 +127,46 @@ silently merged. Cell hover shows the sample counts. Sequential
 blue scale — distinct from the outcome palette so magnitudes are not
 read as pass/fail. Bounded to 12 suite rows × 8 environment columns.
 
+**First-attempt vs final pass rate** — identical aggregation to the
+main-dashboard chart (`_first_final_rows`, same cohort, same
+counting); the project's suite/status/source-ref/environment filters
+narrow the underlying executions first. No drill-through — the
+accepted Group A limitation, stated inline on the card.
+
+**Suite-duration regression** — unit: logical run, **resolved-attempt
+wall-clock duration** (same definition as the duration distribution —
+child-unit time is never summed). For each suite, the median over the
+current period is compared against the median over the **previous
+equal-length period** (same `days` width, immediately before), with
+the same suite/source-ref/environment filters applied to both sides.
+Chains are resolved once over the combined window, then assigned to
+current or baseline by the *final resolved attempt's* finish — a head
+finishing in baseline whose retry finishes in current counts only in
+current. Suites are ranked by duration increase (N/A last, name
+tiebreak). Both views: Δ seconds and Δ percent; Δ% is `N/A` when the
+baseline is missing or zero. A suite with fewer than 3 samples on
+either side is flagged *insufficient* and rendered grey — a small
+sample is never presented as a reliable regression. The data table
+lists the contributing executions for both periods (up to 10 links per
+side, disclosed). Bounded to 12 suites.
+
+**Evidence freshness** — unit: suite × environment cell. For each
+combination in scope, elapsed time since the **latest usable result**.
+*Usable result* = a terminal attempt of a logical run that produced at
+least one `TestResult` row — a complete **failing** result is still
+evidence; freshness is never "time since last pass". The lookup runs
+over **all history**, not the page period: cells older than the
+period are marked `beyond_window` (shown as `*` on the card) rather
+than "never observed". States: `fresh` ≤ **7 days** (documented
+constant `EVIDENCE_STALE_DAYS`, no new policy-management feature),
+`stale` > 7 days, `never` — and `never` is only emitted where **both**
+the suite exists in configuration (suites table; "(no suite)" appears
+when evidence exists with no suite) **and** the environment has been
+used historically. A combination cannot be labeled never-observed
+unless both sides are known to exist. Each cell shows the last
+result's timestamp, outcome and an exact link to that execution.
+Bounded to 12 suites × 8 environments.
+
 ## Display bounds — deterministic selection and omitted records
 
 Bounds are **display limits, not aggregation limits**: every cell,
@@ -126,6 +181,9 @@ describe the *same* bounded scope — a subset never appears as a total.
 | 20 run columns (history) | latest 20 terminal attempts by finish time | same — filters select the cohort |
 | 12 suites (box plot) | most samples, then suite name | filter by suite |
 | 12×8 env matrix | first suites/envs alphabetically | filter by suite/environment |
+| 12 suites (regression) | greatest duration increase, then name | filter by suite |
+| 10 exec links/side (regression table) | the first 10 contributing executions | the executions list under the same filters |
+| 12×8 freshness matrix | first suites/envs alphabetically | filter by suite/environment |
 
 Truncation is disclosed on the card when active. The CSV exports the
 bounded scope shown — the flags in the JSON payload
@@ -137,6 +195,9 @@ bounded scope shown — the flags in the JSON payload
 - **Environment cell** → `/executions?project_id&suite_id&environment&final=1` — the final resolved attempts that produced the cell's run metrics; case-level metrics derive from those same runs' results.
 - **History cell** → `/executions/<id>` — the exact attempt (unambiguous).
 - **Queue-chart point** → `/executions?from_date&to_date&role=dispatch` — that day's enqueue cohort of dispatchable attempts; the median/p95 sample additionally requires both timestamps, which the list cannot express (documented difference, not a silent filter).
+- **Activity cell** → `/executions?activity=<mode>&dow&hour&from_date&to_date` — the bounded activity filter resolves logical runs the same way the chart does and shows exactly the resolved attempts in that UTC day-of-week×hour bucket inside the same period; the list count equals the cell count.
+- **Regression table row** → the contributing executions are linked directly (`/executions/<id>`) for both periods.
+- **Freshness cell** → `/executions/<id>` — the exact attempt that produced the latest usable result.
 - **First-vs-final chart** — intentionally no click-through: the cohort is defined by the *first* attempt's finish day, which ordinary list filters cannot express ("final attempts whose chain head finished on day X"). A list filtered by final-attempt day would show a *different* cohort — showing that silently would be wrong.
 
 ## Missing data

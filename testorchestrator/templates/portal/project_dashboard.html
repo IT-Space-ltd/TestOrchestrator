@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="card"><h1>{{ project.name }} — Dashboard</h1>
+<div class="card"><h1>{{ project.name }} — Dashboard
+  <a class="button ghost sm" style="float:right"
+     href="{{ url_for('portal.project_detail',
+                      project_id=project.id) }}">← Project</a></h1>
   <form method="get" class="filter-bar">
     <label>Period
       <select name="period">
@@ -267,6 +270,152 @@
 </section>
 </div>
 
+<div class="dash-2col">
+<section class="card">
+  <h2>First-attempt vs final pass rate</h2>
+  <p class="muted"><small><b>Logical runs</b> — each day's cohort
+    (grouped by the first attempt's finish day) passing on first try
+    vs after retries resolve. Hover shows n/denominator/retries.
+    Run-level metric — not comparable with the case-level pass rate.
+    <b>No drill-through</b> — the cohort is defined by the first
+    attempt's finish day, which the executions list cannot filter
+    on.</small></p>
+  <div id="adv-first-final" data-adv="first_final"
+       {% if adv.fig_first_final != 'null' %}
+       data-plotly-fig='{{ adv.fig_first_final }}'{% endif %}></div>
+  {% if adv.fig_first_final == 'null' %}
+  <p class="muted">Insufficient data — no terminal logical runs in
+    this period.</p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="data-table" id="adv-tbl-first_final">
+      <thead><tr><th>Day</th><th>runs</th><th>first ✓</th>
+        <th>final ✓</th><th>retried</th><th>excluded</th></tr></thead>
+      <tbody>{% for r in adv.data.first_final %}
+        <tr><td>{{ r.day }}</td><td>{{ r.total }}</td>
+          <td>{{ r.first_passed }}</td><td>{{ r.final_passed }}</td>
+          <td>{{ r.retried }}</td><td>{{ r.excluded }}</td></tr>
+      {% endfor %}</tbody></table></details>
+  <p><a class="button secondary sm" href="{{ url_for(
+      'portal.project_analytics', project_id=project.id, period=days,
+      suite=sel_suite, state=sel_state, source_ref=sel_source_ref,
+      environment=sel_environment, format='csv',
+      chart='first_final') }}">CSV</a></p>
+</section>
+<section class="card">
+  <h2>Suite-duration regression</h2>
+  <p class="muted"><small>Median <b>logical-run wall-clock</b>
+    duration per suite — {{ adv.data.regression_baseline.current_from }} →
+    {{ adv.data.regression_baseline.current_to }} vs baseline
+    {{ adv.data.regression_baseline.from }} →
+    {{ adv.data.regression_baseline.to }} (same filters, never summed
+    child units). Ranked by increase. Show:
+    <a href="{{ url_for('portal.project_dashboard',
+        project_id=project.id, period=days, suite=sel_suite,
+        state=sel_state, source_ref=sel_source_ref,
+        environment=sel_environment, env_metric=adv.env_metric,
+        reg_mode='seconds') }}">seconds</a> ·
+    <a href="{{ url_for('portal.project_dashboard',
+        project_id=project.id, period=days, suite=sel_suite,
+        state=sel_state, source_ref=sel_source_ref,
+        environment=sel_environment, env_metric=adv.env_metric,
+        reg_mode='percent') }}">% change</a>
+    — currently <b>{{ adv.reg_mode }}</b>. Grey rows have n&lt;3 on a
+    side — insufficient, not reliable regressions; N/A = no/zero
+    baseline.</small></p>
+  <div id="adv-regression" data-adv="regression"
+       {% if adv.fig_regression != 'null' %}
+       data-plotly-fig='{{ adv.fig_regression }}'{% endif %}></div>
+  {% if adv.fig_regression == 'null' %}
+  <p class="muted">Insufficient data — no suite durations in either
+    period.</p>
+  {% endif %}
+  {% if adv.data.duration_regression_truncated %}
+  <p class="muted"><small>Bounded view — top 12 suites by increase;
+    filter by suite to reach the rest.</small></p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="data-table" id="adv-tbl-regression">
+      <thead><tr><th>Suite</th><th>Current med s (n)</th>
+        <th>Baseline med s (n)</th><th>Δ s</th><th>Δ %</th>
+        <th>Runs</th></tr></thead>
+      <tbody>{% for r in adv.data.duration_regression %}
+        <tr><td>{{ r.suite }}</td>
+          <td>{{ r.current_median_s if r.current_median_s is not none else '—' }}
+            ({{ r.current_n }})</td>
+          <td>{{ r.baseline_median_s if r.baseline_median_s is not none else '—' }}
+            ({{ r.baseline_n }})</td>
+          <td>{{ r.delta_s if r.delta_s is not none else 'N/A' }}</td>
+          <td>{{ r.delta_pct if r.delta_pct is not none else 'N/A' }}</td>
+          <td>{% for eid in r.current_executions %}
+            <a href="{{ url_for('portal.execution_detail',
+                execution_id=eid) }}"><code>{{ eid[:8] }}</code></a>
+            {% endfor %}
+            {% if r.baseline_executions %}
+            <span class="muted">| base:</span>
+            {% for eid in r.baseline_executions %}
+            <a href="{{ url_for('portal.execution_detail',
+                execution_id=eid) }}"><code>{{ eid[:8] }}</code></a>
+            {% endfor %}{% endif %}</td></tr>
+      {% endfor %}</tbody></table></details>
+  <p><a class="button secondary sm" href="{{ url_for(
+      'portal.project_analytics', project_id=project.id, period=days,
+      suite=sel_suite, state=sel_state, source_ref=sel_source_ref,
+      environment=sel_environment, format='csv',
+      chart='duration_regression') }}">CSV</a></p>
+</section>
+</div>
+
+<div class="dash-2col">
+<section class="card">
+  <h2>Evidence freshness</h2>
+  <p class="muted"><small>Time since the latest <b>usable result</b>
+    per suite × environment — usable = a terminal attempt that
+    produced ≥1 test result (a complete <i>failing</i> result still
+    counts). Stale after
+    {{ adv.data.freshness_threshold_days }} days (documented default).
+    Looked up across <b>all history</b> — cells marked * report
+    evidence older than the current period, not "never observed".
+    "Never" only appears where both the suite (configuration) and
+    environment (history) are known to exist. Click a cell for the
+    evidence.</small></p>
+  <div id="adv-freshness" data-adv="freshness"
+       {% if adv.fig_freshness != 'null' %}
+       data-plotly-fig='{{ adv.fig_freshness }}'{% endif %}></div>
+  {% if adv.fig_freshness == 'null' %}
+  <p class="muted">No suite × environment combinations in
+    scope.</p>
+  {% endif %}
+  {% if adv.data.freshness_truncated_suites or
+        adv.data.freshness_truncated_envs %}
+  <p class="muted"><small>Bounded view — first 12 suites × 8
+    environments; filter by suite/environment to reach the
+    rest.</small></p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="data-table" id="adv-tbl-freshness">
+      <thead><tr><th>Suite</th><th>Environment</th><th>State</th>
+        <th>Age</th><th>Last result</th><th>Outcome</th>
+        <th>Evidence</th></tr></thead>
+      <tbody>{% for r in adv.data.evidence_freshness %}
+        <tr><td>{{ r.suite }}</td><td>{{ r.env }}</td>
+          <td><span class="badge {% if r.state == 'fresh' %}outcome-passed{% elif r.state == 'stale' %}warn{% else %}{% endif %}">{{ r.state }}{% if r.beyond_window %}*{% endif %}</span></td>
+          <td>{{ '%.1fd'|format(r.age_s / 86400) if r.age_s is not none else '—' }}</td>
+          <td>{{ r.last_finished_at[:19]|replace('T',' ') if r.last_finished_at else '—' }}</td>
+          <td>{{ r.outcome or '—' }}</td>
+          <td>{% if r.last_execution_id %}
+            <a href="{{ url_for('portal.execution_detail',
+                execution_id=r.last_execution_id) }}"><code>{{ r.last_execution_id[:8] }}</code></a>
+            {% else %}—{% endif %}</td></tr>
+      {% endfor %}</tbody></table></details>
+  <p><a class="button secondary sm" href="{{ url_for(
+      'portal.project_analytics', project_id=project.id, period=days,
+      suite=sel_suite, state=sel_state, source_ref=sel_source_ref,
+      environment=sel_environment, format='csv',
+      chart='evidence_freshness') }}">CSV</a></p>
+</section>
+</div>
+
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 <script src="{{ url_for('static',
@@ -276,5 +425,6 @@
                             suite=sel_suite, state=sel_state,
                             source_ref=sel_source_ref,
                             environment=sel_environment,
-                            env_metric=adv.env_metric) }}"></script>
+                            env_metric=adv.env_metric,
+                            reg_mode=adv.reg_mode) }}"></script>
 {% endblock %}

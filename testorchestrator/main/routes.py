@@ -77,7 +77,7 @@ def _main_adv(user, args):
     /dashboard/analytics serves the same payload as JSON/CSV."""
     from .. import analytics
     from ..charts import (project_outcome_bars, first_final_trend,
-                          queue_wait_trend)
+                          queue_wait_trend, activity_heatmap)
     days = max(1, min(int(args.get("days", 30, type=int) or 30),
                       analytics.MAX_PERIOD_DAYS))
     data = analytics.main_analytics(user, days)
@@ -86,18 +86,29 @@ def _main_adv(user, args):
     queue_mode = (args.get("queue") or "both")
     if queue_mode not in ("wait", "turnaround", "both"):
         queue_mode = "both"
+    act_mode = (args.get("activity") or "submitted")
+    if act_mode not in ("submitted", "started"):
+        act_mode = "submitted"
     w = data["queue_wait"] if queue_mode in ("wait", "both") else []
     t = data["turnaround"] if queue_mode in ("turnaround", "both") else []
+    act_rows = (data["activity_submitted"] if act_mode == "submitted"
+                else data["activity_started"])
     from datetime import date, timedelta as _td
     to_d = date.today().isoformat()
     from_d = (date.today() - _td(days=days)).isoformat()
+    merged = dict(data)
+    merged["activity_rows"] = act_rows
     return {
-        "data": data,
+        "data": merged,
         "cmp_mode": cmp_mode, "queue_mode": queue_mode,
+        "act_mode": act_mode,
         "fig_comparison": project_outcome_bars(
             data["project_outcomes"], cmp_mode, from_d, to_d),
         "fig_first_final": first_final_trend(data["first_final"]),
         "fig_queue": queue_wait_trend(w, t),
+        "fig_activity": activity_heatmap(act_rows, act_mode,
+                                       from_d, to_d),
+        "activity_rows": act_rows,
     }
 
 
@@ -120,12 +131,14 @@ def dashboard_analytics():
                 d["project_outcomes"]),
             "first_final": (
                 ["day", "total", "first_passed", "final_passed",
-                 "retried"],
+                 "retried", "excluded"],
                 d["first_final"]),
             "queue_wait": (["day", "n", "median", "p95"],
                            d["queue_wait"]),
             "turnaround": (["day", "n", "median", "p95"],
                            d["turnaround"]),
+            "activity": (["dow", "hour", "count"],
+                         adv["activity_rows"]),
         }
         if name not in rows_map:
             return jsonify({"error": "unknown chart"}), 404
@@ -144,9 +157,12 @@ def dashboard_analytics():
                                    adv["fig_comparison"]),
                                "first_final": json.loads(
                                    adv["fig_first_final"]),
-                               "queue": json.loads(adv["fig_queue"])},
+                               "queue": json.loads(adv["fig_queue"]),
+                               "activity": json.loads(
+                                   adv["fig_activity"])},
                     "cmp_mode": adv["cmp_mode"],
-                    "queue_mode": adv["queue_mode"]})
+                    "queue_mode": adv["queue_mode"],
+                    "act_mode": adv["act_mode"]})
 
 
 @main_bp.route("/dashboard/data")

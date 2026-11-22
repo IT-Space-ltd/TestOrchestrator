@@ -465,6 +465,7 @@ pre.example {
                  text-decoration: none; }
 .tab-bar label:hover, .tab-bar a.tsub:hover { color: #dfe7ee; }
 #tab-bindings:checked ~ .tab-bar label[for=tab-bindings],
+#tab-access:checked ~ .tab-bar label[for=tab-access],
 #tab-dash:checked ~ .tab-bar label[for=tab-dash],
 #tab-test:checked ~ .tab-bar label[for=tab-test],
 #tab-schedexec:checked ~ .tab-bar label[for=tab-schedexec],
@@ -473,6 +474,7 @@ pre.example {
   { color: #eef3f7; border-color: #334; background: #1c2630; }
 .tab-panel { display: none; }
 #tab-bindings:checked ~ #panel-bindings,
+#tab-access:checked ~ #panel-access,
 #tab-dash:checked ~ #panel-dash,
 #tab-test:checked ~ #panel-test,
 #tab-schedexec:checked ~ #panel-schedules,
