@@ -240,6 +240,7 @@ def _md_to_html(text: str) -> str:
     def _inline(line: str) -> str:
         line = re.sub(r"`([^`]+)`", r"<code>\1</code>", line)
         line = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", line)
+        line = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", line)
         line = re.sub(
             r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
             r'<a href="\2" rel="noopener noreferrer">\1</a>', line)
@@ -248,7 +249,10 @@ def _md_to_html(text: str) -> str:
     def _flush_li():
         nonlocal li
         if li is not None:
-            out.append(f"<li>{_inline(li)}</li>")
+            subs = "".join(
+                f"<li>{_inline(' '.join(s))}</li>" for s in li["subs"])
+            nested = f"<ul>{subs}</ul>" if subs else ""
+            out.append(f"<li>{_inline(li['text'])}{nested}</li>")
             li = None
 
     def _flush_para():
@@ -278,12 +282,19 @@ def _md_to_html(text: str) -> str:
             _flush_li(); _flush_para(); _flush_list()
             out.append("<hr>")
             continue
-        bm = re.match(r"^\s*[-*]\s+(.*)", line)
+        bm = re.match(r"^(\s*)[-*]\s+(.*)", line)
         if bm:
+            indent = len(bm.group(1).expandtabs(4))
+            if indent >= 2 and li is not None:
+                # nested bullet inside the open item (one level —
+                # enough for the changelog's grouped sub-points)
+                _flush_para()
+                li["subs"].append([bm.group(2).strip()])
+                continue
             _flush_li(); _flush_para()
             if not in_list:
                 out.append("<ul>"); in_list = True
-            li = bm.group(1).strip()
+            li = {"text": bm.group(2).strip(), "subs": []}
             continue
         # Continuation: soft-wrapped text joins the open bullet item if
         # one is open, otherwise accumulates into the paragraph — a
@@ -291,7 +302,11 @@ def _md_to_html(text: str) -> str:
         # Markup.__radd__ from re-escaping the already-escaped left
         # operand (& -> &amp; -> &amp;amp;).
         if li is not None:
-            li += " " + str(line).strip()
+            lead = len(raw) - len(raw.lstrip(" \t"))
+            if li["subs"] and lead >= 4:
+                li["subs"][-1].append(str(line).strip())
+            else:
+                li["text"] += " " + str(line).strip()
         else:
             para.append(str(line).strip())
     _flush_li(); _flush_para(); _flush_list()

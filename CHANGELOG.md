@@ -101,7 +101,7 @@ connections upgrade unchanged).
   and the shared semantic palette (counting policy:
   `docs/analytics-counting.md`). Existing charts, metric strips
   and tables are unchanged.
-  Main Dashboard:
+- **Main Dashboard:**
   - *Project outcome comparison* — horizontal stacked bars of
     terminal **logical runs** per project by final resolved
     outcome (counts/% toggle; click-through to filtered
@@ -113,7 +113,7 @@ connections upgrade unchanged).
     dispatchable attempts; turnaround is honestly labelled
     enqueue→finished (no dedicated results-ready timestamp exists
     — the instrumentation gap is documented).
-  Project Dashboard (follows the page's existing filters):
+- **Project Dashboard** (follows the page's existing filters):
   - *Test-result history* — case × attempt heatmap; color AND a
     P/F/E/S letter per cell (never color alone), empty cells for
     "case not in run", click-through to the run's evidence.
@@ -123,15 +123,44 @@ connections upgrade unchanged).
     selectable metric (case pass rate / run pass rate / median
     duration), sequential blue scale, "(unset)" column, cell
     drill-through.
-  Infrastructure: `analytics.py` aggregation (membership-scoped,
-  bounded, disclosed truncation), `/dashboard/analytics` and
-  `/projects/<id>/analytics` JSON + CSV endpoints, manual Refresh
-  (never the 5 s live poll — zoom/legend preserved via
-  `uirevision`), collapsible data tables under every chart, and
-  Executions-list `suite_id`/`environment` filters for
-  drill-through. Group B charts (activity heatmap, project
-  first-vs-final, duration regression, evidence freshness) follow
-  after Group A acceptance.
+- **Infrastructure:** `analytics.py` aggregation
+  (membership-scoped, bounded, disclosed truncation),
+  `/dashboard/analytics` and `/projects/<id>/analytics` JSON +
+  CSV endpoints, manual Refresh (never the 5 s live poll —
+  zoom/legend preserved via `uirevision`), collapsible data
+  tables under every chart, and Executions-list
+  `suite_id`/`environment` filters for drill-through.
+- **Advanced analytics (Group B)** — four further charts beneath
+  the same dashboards, same logical-run counting policy
+  (`docs/analytics-counting.md`):
+  - *Execution activity* (Main Dashboard) — day-of-week × hour
+    (UTC) heatmap counting each logical run once; submitted vs
+    started selector (started = first actual execution start,
+    never-started runs excluded); cell drill-through opens the
+    exact bounded executions cohort.
+  - *First-attempt vs final pass rate* (Project Dashboard) —
+    Group A's aggregation reused under the project filters; hover
+    shows numerator/denominator/retries/excluded. No drill-through
+    (accepted limitation, stated inline).
+  - *Suite-duration regression* (Project Dashboard) — median
+    logical-run wall-clock duration vs the previous equal-length
+    period under the same filters; seconds/% views, sample counts,
+    N/A for missing or zero baselines, insufficient-sample (n<3)
+    flagging, contributing-execution links for both periods.
+  - *Evidence freshness* (Project Dashboard) — suite ×
+    environment age since the latest usable result (a complete
+    failing result is still evidence); fresh/stale/never states on
+    a documented 7-day threshold, all-history lookup disclosed
+    with a beyond-window marker, "never" only where suite and
+    environment are both known to exist, exact execution link.
+- **Project page tabs** — Access and the analytics dashboard are
+  now in-place tabs: Access renders inside the project page
+  (admin-only, unchanged `@role_required` enforcement; the
+  standalone `/projects/<id>/access` URL still works), and the
+  analytics dashboard opens as the Analytics tab (lazy — the
+  aggregation only runs when the tab is requested; the standalone
+  `/projects/<id>/dashboard` URL still works and now uses the
+  wide layout).
 
 ### Changed
 
@@ -174,7 +203,9 @@ connections upgrade unchanged).
 - **Changelog rendering fixed** — the markdown renderer now joins
   paragraphs and list continuations correctly (previously every
   soft-wrapped line became its own paragraph and `&amp;` entities
-  double-escaped).
+  double-escaped), renders one level of nested sub-lists (indented
+  bullets used to flatten into the top level), and honours
+  `*emphasis*`.
 - **IT-Space branding** — full-page tiled logo mosaic on the login
   page (seamless mirrored tiles, dark-mode aware); Changelog,
   Licence and Backup & restore headings render over the page-wide
@@ -195,8 +226,9 @@ connections upgrade unchanged).
   template iterated `workers` while the route passed `runners`,
   so the dropdown was always empty.
 - **Project Access tab out of design** — the link rendered as a
-  plain hyperlink next to the styled tab labels; it now uses the
-  same tab-label treatment.
+  plain hyperlink next to the styled tab labels and navigated
+  away; it is now a real in-place tab like the others
+  (see "Project page tabs" above).
 - **Reconciliation page crash on SQLite** — stored datetimes read
   back timezone-naive while the page compared them against an
   aware `utcnow()`, so any real UNKNOWN / expired-lease row raised
@@ -209,6 +241,18 @@ connections upgrade unchanged).
 - **Release timeline names truncated** — names were ellipsized at a
   fixed 10 rem; they now wrap so the full name (e.g.
   "R2026.11 — Documentation Demo") is readable.
+- **Dashboard projects table** — the actions column had an empty
+  header (now labelled Actions), action cells used a bare
+  `display:flex` td that drew a phantom line across the row (now a
+  `cell-actions` div like the other tables), and rows vertically
+  center like the rest of the app's tables.
+- **Timestamps readable** — dashboard and analytics pages no
+  longer show raw ISO `T`/`Z` markers; times render as
+  `YYYY-MM-DD HH:MM:SS` with an explicit UTC label where needed.
+- **Unclosed "Recent executions" section** on the project
+  analytics page — the section element was never closed (masked
+  by the outer card wrapper); closing it also fixed dashboard
+  content leaking onto sibling tabs once embedded as a tab.
 
 ### Notes
 
