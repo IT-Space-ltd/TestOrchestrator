@@ -814,25 +814,61 @@ aggregation and on every endpoint; stale-response guards retained.
   escape the panel — fixed, tag-balance checked, commit
   `49080d6`).
 
-### Revision + suite tally
+### Evidence map — each requirement points to existing evidence
+
+Not re-run; this maps the authorized checklist to where it was
+already demonstrated.
+
+- **Activity heatmap** — submitted/first-start counting, retry/
+  child exclusion, UTC display, exact selected-cell cohort:
+  fixture tests `test_activity_*` in `tests/test_analytics.py`
+  (38-test file) + live click → 3-count cell ↔ 3 resolved
+  attempts (superseded head excluded).
+- **Project first-vs-final** — identical cohort + denominator
+  policy, applicable filters, exclusion count, no-drill
+  limitation: `test_first_final_*` fixtures + card caption +
+  `docs/analytics-counting.md`.
+- **Duration regression** — previous equal-length baseline,
+  matching filters, sample counts, missing/zero-baseline N/A,
+  baseline-union chain resolution: `test_regression_*` fixtures
+  incl. the union-resolution case (initial two-window bug fixed
+  before candidate).
+- **Evidence freshness** — usable-result definition, complete
+  failures count, beyond-window lookup, stale vs never-observed:
+  `test_freshness_*` fixtures + `EVIDENCE_STALE_DAYS=7` +
+  live `never` row.
+- **Shared behavior** — membership before aggregation,
+  post-revocation JSON/CSV denial, chart/table/CSV agreement,
+  display limits, manual refresh, `uirevision` state:
+  `test_analytics_*` permission/CSV tests + live refresh check.
+- **Renderer + tab/template changes (separate trace)** — nested-
+  list rendering, in-place Access/Analytics tabs, panel
+  containment: `test_project_access.py` (17) + `test_changelog*`
+  within the 78-test batch; live `#panel-analytics` containment
+  check. Tracked under `3995f7c`/`49080d6`/`c955c79`, not under
+  the four charts.
+
+### Revision + suite tally — runs recorded separately
 
 - Feature commits: `3995f7c` (Access tab + analytics link),
   `49080d6` (analytics tab embed + template balance), `c955c79`
   (changelog Group B + renderer nested-list + UI fixes).
-- First batch attempt at `c955c79` stopped at 348 passed / 1
-  skipped / **1 ERROR** — `test_infra_controls_browser`
-  `ERR_CONNECTION_REFUSED` on `:39995`: the seeded disposable
-  preview had died (environmental, not a code defect). Preview
-  restarted against the preserved seed at
-  `/tmp/to-preview-data`; the 16 live-preview tests then passed
-  standalone (63 s).
-- **Full suite at `c955c79` (unmodified working tree):
-  869 passed / 1 failed / 1 skipped** (8 m 07 s). Sole failure:
-  `test_production_key_auto_loaded` — external licence-issuer
-  private key absent (`/tmp/to-license-issuer/private.pem`) —
-  **blocked, not passed**. The 1 skip is the separately
-  identified skip. Delta vs `175094f` batch (852) = +17, exactly
-  the new Group B tests.
+
+| Run | Result |
+|---|---|
+| Initial interrupted batch at `c955c79` | **348 passed / 1 skipped / 1 error** before abort — `:39995` disposable preview unavailable (`ERR_CONNECTION_REFUSED`); environmental outage, batch NOT counted as completed |
+| Standalone preview verification | **16 passed** (63 s) after preview restart against preserved seed `/tmp/to-preview-data` |
+| Completed full-suite batch at `c955c79` | **869 passed / 1 failed / 1 skipped** (8 m 07 s) |
+
+These results are recorded separately and are not combined.
+The completed batch is the full-suite batch *with the known
+external-key failure*: `test_production_key_auto_loaded` —
+external licence-issuer private key absent
+(`/tmp/to-license-issuer/private.pem`) — **blocked, not
+passed**. The 1 skip is the separately identified skip. Delta
+vs the `175094f` batch (852) = +17, exactly the new Group B
+tests. The preview outage and recovery are recorded as
+environmental evidence only.
 
 ### Status board (updated)
 
