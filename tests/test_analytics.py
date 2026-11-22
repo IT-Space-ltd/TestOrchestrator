@@ -314,3 +314,111 @@ class TestAnalyticsEndpoints:
     def test_analytics_requires_login(self, app, client):
         r = client.get("/dashboard/analytics")
         assert r.status_code in (302, 401, 403)
+
+
+# -------------------------------------------------------- closeout (GA)
+
+
+class TestFilterConsistency:
+    """Each page filter narrows aggregation + CSV consistently."""
+
+    def test_suite_and_environment_filters(self, app):
+        with app.app_context():
+            p, s1 = _seed("P1")
+            s2 = Suite(project_id=p.id, name="P1-other")
+            db.session.add(s2)
+            db.session.flush()
+            e1 = _ex(p, s1, ExecutionState.COMPLETED, Outcome.PASSED,
+                     env="linux")
+            e2 = _ex(p, s2, ExecutionState.COMPLETED, Outcome.FAILED,
+                     env="windows")
+            _result(e1, "A", CaseStatus.PASSED)
+            _result(e2, "A", CaseStatus.FAILED)
+            db.session.commit()
+            base = analytics.project_analytics(p.id, 30)
+            assert len(base["history"]["runs"]) == 2
+            only_s1 = analytics.project_analytics(p.id, 30, suite=s1.id)
+            assert len(only_s1["history"]["runs"]) == 1
+            assert only_s1["history"]["runs"][0]["id"] == e1.id
+            assert len(only_s1["suite_durations"]) == 1
+            # env filter → single env column, no silent merge
+            only_lin = analytics.project_analytics(
+                p.id, 30, environment="linux")
+            assert only_lin["env_envs"] == ["linux"]
+            assert all(c["env"] == "linux"
+                       for c in only_lin["env_cells"])
+
+    def test_period_filter_window(self, app):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                days_ago=2)
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                days_ago=40)
+            db.session.commit()
+            assert len(analytics.project_analytics(
+                p.id, 7)["history"]["runs"]) == 1
+            assert len(analytics.project_analytics(
+                p.id, 90)["history"]["runs"]) == 2
+
+
+class TestDrillDownExactness:
+    """final=1 must return exactly the contributing resolved attempts."""
+
+    def test_final_filter_shows_only_resolved_attempts(self, app,
+                                                       client):
+        with app.app_context():
+            p, s = _seed()
+            head = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED)
+            retry = _ex(p, s, ExecutionState.COMPLETED,
+                        Outcome.PASSED, attempt=2, retry_of=head.id)
+            solo = _ex(p, s, ExecutionState.FAILED, Outcome.NONE)
+            pid, retry_id, head_id = p.id, retry.id, head.id
+            db.session.commit()
+        login(client, "admin")
+        r = client.get(f"/executions?project_id={pid}"
+                       f"&outcome=passed&final=1")
+        assert r.status_code == 200
+        body = r.get_data(as_text=True)
+        assert retry_id[:8] in body       # the resolved attempt
+        assert head_id[:8] not in body    # the superseded head is not
+        # role=dispatch excludes parents from the queue cohort
+        r = client.get("/executions?role=dispatch")
+        assert r.status_code == 200
+
+    def test_drill_url_carries_final_flag(self, app):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            db.session.commit()
+            from testorchestrator.charts import project_outcome_bars
+            d = analytics.main_analytics(_AllProjects(), 30)
+            fig = json.loads(project_outcome_bars(
+                d["project_outcomes"], "count"))
+            url = fig["data"][0]["customdata"][0]
+            assert "final=1" in url and f"project_id={p.id}" in url
+
+
+class TestRevocation:
+    def test_revoked_membership_denies_next_request(self, app, client):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            _result(e, "A", CaseStatus.PASSED)
+            pid = p.id
+            tester = User.query.filter_by(username="tester").first()
+            tester.set_assigned_projects([pid])
+            db.session.commit()
+        login(client, "tester")
+        assert client.get(f"/projects/{pid}/analytics").status_code \
+            == 200
+        with app.app_context():  # revoke while session stays alive
+            tester = User.query.filter_by(username="tester").first()
+            tester.set_assigned_projects([])
+            db.session.commit()
+        r = client.get(f"/projects/{pid}/analytics")
+        assert r.status_code in (403, 404)
+        # main analytics silently scopes out too — no stale data
+        r = client.get("/dashboard/analytics")
+        assert r.status_code == 200
+        assert r.get_json()["tables"]["project_outcomes"] == []

@@ -1389,6 +1389,24 @@ def executions():
         q = q.filter(Execution.environment.is_(None)
                      if env == "__none__" else
                      Execution.environment == env)
+    if args.get("role", "") in ("parent", "unit"):
+        q = q.filter(Execution.role == args["role"])
+    elif args.get("role", "") == "dispatch":
+        # dispatchable attempts — every role that owns a process
+        q = q.filter(Execution.role.in_(("", "unit")))
+    if args.get("final", "") == "1":
+        # Exact drill-through: only the final resolved attempt of each
+        # logical run (retry chains resolved via analytics — the same
+        # semantics the advanced-analytics cells count). Chains resolve
+        # over the user's whole visible scope, not just this page.
+        from .. import analytics as _an
+        scope = Execution.query
+        if member_ids is not None:
+            scope = scope.filter(
+                Execution.project_id.in_(member_ids))
+        runs = _an.resolve_logical_runs(scope.limit(50000).all())
+        final_ids = [r["final"].id for r in runs if r["final"]]
+        q = q.filter(Execution.id.in_(final_ids))
     if args.get("origin", "") in ("live", "imported"):
         q = q.filter(Execution.origin == args["origin"])
     if args.get("framework", ""):

@@ -43,8 +43,10 @@
       var pts = (ev && ev.points) || [];
       for (var i = 0; i < pts.length; i++) {
         var cd = pts[i].customdata;
-        if (typeof cd === "string" && cd.charAt(0) === "/") {
-          window.location.href = cd;
+        var target = (typeof cd === "string") ? cd
+          : (cd && typeof cd === "object") ? cd.url : null;
+        if (typeof target === "string" && target.charAt(0) === "/") {
+          window.location.href = target;
           return;
         }
       }

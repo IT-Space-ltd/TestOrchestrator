@@ -125,9 +125,11 @@ def project_outcome_bars(rows, mode: str = "count",
                    + r["none"])
             v = r[key]
             vals.append(round(100 * v / tot, 1) if (pct and tot) else v)
+            # final=1 → the executions list shows only final resolved
+            # attempts = exactly the logical runs this segment counts
             custom.append(_exec_url(project_id=r["project_id"],
-                                    outcome=key if key != "none" else
-                                    "none",
+                                    outcome=key,
+                                    final=1,
                                     from_date=from_date,
                                     to_date=to_date))
         traces.append({"type": "bar", "orientation": "h",
@@ -190,15 +192,22 @@ def queue_wait_trend(wait_rows, turnaround_rows) -> str:
         for stat, dash_ in (("median", "solid"), ("p95", "dot")):
             if not rows:
                 continue
+            # drill-through: the day's enqueue cohort of dispatchable
+            # attempts (median/p95 additionally require both
+            # timestamps — disclosed in the counting doc)
+            cd = [{"n": r["n"], "url": _exec_url(
+                       from_date=r["day"], to_date=r["day"],
+                       role="dispatch")}
+                  for r in rows]
             traces.append({
                 "type": "scatter", "mode": "lines+markers",
                 "name": f"{label} · {stat}",
                 "x": [r["day"] for r in rows],
                 "y": [r[stat] for r in rows],
-                "customdata": [r["n"] for r in rows],
+                "customdata": cd,
                 "line": {"color": color, "dash": dash_},
                 "hovertemplate":
-                    "%{y}s  (n=%{customdata})<extra>" + label +
+                    "%{y}s  (n=%{customdata.n})<extra>" + label +
                     " " + stat + "</extra>"})
     return _fig(traces, {"yaxis": {"title": "Seconds"},
                          "uirevision": "adv-queue"})
@@ -308,6 +317,7 @@ def env_comparison(cells, suites, envs, metric: str) -> str:
                           f"{c['case_total']} case result(s)")
                 cr.append(_exec_url(project_id=c["project_id"],
                                     suite_id=c["suite_id"],
+                                    final=1,
                                     environment=(
                                         "__none__"
                                         if c["env"] == "(unset)"

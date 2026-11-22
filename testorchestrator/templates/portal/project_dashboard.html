@@ -143,9 +143,9 @@
   {% endif %}
   {% if adv.data.history.cases_truncated or
         adv.data.history.runs_truncated %}
-  <p class="muted"><small>Bounded view — capped at
-    {{ 40 }} cases × {{ 20 }} runs (truncation disclosed, never
-    silent).</small></p>
+  <p class="muted"><small>Bounded view — latest 20 runs by finish time
+    × the 40 most recently first-seen cases. Narrow the
+    suite/status/environment filters to reach the rest.</small></p>
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
     <table class="audit-table" id="adv-tbl-history">
@@ -181,8 +181,8 @@
   <p class="muted">Insufficient data — no completed logical runs.</p>
   {% endif %}
   {% if adv.data.suite_durations_truncated %}
-  <p class="muted"><small>Top 12 suites by sample count — the rest are
-    truncated.</small></p>
+  <p class="muted"><small>Top 12 suites by sample count (ties by name)
+    — the rest are truncated; filter by suite to reach them.</small></p>
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
     <table class="audit-table" id="adv-tbl-durations">
@@ -234,8 +234,9 @@
     this period.</p>
   {% endif %}
   {% if adv.data.env_truncated_suites or adv.data.env_truncated_envs %}
-  <p class="muted"><small>Bounded view — capped at 12 suites × 8
-    environments.</small></p>
+  <p class="muted"><small>Bounded view — first 12 suites × 8
+    environments alphabetically; filter by suite/environment to reach
+    the rest.</small></p>
   {% endif %}
   <details class="inline-details"><summary class="button secondary sm">Data table</summary>
     <table class="audit-table" id="adv-tbl-env">

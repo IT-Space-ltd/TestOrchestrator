@@ -70,22 +70,34 @@ per enqueue day; days with <1 sample show no point.
 ### Project Dashboard
 
 **Test-result history** — unit: test case × execution attempt.
-Columns: the 20 most recent terminal attempts matching the active page
-filters (suite/status/source-ref/environment). Rows: case identities —
-`case_ref` when present, else `case_name`; when the suite filter is
-"all", identities are prefixed with the suite name so cases from
-different suites cannot collide. Cell color AND letter (P/F/E/S)
-encode the case status in that attempt — never color alone. Hover:
-revision, environment, attempt number, outcome, duration. Missing cell
-= the case was not present in that run (empty, distinct from skipped).
-Bounded: 40 case rows × 20 run columns; overflow is disclosed.
+**Columns are attempts**, not logical runs: the 20 most recent
+terminal attempts matching the active page filters
+(suite/status/source-ref/environment), each labelled
+`finished day · execution-id`. A retry is its own execution row, so a
+retried run appears as multiple columns — no cross-attempt merging.
+The column's attempt number and full execution id are in the hover and
+the data table; clicking a cell opens that exact attempt's evidence.
+Rows: case identities — `case_ref` when present, else `case_name`;
+when the suite filter is "all", identities are prefixed with the suite
+name so cases from different suites cannot collide. Cell color AND
+letter (P/F/E/S) encode the case status in that attempt — never color
+alone. Hover: revision, environment, attempt number, status, duration.
+**Missing results stay missing**: a case absent from a run renders an
+empty cell — it is never drawn as skipped or passed.
 
-**Suite-duration distribution** — unit: logical run duration
-(`finished_at − started_at`), `role="unit"` children excluded so a
-partitioned run's wall clock is counted once, at its parent. Every
-attempt counts once (consistent with the existing duration chart —
-reruns are separate attempts). Box plot per suite, max 12 suites by
-sample count; contributing executions available via the data table.
+**Suite-duration distribution** — unit: **logical-run wall-clock
+elapsed time**, `finished_at − started_at` of the final resolved
+attempt. For an ordinary run that is the attempt's own span; for a
+partitioned run it is the *parent record's* span — the parent stamps
+`started_at` when its first unit leaves the queue and `finished_at`
+when all units reach terminal state. Child-unit durations are **never
+summed**: units are excluded from the distribution, so a partitioned
+run contributes exactly one sample (its wall clock), and parallel
+children cannot inflate it. Every attempt counts once (consistent
+with the existing duration chart — reruns are separate attempts).
+Box plot per suite, max 12 suites by sample count (ties broken by
+suite name); the data table and CSV list the same contributing
+executions the boxes are drawn from.
 
 **Environment comparison** — suite × environment heatmap.
 Selectable metric:
@@ -99,6 +111,33 @@ Selectable metric:
 silently merged. Cell hover shows the sample counts. Sequential
 blue scale — distinct from the outcome palette so magnitudes are not
 read as pass/fail. Bounded to 12 suite rows × 8 environment columns.
+
+## Display bounds — deterministic selection and omitted records
+
+Bounds are **display limits, not aggregation limits**: every cell,
+row and CSV value is computed over the full in-window dataset; only
+which series/rows render is capped. Chart, data table and CSV always
+describe the *same* bounded scope — a subset never appears as a total.
+
+| Bound | Selection (deterministic) | Reaching omitted records |
+|---|---|---|
+| 30 projects (comparison) | most in-window terminal runs, then name | narrow the period, or per-project dashboards |
+| 40 case rows (history) | the 40 most recently first-seen cases | filter by suite/status/env |
+| 20 run columns (history) | latest 20 terminal attempts by finish time | same — filters select the cohort |
+| 12 suites (box plot) | most samples, then suite name | filter by suite |
+| 12×8 env matrix | first suites/envs alphabetically | filter by suite/environment |
+
+Truncation is disclosed on the card when active. The CSV exports the
+bounded scope shown — the flags in the JSON payload
+(`*_truncated`) mark when it applied.
+
+## Drill-through mapping
+
+- **Outcome-comparison segment** → `/executions?project_id&outcome&final=1&from_date&to_date` — `final=1` makes the list show only final resolved attempts, i.e. exactly the logical runs the segment counts.
+- **Environment cell** → `/executions?project_id&suite_id&environment&final=1` — the final resolved attempts that produced the cell's run metrics; case-level metrics derive from those same runs' results.
+- **History cell** → `/executions/<id>` — the exact attempt (unambiguous).
+- **Queue-chart point** → `/executions?from_date&to_date&role=dispatch` — that day's enqueue cohort of dispatchable attempts; the median/p95 sample additionally requires both timestamps, which the list cannot express (documented difference, not a silent filter).
+- **First-vs-final chart** — intentionally no click-through: the cohort is defined by the *first* attempt's finish day, which ordinary list filters cannot express ("final attempts whose chain head finished on day X"). A list filtered by final-attempt day would show a *different* cohort — showing that silently would be wrong.
 
 ## Missing data
 

@@ -130,9 +130,11 @@ def main_analytics(user, days: int) -> dict:
         key = (f.outcome.value
                if f.outcome.value in row else "none")
         row[key] += 1
-    cmp_rows = sorted(per_proj.values(),
-                      key=lambda r: -(r["passed"] + r["failed"]
-                                      + r["incomplete"] + r["none"]))
+    # deterministic bound selection: most in-window runs, then name
+    cmp_rows = sorted(
+        per_proj.values(),
+        key=lambda r: (-(r["passed"] + r["failed"] + r["incomplete"]
+                         + r["none"]), r["project"]))
     comparison_truncated = len(cmp_rows) > MAX_COMPARISON_PROJECTS
     cmp_rows = cmp_rows[:MAX_COMPARISON_PROJECTS]
 
@@ -285,8 +287,10 @@ def project_analytics(project_id: str, days: int, suite: str = "",
         dur_by_suite[name]["executions"].append(f.id)
         dur_by_suite[name]["points"].append(
             {"duration": round(secs, 1), "execution_id": f.id})
-    box_rows = sorted(dur_by_suite.values(),
-                      key=lambda r: -len(r["durations"]))
+    # deterministic bound selection: most samples, then suite name
+    box_rows = sorted(
+        dur_by_suite.values(),
+        key=lambda r: (-len(r["durations"]), r["suite"]))
     box_truncated = len(box_rows) > MAX_BOX_SUITES
     box_rows = box_rows[:MAX_BOX_SUITES]
 
