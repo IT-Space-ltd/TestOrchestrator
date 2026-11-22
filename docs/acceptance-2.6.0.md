@@ -603,9 +603,13 @@ carried in the record:
 
 **Attribution**: full-suite + live acceptance at `175094f`; reported
 head `d10f25c`; `175094f..d10f25c` diff verified **documentation-only**
-(ledger append, +86). The six initial regressions + fixes stay as
-historical evidence; the final tally is the clean single batch
-(852/1/1), not a combined rerun total.
+(ledger append, +86). Head `31a2575` adds the ledger closeout plus
+one template caption line on the first-vs-final card (display text
+only — no logic, no aggregation change); the `175094f` suite tally
+remains the full-suite evidence for the feature code. The six
+initial regressions + fixes stay as historical evidence; the final
+tally is the clean single batch (852/1/1), not a combined rerun
+total.
 
 **Feature revision**: `80cd41f` (Group A implementation; includes the
 Executions Worker-filter fix — the template iterated `workers` while
