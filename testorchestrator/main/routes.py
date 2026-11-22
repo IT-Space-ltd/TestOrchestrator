@@ -67,7 +67,86 @@ def dashboard():
         period=period,
         outcome_fig=outcome_trend(data.get("chart_outcomes", [])),
         duration_fig=duration_trend(data.get("chart_duration", [])),
+        adv=_main_adv(current_user, request.args),
     )
+
+
+def _main_adv(user, args):
+    """Advanced-analytics payload for the dashboard (docs/
+    analytics-counting.md). Rendered server-side for first paint;
+    /dashboard/analytics serves the same payload as JSON/CSV."""
+    from .. import analytics
+    from ..charts import (project_outcome_bars, first_final_trend,
+                          queue_wait_trend)
+    days = max(1, min(int(args.get("days", 30, type=int) or 30),
+                      analytics.MAX_PERIOD_DAYS))
+    data = analytics.main_analytics(user, days)
+    cmp_mode = (args.get("cmp_mode") or "count")
+    cmp_mode = "percent" if cmp_mode == "percent" else "count"
+    queue_mode = (args.get("queue") or "both")
+    if queue_mode not in ("wait", "turnaround", "both"):
+        queue_mode = "both"
+    w = data["queue_wait"] if queue_mode in ("wait", "both") else []
+    t = data["turnaround"] if queue_mode in ("turnaround", "both") else []
+    from datetime import date, timedelta as _td
+    to_d = date.today().isoformat()
+    from_d = (date.today() - _td(days=days)).isoformat()
+    return {
+        "data": data,
+        "cmp_mode": cmp_mode, "queue_mode": queue_mode,
+        "fig_comparison": project_outcome_bars(
+            data["project_outcomes"], cmp_mode, from_d, to_d),
+        "fig_first_final": first_final_trend(data["first_final"]),
+        "fig_queue": queue_wait_trend(w, t),
+    }
+
+
+@main_bp.route("/dashboard/analytics")
+@login_required
+def dashboard_analytics():
+    """Advanced-analytics JSON (or ?format=csv&chart=<key>) — fetched
+    separately from the 5 s live poll; same project_allowed scope."""
+    import csv
+    import io
+    from flask import jsonify
+    adv = _main_adv(current_user, request.args)
+    if request.args.get("format") == "csv":
+        name = request.args.get("chart", "")
+        d = adv["data"]
+        rows_map = {
+            "project_outcomes": (
+                ["project", "project_id", "passed", "failed",
+                 "incomplete", "none"],
+                d["project_outcomes"]),
+            "first_final": (
+                ["day", "total", "first_passed", "final_passed",
+                 "retried"],
+                d["first_final"]),
+            "queue_wait": (["day", "n", "median", "p95"],
+                           d["queue_wait"]),
+            "turnaround": (["day", "n", "median", "p95"],
+                           d["turnaround"]),
+        }
+        if name not in rows_map:
+            return jsonify({"error": "unknown chart"}), 404
+        header, rows = rows_map[name]
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=header, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+        return Response(buf.getvalue(), mimetype="text/csv",
+                        headers={"Content-Disposition":
+                                 f"attachment; filename={name}.csv"})
+    return jsonify({"generated_at": adv["data"]["generated_at"],
+                    "period_days": adv["data"]["period_days"],
+                    "tables": adv["data"],
+                    "charts": {"comparison": json.loads(
+                                   adv["fig_comparison"]),
+                               "first_final": json.loads(
+                                   adv["fig_first_final"]),
+                               "queue": json.loads(adv["fig_queue"])},
+                    "cmp_mode": adv["cmp_mode"],
+                    "queue_mode": adv["queue_mode"]})
 
 
 @main_bp.route("/dashboard/data")

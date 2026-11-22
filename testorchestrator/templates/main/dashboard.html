@@ -132,9 +132,161 @@
     </tbody></table>
 </section>
 </div>
+<section class="card">
+  <div class="card-head">
+    <h2>Advanced analytics</h2>
+    <span>
+      <span id="adv-updated" class="muted">Updated
+        {{ adv.data.generated_at[:19] }}Z</span>
+      <button id="adv-refresh" class="button secondary sm"
+              type="button">Refresh</button>
+    </span>
+  </div>
+  <p class="muted"><small>Run-level and distribution metrics — fetched
+    separately and refreshed on demand, not by the 5&nbsp;s live poll.
+    Counting policy: <code>docs/analytics-counting.md</code>.</small></p>
+  {% set active = [] %}
+  {% if adv.cmp_mode != 'count' %}{% set _ = active.append(
+    ('cmp_mode', 'comparison: %')) %}{% endif %}
+  {% if adv.queue_mode != 'both' %}{% set _ = active.append(
+    ('queue', 'queue: ' + adv.queue_mode)) %}{% endif %}
+  {% if active %}
+  <p>{% for k, label in active %}
+    <a class="badge warn" href="{{ url_for('main.dashboard',
+        days=period, queue=(adv.queue_mode if k != 'queue' else none),
+        cmp_mode=(adv.cmp_mode if k != 'cmp_mode' else none)) }}"
+       title="Remove selection">{{ label }} ✕</a>
+  {% endfor %}
+    <a class="badge" href="{{ url_for('main.dashboard',
+        days=period) }}">Clear selection</a></p>
+  {% endif %}
+</section>
+
+<div class="dash-2col">
+<section class="card">
+  <h2>Project outcome comparison</h2>
+  <p class="muted"><small>Terminal <b>logical runs</b> per project by
+    final resolved outcome (retries resolve to the last attempt; unit
+    shards never count twice).
+    <a href="{{ url_for('main.dashboard', days=period,
+        cmp_mode='count', queue=adv.queue_mode) }}">counts</a> ·
+    <a href="{{ url_for('main.dashboard', days=period,
+        cmp_mode='percent', queue=adv.queue_mode) }}">%</a>
+    — currently <b>{{ adv.cmp_mode }}</b>. Click a segment for the
+    filtered executions.</small></p>
+  <div id="adv-comparison" data-adv="comparison"
+       {% if adv.fig_comparison != 'null' %}
+       data-plotly-fig='{{ adv.fig_comparison }}'{% endif %}></div>
+  {% if adv.fig_comparison == 'null' %}
+  <p class="muted">Insufficient data — no terminal logical runs in this
+    period.</p>
+  {% endif %}
+  {% if adv.data.project_outcomes_truncated %}
+  <p class="muted"><small>Showing the 30 busiest projects — the rest
+    are truncated, not omitted silently.</small></p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="audit-table" id="adv-tbl-comparison">
+      <thead><tr><th>Project</th><th>passed</th><th>failed</th>
+        <th>incomplete</th><th>no outcome</th></tr></thead>
+      <tbody>{% for r in adv.data.project_outcomes %}
+        <tr><td>{{ r.project }}</td><td>{{ r.passed }}</td>
+          <td>{{ r.failed }}</td><td>{{ r.incomplete }}</td>
+          <td>{{ r.none }}</td></tr>
+      {% endfor %}</tbody></table></details>
+  <p><a class="button secondary sm" href="{{ url_for(
+      'main.dashboard_analytics', days=period, cmp_mode=adv.cmp_mode,
+      queue=adv.queue_mode, format='csv',
+      chart='project_outcomes') }}">CSV</a></p>
+</section>
+
+<section class="card">
+  <h2>First-attempt vs final pass rate</h2>
+  <p class="muted"><small><b>Logical runs</b> — share of each day's
+    cohort passing on the first attempt vs after retries resolve.
+    Run-level metric, not comparable with case-level pass rate.</small></p>
+  <div id="adv-first-final" data-adv="first_final"
+       {% if adv.fig_first_final != 'null' %}
+       data-plotly-fig='{{ adv.fig_first_final }}'{% endif %}></div>
+  {% if adv.fig_first_final == 'null' %}
+  <p class="muted">Insufficient data — no terminal logical runs in this
+    period.</p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="audit-table" id="adv-tbl-first_final">
+      <thead><tr><th>Day</th><th>runs</th><th>first ✓</th>
+        <th>final ✓</th><th>retried</th></tr></thead>
+      <tbody>{% for r in adv.data.first_final %}
+        <tr><td>{{ r.day }}</td><td>{{ r.total }}</td>
+          <td>{{ r.first_passed }}</td><td>{{ r.final_passed }}</td>
+          <td>{{ r.retried }}</td></tr>
+      {% endfor %}</tbody></table></details>
+  <p><a class="button secondary sm" href="{{ url_for(
+      'main.dashboard_analytics', days=period, format='csv',
+      chart='first_final') }}">CSV</a></p>
+</section>
+</div>
+
+<div class="dash-2col">
+<section class="card">
+  <h2>Queue wait &amp; turnaround</h2>
+  <p class="muted"><small>Median + p95 per enqueue day of
+    <b>dispatchable attempts</b>. Show:
+    <a href="{{ url_for('main.dashboard', days=period,
+        queue='wait', cmp_mode=adv.cmp_mode) }}">queue wait</a> ·
+    <a href="{{ url_for('main.dashboard', days=period,
+        queue='turnaround', cmp_mode=adv.cmp_mode) }}">turnaround</a> ·
+    <a href="{{ url_for('main.dashboard', days=period,
+        queue='both', cmp_mode=adv.cmp_mode) }}">both</a>.
+    Instrumentation note: no dedicated results-ready timestamp exists —
+    turnaround is honestly labelled <i>enqueue → finished</i>.</small></p>
+  <div id="adv-queue" data-adv="queue"
+       {% if adv.fig_queue != 'null' %}
+       data-plotly-fig='{{ adv.fig_queue }}'{% endif %}></div>
+  {% if adv.fig_queue == 'null' %}
+  <p class="muted">Insufficient data — no timed dispatches in this
+    period.</p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="audit-table" id="adv-tbl-queue">
+      <thead><tr><th>Day</th><th>metric</th><th>n</th><th>median s</th>
+        <th>p95 s</th></tr></thead>
+      <tbody>
+        {% for r in adv.data.queue_wait %}
+        <tr><td>{{ r.day }}</td><td>queue wait</td><td>{{ r.n }}</td>
+          <td>{{ r.median }}</td><td>{{ r.p95 }}</td></tr>
+        {% endfor %}
+        {% for r in adv.data.turnaround %}
+        <tr><td>{{ r.day }}</td><td>turnaround</td><td>{{ r.n }}</td>
+          <td>{{ r.median }}</td><td>{{ r.p95 }}</td></tr>
+        {% endfor %}</tbody></table></details>
+  <p>
+    <a class="button secondary sm" href="{{ url_for(
+        'main.dashboard_analytics', days=period, format='csv',
+        chart='queue_wait') }}">CSV wait</a>
+    <a class="button secondary sm" href="{{ url_for(
+        'main.dashboard_analytics', days=period, format='csv',
+        chart='turnaround') }}">CSV turnaround</a></p>
+</section>
+<section class="card">
+  <h2>Reading these charts</h2>
+  <p class="muted"><small><b>Logical run</b> — a request plus its
+    retries; the final terminal attempt decides the outcome.
+    <b>Attempt</b> — one execution row. <b>Unit</b> — a partition shard,
+    counted inside its parent. <b>Test case</b> — one parsed result.
+    Empty charts mean insufficient data — never a fabricated zero.
+    Admin-only worker/reconciliation data does not appear here.</small></p>
+</section>
+</div>
+
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 
 <script src="{{ url_for('static', filename='js/dashboard.js') }}" defer
         data-url="{{ url_for('main.dashboard_data', days=period) }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard-advanced.js') }}"
+        defer
+        data-url="{{ url_for('main.dashboard_analytics', days=period,
+                            cmp_mode=adv.cmp_mode,
+                            queue=adv.queue_mode) }}"></script>
 {% endblock %}

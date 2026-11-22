@@ -492,7 +492,101 @@ def project_dashboard(project_id):
         suites=Suite.query.filter_by(project_id=project.id).all(),
         sel_suite=suite, sel_state=state,
         source_refs=refs, environments=envs,
-        sel_source_ref=source_ref, sel_environment=environment)
+        sel_source_ref=source_ref, sel_environment=environment,
+        adv=_proj_adv(project.id, request.args))
+
+
+def _proj_adv(project_id: str, args):
+    """Advanced-analytics payload for the project dashboard (docs/
+    analytics-counting.md). Same filters as the page; JSON/CSV served
+    by /projects/<id>/analytics."""
+    from .. import analytics
+    from ..charts import (env_comparison, result_history,
+                          suite_duration_box)
+    days = args.get("period", 30, type=int) or 30
+    env_metric = args.get("env_metric") or "case_pass_rate"
+    if env_metric not in ("case_pass_rate", "run_pass_rate",
+                          "median_duration"):
+        env_metric = "case_pass_rate"
+    data = analytics.project_analytics(
+        project_id, days,
+        suite=args.get("suite", ""),
+        state=args.get("state", ""),
+        source_ref=args.get("source_ref", ""),
+        environment=args.get("environment", ""))
+    return {
+        "data": data, "env_metric": env_metric,
+        "fig_history": result_history(data["history"]),
+        "fig_durations": suite_duration_box(data["suite_durations"]),
+        "fig_env": env_comparison(
+            data["env_cells"], data["env_suites"], data["env_envs"],
+            env_metric),
+    }
+
+
+@portal_bp.route("/projects/<project_id>/analytics")
+@login_required
+def project_analytics(project_id):
+    """Advanced-analytics JSON/CSV for the project dashboard —
+    project_allowed() enforced via _project_or_404 (same as page)."""
+    import csv
+    import io
+    from flask import jsonify
+    project = _project_or_404(project_id)
+    adv = _proj_adv(project.id, request.args)
+    if request.args.get("format") == "csv":
+        name = request.args.get("chart", "")
+        d = adv["data"]
+        hist_rows = []
+        for case in d["history"]["cases"]:
+            for run in d["history"]["runs"]:
+                c = d["history"]["cells"].get(case + "|" + run["id"])
+                hist_rows.append({
+                    "case": case, "run": run["label"],
+                    "execution_id": run["id"],
+                    "attempt": run["attempt"],
+                    "status": c["status"] if c else "",
+                    "duration_s": c["duration"] if c else ""})
+        dur_rows = [{"suite": s["suite"], "duration_s": v,
+                     "execution_id": eid}
+                    for s in d["suite_durations"]
+                    for v, eid in zip(s["durations"], s["executions"])]
+        env_rows = [
+            {"suite": c["suite"], "environment": c["env"],
+             "runs": c["runs"], "runs_passed": c["runs_passed"],
+             "run_pass_rate": c["run_pass_rate"],
+             "case_pass_rate": c["case_pass_rate"],
+             "case_total": c["case_total"],
+             "median_duration_s": c["median_duration"]}
+            for c in d["env_cells"]]
+        rows_map = {
+            "history": (["case", "run", "execution_id", "attempt",
+                         "status", "duration_s"], hist_rows),
+            "suite_durations": (["suite", "duration_s",
+                                 "execution_id"], dur_rows),
+            "environment": (["suite", "environment", "runs",
+                             "runs_passed", "run_pass_rate",
+                             "case_pass_rate", "case_total",
+                             "median_duration_s"], env_rows),
+        }
+        if name not in rows_map:
+            return jsonify({"error": "unknown chart"}), 404
+        header, rows = rows_map[name]
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=header, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+        return Response(buf.getvalue(), mimetype="text/csv",
+                        headers={"Content-Disposition":
+                                 f"attachment; filename={name}.csv"})
+    return jsonify({"generated_at": adv["data"]["generated_at"],
+                    "period_days": adv["data"]["period_days"],
+                    "tables": adv["data"],
+                    "charts": {"history": json.loads(adv["fig_history"]),
+                               "durations": json.loads(
+                                   adv["fig_durations"]),
+                               "env": json.loads(adv["fig_env"])},
+                    "env_metric": adv["env_metric"]})
 
 
 @portal_bp.route("/projects/<project_id>/bindings", methods=["POST"])
@@ -1288,6 +1382,13 @@ def executions():
         q = q.filter(Execution.runner_id == args["runner_id"])
     if args.get("schedule_id", ""):
         q = q.filter(Execution.schedule_id == args["schedule_id"])
+    if args.get("suite_id", ""):
+        q = q.filter(Execution.suite_id == args["suite_id"])
+    if args.get("environment", ""):
+        env = args["environment"]
+        q = q.filter(Execution.environment.is_(None)
+                     if env == "__none__" else
+                     Execution.environment == env)
     if args.get("origin", "") in ("live", "imported"):
         q = q.filter(Execution.origin == args["origin"])
     if args.get("framework", ""):
@@ -1330,6 +1431,12 @@ def executions():
                   Project.query.order_by(Project.name).all()
                   if current_user.project_allowed(p.id)],
         runners=_R.query.order_by(_R.name).all(),
+        suites=[s for s in Suite.query.order_by(Suite.name).all()
+                if current_user.project_allowed(s.project_id)],
+        environments=sorted({e for (e,) in
+                             q.with_entities(
+                                 Execution.environment).distinct()
+                             if e}),
         schedules=[s for s in
                    Schedule.query.order_by(Schedule.name).all()
                    if current_user.project_allowed(s.project_id)],

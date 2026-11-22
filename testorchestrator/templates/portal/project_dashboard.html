@@ -93,6 +93,187 @@
       {% else %}<tr><td colspan="3" class="muted">No failures.</td></tr>
       {% endfor %}</tbody></table></section>
 
+<section class="card">
+  <div class="card-head">
+    <h2>Advanced analytics</h2>
+    <span>
+      <span id="adv-updated" class="muted">Updated
+        {{ adv.data.generated_at[:19] }}Z</span>
+      <button id="adv-refresh" class="button secondary sm"
+              type="button">Refresh</button>
+    </span>
+  </div>
+  <p class="muted"><small>Follows the page filters above (period,
+    suite, status, source ref, environment). Fetched separately and
+    refreshed on demand only — counting policy:
+    <code>docs/analytics-counting.md</code>.</small></p>
+  {% set active = [] %}
+  {% if adv.env_metric != 'case_pass_rate' %}{% set _ = active.append(
+    ('env_metric', 'env metric: ' + adv.env_metric)) %}{% endif %}
+  {% if active %}
+  <p>{% for k, label in active %}
+    <a class="badge warn" href="{{ url_for('portal.project_dashboard',
+        project_id=project.id, period=days, suite=sel_suite,
+        state=sel_state, source_ref=sel_source_ref,
+        environment=sel_environment) }}"
+       title="Remove selection">{{ label }} ✕</a>
+  {% endfor %}
+    <a class="badge" href="{{ url_for('portal.project_dashboard',
+        project_id=project.id, period=days, suite=sel_suite,
+        state=sel_state, source_ref=sel_source_ref,
+        environment=sel_environment) }}">Clear selection</a></p>
+  {% endif %}
+</section>
+
+<div class="dash-2col">
+<section class="card">
+  <h2>Test-result history</h2>
+  <p class="muted"><small><b>Test case</b> rows × <b>execution
+    attempt</b> columns (latest {{ adv.data.history.runs|length }},
+    {{ adv.data.history.cases|length }} cases). Color AND letter encode
+    status; an empty cell means the case was not in that run. Hover for
+    revision/environment/attempt/duration; click a cell to open the
+    run's evidence.</small></p>
+  <div id="adv-history" data-adv="history"
+       {% if adv.fig_history != 'null' %}
+       data-plotly-fig='{{ adv.fig_history }}'{% endif %}></div>
+  {% if adv.fig_history == 'null' %}
+  <p class="muted">Insufficient data — no parsed results in this
+    period.</p>
+  {% endif %}
+  {% if adv.data.history.cases_truncated or
+        adv.data.history.runs_truncated %}
+  <p class="muted"><small>Bounded view — capped at
+    {{ 40 }} cases × {{ 20 }} runs (truncation disclosed, never
+    silent).</small></p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="audit-table" id="adv-tbl-history">
+      <thead><tr><th>Case</th><th>Run</th><th>Attempt</th>
+        <th>Status</th><th>Duration</th></tr></thead>
+      <tbody>
+        {% for case in adv.data.history.cases %}
+          {% for run in adv.data.history.runs %}
+            {% set cell = adv.data.history.cells.get(
+                case ~ '|' ~ run.id) %}
+            <tr><td>{{ case }}</td><td>{{ run.label }}</td>
+              <td>{{ run.attempt }}</td>
+              <td>{{ cell.status if cell else '—' }}</td>
+              <td>{{ (cell.duration ~ 's') if cell else '' }}</td></tr>
+          {% endfor %}
+        {% endfor %}</tbody></table></details>
+  <p><a class="button secondary sm" href="{{ url_for(
+      'portal.project_analytics', project_id=project.id, period=days,
+      suite=sel_suite, state=sel_state, source_ref=sel_source_ref,
+      environment=sel_environment, format='csv',
+      chart='history') }}">CSV</a></p>
+</section>
+
+<section class="card">
+  <h2>Suite-duration distribution</h2>
+  <p class="muted"><small>Box plot of <b>logical run</b> duration
+    (finished − started) per suite — each attempt counts once, unit
+    shards count inside their parent.</small></p>
+  <div id="adv-durations" data-adv="durations"
+       {% if adv.fig_durations != 'null' %}
+       data-plotly-fig='{{ adv.fig_durations }}'{% endif %}></div>
+  {% if adv.fig_durations == 'null' %}
+  <p class="muted">Insufficient data — no completed logical runs.</p>
+  {% endif %}
+  {% if adv.data.suite_durations_truncated %}
+  <p class="muted"><small>Top 12 suites by sample count — the rest are
+    truncated.</small></p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="audit-table" id="adv-tbl-durations">
+      <thead><tr><th>Suite</th><th>Duration s</th>
+        <th>Execution</th></tr></thead>
+      <tbody>
+        {% for s in adv.data.suite_durations %}
+          {% for pt in s.points %}
+          <tr><td>{{ s.suite }}</td><td>{{ pt.duration }}</td>
+            <td><a href="{{ url_for('portal.execution_detail',
+                execution_id=pt.execution_id) }}"><code>{{ pt.execution_id[:8] }}</code></a></td></tr>
+          {% endfor %}
+        {% endfor %}</tbody></table></details>
+  <p><a class="button secondary sm" href="{{ url_for(
+      'portal.project_analytics', project_id=project.id, period=days,
+      suite=sel_suite, state=sel_state, source_ref=sel_source_ref,
+      environment=sel_environment, format='csv',
+      chart='suite_durations') }}">CSV</a></p>
+</section>
+</div>
+
+<div class="dash-2col">
+<section class="card">
+  <h2>Environment comparison</h2>
+  <p class="muted"><small>Suite × environment — metric:
+    <a href="{{ url_for('portal.project_dashboard',
+        project_id=project.id, period=days, suite=sel_suite,
+        state=sel_state, source_ref=sel_source_ref,
+        environment=sel_environment,
+        env_metric='case_pass_rate') }}">case pass rate</a> ·
+    <a href="{{ url_for('portal.project_dashboard',
+        project_id=project.id, period=days, suite=sel_suite,
+        state=sel_state, source_ref=sel_source_ref,
+        environment=sel_environment,
+        env_metric='run_pass_rate') }}">run pass rate</a> ·
+    <a href="{{ url_for('portal.project_dashboard',
+        project_id=project.id, period=days, suite=sel_suite,
+        state=sel_state, source_ref=sel_source_ref,
+        environment=sel_environment,
+        env_metric='median_duration') }}">median duration</a>
+    — currently <b>{{ adv.env_metric }}</b>. Runs without an
+    environment form a labeled "(unset)" column. Click a cell to open
+    the filtered executions.</small></p>
+  <div id="adv-env" data-adv="env"
+       {% if adv.fig_env != 'null' %}
+       data-plotly-fig='{{ adv.fig_env }}'{% endif %}></div>
+  {% if adv.fig_env == 'null' %}
+  <p class="muted">Insufficient data — no suite × environment cells in
+    this period.</p>
+  {% endif %}
+  {% if adv.data.env_truncated_suites or adv.data.env_truncated_envs %}
+  <p class="muted"><small>Bounded view — capped at 12 suites × 8
+    environments.</small></p>
+  {% endif %}
+  <details class="inline-details"><summary class="button secondary sm">Data table</summary>
+    <table class="audit-table" id="adv-tbl-env">
+      <thead><tr><th>Suite</th><th>Environment</th><th>Runs</th>
+        <th>Run pass %</th><th>Case pass %</th><th>Median s</th></tr></thead>
+      <tbody>{% for c in adv.data.env_cells %}
+        <tr><td>{{ c.suite }}</td><td>{{ c.env }}</td>
+          <td>{{ c.runs }}</td>
+          <td>{{ c.run_pass_rate if c.run_pass_rate is not none else 'N/A' }}</td>
+          <td>{{ c.case_pass_rate if c.case_pass_rate is not none else 'N/A' }}</td>
+          <td>{{ c.median_duration if c.median_duration is not none else 'N/A' }}</td></tr>
+      {% endfor %}</tbody></table></details>
+  <p><a class="button secondary sm" href="{{ url_for(
+      'portal.project_analytics', project_id=project.id, period=days,
+      suite=sel_suite, state=sel_state, source_ref=sel_source_ref,
+      environment=sel_environment, format='csv',
+      chart='environment') }}">CSV</a></p>
+</section>
+<section class="card">
+  <h2>Reading these charts</h2>
+  <p class="muted"><small><b>Logical run</b> — a request plus its
+    retries; the final terminal attempt decides the outcome.
+    <b>Attempt</b> — one execution row. <b>Test case</b> — one parsed
+    result; the case pass rate uses
+    passed/(passed+failed+error), skipped excluded. Sequential blue =
+    magnitude, never an outcome color. Empty charts mean insufficient
+    data.</small></p>
+</section>
+</div>
+
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
+<script src="{{ url_for('static',
+    filename='js/project-dashboard-advanced.js') }}" defer
+        data-url="{{ url_for('portal.project_analytics',
+                            project_id=project.id, period=days,
+                            suite=sel_suite, state=sel_state,
+                            source_ref=sel_source_ref,
+                            environment=sel_environment,
+                            env_metric=adv.env_metric) }}"></script>
 {% endblock %}
