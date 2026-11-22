@@ -730,3 +730,120 @@ ISO T/Z timestamps).
 - Clean-package 8-combination smoke + parallel/recovery/security/
   upgrade/restore/reinstall gates.
 - Group B charts stay on hold until this closeout is accepted.
+
+## Advanced Analytics Group B — implementation + evidence record
+
+Authorized after Group A closeout. Four charts added beneath the
+existing dashboards; Group A definitions unchanged (first-vs-final
+reuses Group A's shared `_first_final_rows` aggregation).
+
+### What was built
+
+- **Execution activity heatmap (Main Dashboard)** — UTC
+  day-of-week × hour grid over logical runs; submitted vs started
+  selector (started = first actual execution start; never-started
+  excluded); each logical run counted once (retries and unit
+  children deduplicated by the shared logical-run resolution);
+  timezone and selected period displayed; cell drill-through opens
+  an exact cohort via a bounded `activity=submitted|started` +
+  `dow` + `hour` + `from_date`/`to_date` filter on the executions
+  list (bucket timestamp is submitted time or first-start time, so
+  the generic `created_at` filter is bypassed for this mode —
+  documented).
+- **First-attempt vs final pass rate (Project Dashboard)** — same
+  logical-run cohort under project/suite/source-ref/environment/
+  period filters, grouped by first-attempt day; hover shows
+  numerator, denominator, retry count, and the count of chains
+  excluded because the first attempt is non-terminal (exposed in
+  chart hover, data table, and CSV). No drill-through — cohort is
+  defined by first-attempt day, which list filters cannot express;
+  stated inline on the card (Group A accepted limitation
+  preserved).
+- **Suite-duration regression (Project Dashboard)** — median
+  logical-run wall-clock duration vs the immediately preceding
+  equal-length period; identical suite/source-ref/environment
+  filters applied to both windows; chains resolved once over the
+  union of both windows so a head+retry pair cannot be counted in
+  both (fixes an initial implementation bug caught in review);
+  seconds and % views; N/A for missing/zero baselines;
+  insufficient-sample flag below 3 samples; contributing-execution
+  links for both periods; bounded display (top-12 suites, 10
+  contributing links each way).
+- **Evidence freshness (Project Dashboard)** — elapsed time since
+  the latest usable result per suite×environment in scope; a
+  completed failing result counts as evidence; last timestamp,
+  outcome, and execution link shown; fresh / stale / never-observed
+  states on a documented configurable threshold
+  (`EVIDENCE_STALE_DAYS = 7`); lookup reaches beyond the selected
+  period (disclosed via a beyond-window marker) so old evidence is
+  not mislabelled; "never" only where both suite and environment
+  are known to exist from configuration/history.
+
+Shared requirements: vendored Plotly.js, existing palette,
+`analytics.py`/`charts.py`, existing JSON + CSV endpoints; manual
+Refresh only (not the 5 s live poll); `uirevision` preserves zoom/
+legend; collapsible data tables and authorized CSV for every card;
+chart/table/CSV scopes identical; deterministic display bounds
+disclosed (`MAX_REGRESSION_SUITES=12`, `MAX_REGRESSION_EXECS=10`,
+`MIN_REGRESSION_SAMPLES=3`, `MAX_FRESHNESS_SUITES=12`,
+`MAX_FRESHNESS_ENVS=8`); role + project membership enforced before
+aggregation and on every endpoint; stale-response guards retained.
+
+### Test evidence
+
+- `tests/test_analytics.py`: **38 passed** (21 Group A + 17 new
+  Group B) — fixture-verified matrix counts, started-mode
+  exclusions, dedup, baseline-union resolution, N/A and
+  insufficient-sample handling, freshness states incl.
+  never-observed and beyond-window lookup, CSV scope, truncation
+  flags computed pre-cap.
+- Affected Group A/dashboard/access regression batch: **86
+  passed**; project-access batch incl. changelog/access: **78
+  passed**.
+- Live verification on `:39998` (source-run Waitress,
+  `TO_INSTANCE_DIR=/tmp/manual251`): all cards render; activity
+  cell click → exact cohort list (cell count 3 = 3 resolved
+  attempts, superseded head excluded); env cell → exact filtered
+  list; history cell → exact attempt; reg-mode selector and
+  percent/seconds views verified; freshness table shows age cells
+  + `never` row; inline no-drill note present on first-vs-final.
+- Tab correctness verified in-browser: analytics figures render
+  only inside `#panel-analytics`; Git bindings and Access panels
+  show only their own content (a stray `</div>` + missing
+  `</section>` in the extracted include had let chart markup
+  escape the panel — fixed, tag-balance checked, commit
+  `49080d6`).
+
+### Revision + suite tally
+
+- Feature commits: `3995f7c` (Access tab + analytics link),
+  `49080d6` (analytics tab embed + template balance), `c955c79`
+  (changelog Group B + renderer nested-list + UI fixes).
+- First batch attempt at `c955c79` stopped at 348 passed / 1
+  skipped / **1 ERROR** — `test_infra_controls_browser`
+  `ERR_CONNECTION_REFUSED` on `:39995`: the seeded disposable
+  preview had died (environmental, not a code defect). Preview
+  restarted against the preserved seed at
+  `/tmp/to-preview-data`; the 16 live-preview tests then passed
+  standalone (63 s).
+- **Full suite at `c955c79` (unmodified working tree):
+  869 passed / 1 failed / 1 skipped** (8 m 07 s). Sole failure:
+  `test_production_key_auto_loaded` — external licence-issuer
+  private key absent (`/tmp/to-license-issuer/private.pem`) —
+  **blocked, not passed**. The 1 skip is the separately
+  identified skip. Delta vs `175094f` batch (852) = +17, exactly
+  the new Group B tests.
+
+### Status board (updated)
+
+| Area | Status |
+|---|---|
+| Advanced Analytics Group A | **Source-level acceptance closed** at `175094f` |
+| Advanced Analytics Group B | Implemented; source-level evidence above at `c955c79` — **acceptance review pending; does not close any gate below** |
+| Backup and Restore | Implemented; source-level tests verified at `175094f` (14/14 within that batch). Windows/package gates outstanding. Settings-only scope |
+| Windows W1–W15 | Real-host acceptance outstanding |
+| Clean packaged candidate + final matrix | Outstanding |
+| External licence-issuer-key test | Blocked — missing external private key |
+
+Live `:39998` remains source-run Waitress at `c955c79` — not
+packaged-candidate evidence. No merge, no publication.
