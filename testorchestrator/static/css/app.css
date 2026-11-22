@@ -458,10 +458,12 @@ pre.example {
 .tab-input { position: absolute; opacity: 0; pointer-events: none; }
 .tab-bar { display: flex; gap: .25rem; border-bottom: 2px solid #334;
            margin-bottom: 1rem; flex-wrap: wrap; }
-.tab-bar label { padding: .5rem .9rem; cursor: pointer; font-weight: 600;
+.tab-bar label, .tab-bar a.tsub {
+                 padding: .5rem .9rem; cursor: pointer; font-weight: 600;
                  border: 1px solid transparent; border-bottom: none;
-                 border-radius: .35rem .35rem 0 0; color: #7a8a9a; }
-.tab-bar label:hover { color: #dfe7ee; }
+                 border-radius: .35rem .35rem 0 0; color: #7a8a9a;
+                 text-decoration: none; }
+.tab-bar label:hover, .tab-bar a.tsub:hover { color: #dfe7ee; }
 #tab-bindings:checked ~ .tab-bar label[for=tab-bindings],
 #tab-dash:checked ~ .tab-bar label[for=tab-dash],
 #tab-test:checked ~ .tab-bar label[for=tab-test],
@@ -628,11 +630,12 @@ pre.example {
 .audit-table td:last-child { white-space: nowrap; }
 
 /* --- tabs polish --- */
-.tab-bar label {
+.tab-bar label, .tab-bar a.tsub {
   padding: 0.45rem 0.85rem; font-size: var(--fs-md); font-weight: 600;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
 }
-.tab-bar label:focus-within { box-shadow: var(--focus-ring); }
+.tab-bar label:focus-within, .tab-bar a.tsub:focus-visible {
+  box-shadow: var(--focus-ring); }
 
 /* --- cards/sections --- */
 .card {
