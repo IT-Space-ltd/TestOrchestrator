@@ -581,3 +581,89 @@ mid-session revocation, token ∩ owner semantics, dispatch-boundary
 block, admin UI roundtrips + audit. Two existing tests updated for
 the corrected semantics; runbook form-posts keep retry default via
 the hidden-field contract.
+
+---
+
+## Group A — Advanced Analytics acceptance closeout
+
+**Feature revision**: `80cd41f` (Group A implementation; includes the
+Executions Worker-filter fix — the template iterated `workers` while
+the route passed `runners`, verified via `git log -S`).
+**Separately identifiable changes**: `df9df45` Project Access-tab
+styling; `fccd576` changelog at feature landing; `9951af0` closeout
+hardening (exact drill-through, deterministic bounds, counting doc);
+`2e7e882` suite-regression fixes found by the full-suite run;
+`8524504`/`ecdc397`/`1c1e3de`/`1f38ca0`/`a70b7e5`/`175094f` UI
+corrections from live review (Open button in JS poll rows, release
+names, data-table styling restore, flex-td artifact, row alignment,
+ISO T/Z timestamps).
+**Candidate for this tally**: `175094f` — see full-suite row below.
+
+### Focused evidence (automated vs manual)
+
+| Area | Result | Method |
+|---|---|---|
+| Filter consistency | PASS — period/suite/environment each narrow aggregation; env filter produces the single matching column; no silent merge (`TestFilterConsistency`, 2 tests) | Automated (`tests/test_analytics.py`) |
+| Intentional exception | Source-ref & status filters apply to project-dashboard analytics; the main dashboard intentionally has only the period filter — no suite/source selectors exist there to apply | Design, documented in counting doc |
+| Drill-down accuracy | PASS — env cell → `/executions?project_id&suite_id&environment&final=1` (live click, browser-verified); history cell → `/executions/<id>` the exact attempt (live click); outcome segment URL carries `final=1` (unit test `test_drill_url_carries_final_flag`); empty heatmap cells have no customdata and correctly do not navigate | Live browser + automated |
+| `final=1` list filter | PASS — resolved attempts only; superseded chain head excluded; `role=dispatch` returns dispatchable cohort (`test_final_filter_shows_only_resolved_attempts`) | Automated |
+| Interaction behavior | PASS — counts/% link-toggle updates URL state (`cmp_mode=percent`), removable chip `comparison: % ✕` appears and removes, Clear selection present, queue wait/turnaround/both selector changes `queue=` param, Refresh re-fetches JSON (timestamp advanced), legend toggle, drag-zoom and double-click reset all work | Manual (Playwright, live `:39998`) |
+| Revocation | PASS — session kept alive, membership revoked mid-session → next `/projects/<id>/analytics` denied (403/404); main `/dashboard/analytics` returns 200 with the project scoped out — no cached unauthorized data | Automated (`test_revoked_membership_denies_next_request`) |
+| Dataset limits | PASS — deterministic selection with tiebreaks (count then name); truncation notices name the ordering and how to reach omitted records; bounds are display limits, not aggregation limits; CSV/table/chart share the same bounded scope; `*_truncated` flags in JSON | Automated + doc review |
+| Accessibility & layout | PASS — collapsible `<details>` data tables under every chart; all controls are native `a`/`button`/`select` (no custom widgets — keyboard-reachable by construction, Refresh activated via Enter verified); 420 px viewport keeps charts usable (Plotly responsive); sparse data renders correctly on the live demo | Manual + automated (empty-dataset tests) |
+
+### Counting clarifications (docs/analytics-counting.md)
+
+- **Test-result history**: columns are **attempts**, not logical
+  runs — the 20 most recent terminal attempts, each labelled
+  `finished day · execution-id`; a retry is its own column, no
+  cross-attempt merging; attempt number + full id in hover/table;
+  **missing results stay missing** (empty cell — never drawn as
+  skipped or passed).
+- **Suite-duration distribution**: **logical-run wall-clock elapsed
+  time** — `finished_at − started_at` of the final resolved attempt;
+  for partitioned runs the parent's own stamps (started when the
+  first unit leaves the queue, finished when all units are terminal —
+  confirmed in `execution.py` roll-up). Child-unit durations are
+  never summed; parallel children cannot inflate wall-clock. Chart,
+  data table, CSV and counting doc agree.
+- **Queue chart**: labelled `enqueue→finished` — no dedicated
+  results-ready timestamp exists (instrumentation gap documented);
+  drill-through opens the day's dispatchable cohort; the median/p95
+  timestamp sample restriction is disclosed.
+- **First-vs-final chart**: intentionally no click-through — the
+  cohort is defined by the *first* attempt's finish day, which the
+  list filters cannot express; documented rather than approximated.
+
+### Revision/deployment evidence
+
+- 16 analytics tests + 25 dashboard/bootstrap regressions: run on
+  the working tree at feature revision `80cd41f` (pre-closeout).
+- 21 analytics tests (16 + 5 closeout): run on the working tree of
+  `9951af0`.
+- Suite run A: `2e7e882`, **852 passed / 1 failed / 1 skipped** —
+  flagged unreliable: application files changed mid-run.
+- Full-suite run B at `175094f` (clean tree, all Group A + fixes):
+  **852 passed / 1 failed / 1 skipped** — the single failure is
+  `test_production_key_auto_loaded` (`FileNotFoundError:`
+  `/tmp/to-license-issuer/private.pem`), the external issuer-key
+  blocker — same failure as run A, not a regression.
+- Live `:39998`: Waitress serving `wsgi:app` from the branch
+  worktree, `TO_INSTANCE_DIR=/tmp/manual251`, restarted per revision —
+  run from source, no build artifacts; screenshots taken at the
+  revision live at the time (latest = `175094f`).
+- Six initial suite failures were all regressions from the UI work:
+  `audit-table` class leaking the string "audit" to non-admin pages
+  (renamed `data-table`), three split literal strings in
+  settings/secrets guidance, users-page unassigned wording — all
+  fixed and re-verified green at `2e7e882`+.
+
+### Remaining gates (unchanged, still open)
+
+- External licence issuer-key test — `test_production_key_auto_loaded`
+  needs `/tmp/to-license-issuer/private.pem` (does not exist on this
+  host) — external blocker, not a regression.
+- Windows W1–W15 matrix on a real host (kit ready).
+- Backup & Restore acceptance; clean-package 8-combination smoke +
+  parallel/recovery/security/upgrade/restore/reinstall gates.
+- Group B charts stay on hold until this closeout is accepted.
