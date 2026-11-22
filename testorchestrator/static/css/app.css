@@ -464,6 +464,7 @@ pre.example {
                  border-radius: .35rem .35rem 0 0; color: #7a8a9a;
                  text-decoration: none; }
 .tab-bar label:hover, .tab-bar a.tsub:hover { color: #dfe7ee; }
+#tab-analytics:checked ~ .tab-bar a.tsub-analytics,
 #tab-bindings:checked ~ .tab-bar label[for=tab-bindings],
 #tab-access:checked ~ .tab-bar label[for=tab-access],
 #tab-dash:checked ~ .tab-bar label[for=tab-dash],
@@ -473,6 +474,7 @@ pre.example {
 #tab-inventory:checked ~ .tab-bar label[for=tab-inventory]
   { color: #eef3f7; border-color: #334; background: #1c2630; }
 .tab-panel { display: none; }
+#tab-analytics:checked ~ #panel-analytics,
 #tab-bindings:checked ~ #panel-bindings,
 #tab-access:checked ~ #panel-access,
 #tab-dash:checked ~ #panel-dash,

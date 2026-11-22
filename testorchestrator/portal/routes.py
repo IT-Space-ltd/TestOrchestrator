@@ -408,6 +408,10 @@ def project_detail(project_id):
         bindings_nav=bindings_nav, test_cases=test_cases,
         test_suites=test_suites, test_colls=test_colls,
         suite_exec=suite_exec,
+        # Analytics tab content is only computed when that tab is
+        # requested — keeps ordinary project visits light.
+        **(_project_dashboard_ctx(project)
+           if request.args.get("tab") == "analytics" else {}),
     )
 
 
@@ -459,15 +463,12 @@ def save_project_access(project_id):
                             project_id=project.id, tab="access"))
 
 
-@portal_bp.route("/projects/<project_id>/dashboard")
-@login_required
-def project_dashboard(project_id):
-    """Project reporting dashboard — trends, failures, drill-down.
-    Aggregation in project_dashboard.py; figures in charts.py."""
+def _project_dashboard_ctx(project):
+    """Reporting+advanced analytics template context — shared by the
+    standalone dashboard page and the project-detail Analytics tab."""
     from ..charts import (outcome_trend, pass_rate_trend,
                           duration_trend, failure_breakdown)
     from ..project_dashboard import summary
-    project = _project_or_404(project_id)
     days = request.args.get("period", 30, type=int) or 30
     suite = request.args.get("suite", "")
     state = request.args.get("state", "")
@@ -482,9 +483,8 @@ def project_dashboard(project_id):
     envs = sorted({x for (x,) in db.session.query(Execution.environment)
                    .filter_by(project_id=project.id)
                    if x})
-    return render_template(
-        "portal/project_dashboard.html",
-        project=project, data=data, days=days,
+    return dict(
+        data=data, days=days,
         fig_outcomes=outcome_trend(data["outcome_trend"]),
         fig_passrate=pass_rate_trend(data["pass_rate"]),
         fig_duration=duration_trend(data["durations"]),
@@ -494,6 +494,18 @@ def project_dashboard(project_id):
         source_refs=refs, environments=envs,
         sel_source_ref=source_ref, sel_environment=environment,
         adv=_proj_adv(project.id, request.args))
+
+
+@portal_bp.route("/projects/<project_id>/dashboard")
+@login_required
+def project_dashboard(project_id):
+    """Project reporting dashboard — trends, failures, drill-down.
+    Aggregation in project_dashboard.py; figures in charts.py.
+    The same content renders in the project-detail Analytics tab."""
+    project = _project_or_404(project_id)
+    return render_template(
+        "portal/project_dashboard.html",
+        project=project, **_project_dashboard_ctx(project))
 
 
 def _proj_adv(project_id: str, args):

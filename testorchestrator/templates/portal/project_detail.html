@@ -18,8 +18,12 @@
   <input type="radio" name="ptabs" id="tab-inventory" class="tab-input" {% if request.args.get("tab")=="inventory" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-bindings" class="tab-input" {% if request.args.get("tab")=="bindings" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-access" class="tab-input" {% if request.args.get("tab")=="access" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-analytics" class="tab-input" {% if request.args.get("tab")=="analytics" %}checked{% endif %}>
   <nav class="tab-bar">
     <label for="tab-dash">Dashboard</label>
+    <a class="tsub tsub-analytics"
+       href="{{ url_for('portal.project_detail',
+                        project_id=project.id, tab='analytics') }}">Analytics</a>
     <label for="tab-releases">Releases</label>
     <label for="tab-test">Test</label>
     <label for="tab-schedexec">Schedules-Executions</label>
@@ -33,10 +37,7 @@
 <!-- ============ PLANS ============ -->
 <!-- ============ SUITES ============ -->
 <section class="tab-panel card" id="panel-dash">
-  <h2>Dashboard
-    <a class="button secondary sm" style="float:right"
-       href="{{ url_for('portal.project_dashboard',
-                        project_id=project.id) }}">Analytics →</a></h2>
+  <h2>Dashboard</h2>
   <form method="get" class="filter-bar">
     <input type="hidden" name="tab" value="dash">
     <div class="field"><label>Since (UTC)</label>
@@ -614,6 +615,13 @@
   </details>
   {% endif %}
 </section>
+
+{% if request.args.get("tab") == "analytics" %}
+<section class="tab-panel card" id="panel-analytics">
+  <h2>Analytics</h2>
+  {% include "portal/_project_analytics_body.html" %}
+</section>
+{% endif %}
 
 {% if current_user.role.value == "admin" %}
 <section class="tab-panel card" id="panel-access">
