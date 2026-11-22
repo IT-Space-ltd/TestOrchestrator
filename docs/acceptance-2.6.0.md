@@ -883,3 +883,116 @@ environmental evidence only.
 
 Live `:39998` remains source-run Waitress at `c955c79` — not
 packaged-candidate evidence. No merge, no publication.
+
+## Per-user display time zones — implementation + evidence record
+
+Authorized work item: per-user IANA time-zone preference applied to
+display and analytics while machine-facing instants stay UTC.
+
+Implementation commits: `4a9d8779` (feature + focused tests),
+`f2142c81` (null-guard fix + Group B first-attempt-day assertion +
+changelog). Application candidate for the completed full-suite
+batch: **`f2142c81`**.
+
+### What was delivered
+
+- `users.timezone` IANA column — migration `a2b3c4d5e6f7`,
+  server-default `UTC`; every existing user keeps identical
+  display (Alembic path tested). Searchable picker with readable
+  labels + current offset ("varies by date") on Create User,
+  the admin user edit page and `/account` self-service; browser
+  detection suggests only, never overrides. Backend validates
+  IANA identifiers; admin edits audit `user.timezone` without
+  touching role or memberships; non-admins cannot edit others.
+- Shared `usertz` helpers — safe validation + UTC fallback,
+  `fmt_local*` with numeric offset (never `Z`), DST-correct
+  local-day→UTC bounds, repeated-local-time disambiguation.
+- Localized display across dashboards, execution lists/details,
+  attempt history, audit trail, operational logs, schedule and
+  upcoming displays, releases, admin pages, log-export jobs and
+  app-generated report summaries. Raw runner stdout/stderr,
+  downloaded logs and third-party artifacts untouched.
+- Analytics (Group A/B policies unchanged) bucket by the
+  viewer's local calendar day / weekday / hour; date filters
+  become local-midnight→UTC bounds; drill-down cells match the
+  same conversion; payloads + CSV carry the zone
+  (`timezone` field / `tz` column) so a preference change
+  refreshes rather than mixing zones.
+- Schedules keep stored UTC fire instants — preference changes
+  move no schedule; the form states execution zone (UTC) vs the
+  viewer's display zone.
+- Log-export CSV keeps `timestamp_utc` and adds
+  `timestamp_local` + `timezone` columns; `filters_json` records
+  the zone requested.
+- Settings backup round-trips the preference; pre-timezone
+  backups restore UTC silently; invalid identifiers restore UTC
+  with an explicit attention warning.
+- `tzdata` pinned so packaged Windows/Linux installs carry IANA
+  data for `zoneinfo` (Windows build resolves pinned wheels).
+
+### Focused tests (`tests/test_timezone.py`, 30 tests)
+
+IANA validation + fixed-offset/nonsense rejection; invalid-zone
+UTC fallback; numeric offset + no `Z`; non-whole-hour zone
+(Asia/Kolkata +05:30); DST spring-forward gap + fall-back
+repeated local times producing distinct offset-bearing strings;
+local-day bounds across DST vs UTC; create-with-zone, invalid
+rejection, admin edit, non-admin denial, self-service, audit
+event; two viewers same event in different zones; executions
+date-filter as local day; activity heatmap local dow/hour
+bucket; drill cohort matching the local cell (and NOT the UTC
+cell); analytics CSV `tz` column; freshness CSV UTC + local
+columns; queue-wait AND first-vs-final first-attempt-day local
+bucketing; schedule fire-instant invariance after a preference
+change; schedule form discloses UTC execution zone; log-export
+local columns; Alembic upgrade defaulting existing users to
+UTC; backup round-trip / legacy-without-field / invalid-value
+warning+fallback. **Result: 30 passed** (focused run at
+`4a9d8779`, re-run inside the `f2142c81` batch).
+
+### Affected regressions
+
+Dashboard, project dashboard, analytics, log exports,
+operational logs (incl. live tail), schedules + plans, schedule
+targets, settings backup, backup regressions, project access:
+**172 passed** at `4a9d8779`. The 7 playwright modal tests that
+caught the template null-guard defect re-ran green standalone
+(10/10 in the two modal files) at `f2142c81`.
+
+### Suite accounting — recorded separately, not combined
+
+| Run | Result |
+|---|---|
+| Full-suite batch at `4a9d8779` (first candidate) | **892 passed / 8 failed / 1 skipped** — 7 failures were a real defect this change introduced: dropped `se`/`c.stats` null guards in `project_detail.html` → 500 on the project page → modal-open timeouts; NOT counted as clean |
+| Fix verification at `f2142c81` | 10/10 modal playwright tests passed standalone |
+| Completed full-suite batch at `f2142c81` | **899 passed / 1 failed / 1 skipped** (8 m 29 s) |
+
+The sole `f2142c81` failure is
+`test_production_key_auto_loaded` — external licence-issuer
+private key absent (`/tmp/to-license-issuer/private.pem`) —
+**blocked, not passed**. The 1 skip is the separately
+identified skip. Delta vs the `c955c79` batch (871 collected)
+= +30, exactly the new timezone tests. The `4a9d8779` defect
+and its `f2142c81` fix are recorded as development-cycle
+evidence — the fix is not a ledger-only change.
+
+Preview note: the `:39995` disposable instance was restarted
+onto `f2142c81` and its `create_all`-style DB gained
+`users.timezone` via the migration-equivalent additive ALTER
+(the migration itself is Alembic-tested; the instance has no
+`alembic_version` table).
+
+### Status board (updated)
+
+| Area | Status |
+|---|---|
+| Advanced Analytics Group A | Source-level acceptance closed at `175094f`; time-dependent behaviour **re-verified under viewer zones** — local-day bucketing covered by the new focused tests at `f2142c81` |
+| Advanced Analytics Group B | Implemented; source-level evidence at `c955c79` + zone-aware re-verification at `f2142c81` — **acceptance review still pending; does not close any gate below** |
+| Per-user time zones | Implemented; source-level evidence above at `f2142c81` — **acceptance review pending; packaged-install verification outstanding** |
+| Backup and Restore | Implemented; timezone field covered at `f2142c81`. Windows/package gates outstanding. Settings-only scope |
+| Windows W1–W15 | Real-host acceptance outstanding; kit should add a packaged `zoneinfo` availability check |
+| Clean packaged candidate + final matrix | Outstanding |
+| External licence-issuer-key test | Blocked — missing external private key |
+
+Live `:39998` remains source-run Waitress — not packaged-
+candidate evidence. No merge, no publication.
