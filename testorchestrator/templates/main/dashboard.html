@@ -56,8 +56,8 @@
         <td>{{ p.active }}{% if p.queued %} ({{ p.queued }} queued){% endif %}</td>
         <td>{% if p.pass_rate is not none %}{{ p.pass_rate }}% <span class="muted">of {{ p.pass_total }}</span>{% else %}—{% endif %}</td>
         <td>{{ (p.next_run_at or "—")[:16] }}</td>
-        <td class="cell-actions"><a class="button secondary sm"
-           href="{{ url_for('portal.project_detail', project_id=p.id) }}">Open</a></td>
+        <td><div class="cell-actions"><a class="button secondary sm"
+           href="{{ url_for('portal.project_detail', project_id=p.id) }}">Open</a></div></td>
       </tr>
       {% endfor %}
     </tbody>
