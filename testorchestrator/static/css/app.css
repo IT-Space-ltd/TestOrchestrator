@@ -399,7 +399,7 @@ pre.example {
 .data-table th, .data-table td {
   text-align: left; padding: 0.35rem 0.6rem;
   border-bottom: 1px solid var(--border);
-  vertical-align: top;
+  vertical-align: middle;
 }
 .data-table th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
 
