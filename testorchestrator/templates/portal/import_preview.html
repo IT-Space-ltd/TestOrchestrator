@@ -8,7 +8,7 @@
     (requested: {{ session.revision_input or "HEAD" }})</dd>
   <dt>Result directory</dt><dd><code>{{ session.result_dir or "." }}</code></dd>
   <dt>Preview by</dt><dd>{{ session.created_by }} —
-    {{ (session.created_at|string)[:19] }}</dd>
+    {{ (session.created_at|string)[:19]|replace("T"," ") }}</dd>
 </dl>
 <p class="muted">Preview only — no execution-history records exist yet.
 Select the runs to import; duplicates and ambiguous matches are shown
@@ -34,7 +34,7 @@ with their matched execution.</p>
     </td>
     <td><code>{{ c.run_dir }}</code></td>
     <td>{{ c.suite_name or "—" }}</td>
-    <td>{{ (c.started_at|string)[:19] if c.started_at else "unknown" }}</td>
+    <td>{{ (c.started_at|string)[:19]|replace("T"," ") if c.started_at else "unknown" }}</td>
     <td>{{ c.case_count }}</td>
     <td><span class="badge decision-{{ c.decision }}">{{ c.decision }}</span>
       {% if c.status == "failed" %}<br><span class="warn">{{ c.error }}</span>{% endif %}

@@ -19,7 +19,7 @@
 
   function setStale(on) { if (staleEl) staleEl.hidden = !on; }
   function setUpdated(ts) {
-    if (updatedEl) updatedEl.textContent = "Updated " + ts.slice(0, 19) + "Z";
+    if (updatedEl) updatedEl.textContent = "Updated " + ts.slice(0, 19).replace("T", " ") + " UTC";
   }
 
   function setText(key, value) {
@@ -46,11 +46,11 @@
         (hide ? " hidden" : "") + ">" +
         "<td><a href='/projects/" + esc(p.id) + "'><strong>" + esc(p.name) +
         "</strong></a><div class='muted'>" + esc((p.description || "").slice(0, 80)) + "</div></td>" +
-        "<td>" + esc((p.latest_finished_at || "—").slice(0, 16)) + "</td>" +
+        "<td>" + esc((p.latest_finished_at || "—").slice(0, 16).replace("T", " ")) + "</td>" +
         "<td>" + (p.latest_outcome ? "<span class='badge outcome-" + esc(p.latest_outcome) + "'>" + esc(p.latest_outcome) + "</span>" : "—") + "</td>" +
         "<td>" + p.active + (p.queued ? " (" + p.queued + " queued)" : "") + "</td>" +
         "<td>" + (p.pass_rate === null ? "—" : p.pass_rate + "% <span class='muted'>of " + p.pass_total + "</span>") + "</td>" +
-        "<td>" + esc((p.next_run_at || "—").slice(0, 16)) + "</td>" +
+        "<td>" + esc((p.next_run_at || "—").slice(0, 16).replace("T", " ")) + "</td>" +
         "<td><div class='cell-actions'><a class='button secondary sm' href='/projects/" + esc(p.id) + "'>Open</a></div></td></tr>";
     }).join("");
   }

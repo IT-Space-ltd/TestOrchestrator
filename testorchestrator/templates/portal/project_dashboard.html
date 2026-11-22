@@ -98,7 +98,7 @@
     <h2>Advanced analytics</h2>
     <span>
       <span id="adv-updated" class="muted">Updated
-        {{ adv.data.generated_at[:19] }}Z</span>
+        {{ adv.data.generated_at[:19]|replace("T"," ") }} UTC</span>
       <button id="adv-refresh" class="button secondary sm"
               type="button">Refresh</button>
     </span>

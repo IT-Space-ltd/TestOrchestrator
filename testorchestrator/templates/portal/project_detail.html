@@ -72,7 +72,7 @@
     <tr><td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}">{{ e.target_path or (e.suite.name if e.suite else "—") }}</a></td>
       <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
       <td><code>{{ (e.source_sha or "—")[:12] }}</code></td>
-      <td>{{ (e.started_at|string)[:16] }}</td></tr>
+      <td>{{ (e.started_at|string)[:16]|replace("T"," ") }}</td></tr>
     {% endfor %}
   </tbody></table>
   {% else %}<p class="muted">No executions yet.</p>{% endif %}

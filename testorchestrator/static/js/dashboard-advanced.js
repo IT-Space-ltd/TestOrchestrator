@@ -106,7 +106,7 @@
         });
         if (updatedEl) {
           updatedEl.textContent =
-            "Updated " + data.generated_at.slice(0, 19) + "Z";
+            "Updated " + data.generated_at.slice(0, 19).replace("T", " ") + " UTC";
         }
       })
       .catch(function () {

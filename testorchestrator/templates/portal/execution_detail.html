@@ -54,7 +54,7 @@
     {% if ex.origin == "imported" %}
     {% set imp = ex.snapshot().get('import', {}) %}
     <dt>Origin</dt><dd><span class="badge imported">imported</span>
-      by {{ ex.imported_by }} at {{ (ex.imported_at|string)[:19] }}</dd>
+      by {{ ex.imported_by }} at {{ (ex.imported_at|string)[:19]|replace("T"," ") }}</dd>
     <dt>Source repository</dt><dd><code>{{ ex.source_repo or "—" }}</code></dd>
     <dt>Source commit</dt><dd><code>{{ ex.source_commit or "—" }}</code></dd>
     <dt>Source path</dt><dd><code>{{ ex.source_path or "—" }}</code></dd>
