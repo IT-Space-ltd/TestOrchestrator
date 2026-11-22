@@ -601,15 +601,22 @@ carried in the record:
 - Live verification used **source-run Waitress** on `/tmp/manual251`
   at `175094f` — **not** packaged-candidate evidence.
 
-**Attribution**: full-suite + live acceptance at `175094f`; reported
-head `d10f25c`; `175094f..d10f25c` diff verified **documentation-only**
-(ledger append, +86). Head `31a2575` adds the ledger closeout plus
-one template caption line on the first-vs-final card (display text
-only — no logic, no aggregation change); the `175094f` suite tally
-remains the full-suite evidence for the feature code. The six
-initial regressions + fixes stay as historical evidence; the final
-tally is the clean single batch (852/1/1), not a combined rerun
-total.
+**Attribution**:
+- `175094f` — full-suite result (852 passed / 1 failed / 1 skipped)
+  and live source-level acceptance.
+- `31a2575` — subsequent inline limitation caption on the
+  first-vs-final card (one display-text line; no logic or
+  aggregation change).
+- `cd4133f` — reported head at closeout recording.
+
+`175094f..d10f25c` diff verified **documentation-only** (ledger
+append, +86). Because of the `31a2575` caption, the current tree is
+**not** entirely documentation-only relative to `175094f`; the small
+template change stays identified and is covered by a targeted render
+check rather than a broad rerun. The `175094f` tally is not
+relabelled as having run at the current head. The six initial
+regressions + fixes stay as historical evidence; the final tally is
+the single full-batch result (852/1/1), not a combined rerun total.
 
 **Feature revision**: `80cd41f` (Group A implementation; includes the
 Executions Worker-filter fix — the template iterated `workers` while
@@ -668,7 +675,8 @@ ISO T/Z timestamps).
   `9951af0`.
 - Suite run A: `2e7e882`, **852 passed / 1 failed / 1 skipped** —
   flagged unreliable: application files changed mid-run.
-- Full-suite run B at `175094f` (clean tree, all Group A + fixes):
+- Full-suite run B at `175094f` (unmodified working tree at that
+  revision, all Group A + fixes):
   **852 passed / 1 failed / 1 skipped** — the single failure is
   `test_production_key_auto_loaded` (`FileNotFoundError:`
   `/tmp/to-license-issuer/private.pem`), the external issuer-key
@@ -681,7 +689,7 @@ ISO T/Z timestamps).
   `audit-table` class leaking the string "audit" to non-admin pages
   (renamed `data-table`), three split literal strings in
   settings/secrets guidance, users-page unassigned wording — all
-  fixed and re-verified green at `2e7e882`+.
+  fixed and re-verified passing at `2e7e882`+.
 
 ### Status board
 
@@ -689,7 +697,7 @@ ISO T/Z timestamps).
 |---|---|
 | Advanced Analytics Group A | **Source-level acceptance closed** at `175094f` |
 | Advanced Analytics Group B | On hold — NOT authorized by Group A acceptance |
-| Backup and Restore | Completion not established by this report |
+| Backup and Restore | Implemented; source-level tests verified at `175094f` (14/14, within that full-suite batch). Windows protection/path behavior and packaged reinstall, recovery, and upgrade/restore acceptance remain outstanding. Settings-only scope — this format does not back up execution history, reports, artifacts, or the audit trail |
 | Windows W1–W15 | Real-host acceptance outstanding |
 | Clean packaged candidate + final matrix | Outstanding |
 | External licence-issuer-key test | Blocked — missing external private key |
@@ -700,6 +708,25 @@ ISO T/Z timestamps).
   needs `/tmp/to-license-issuer/private.pem` (does not exist on this
   host) — external blocker, not a regression.
 - Windows W1–W15 matrix on a real host (kit ready).
-- Backup & Restore acceptance; clean-package 8-combination smoke +
-  parallel/recovery/security/upgrade/restore/reinstall gates.
+- Backup & Restore — implemented and source-tested (14/14 at
+  `175094f`); the following cross-cutting package/security/recovery
+  gates remain open and are NOT satisfied by the eight
+  framework/target execution combinations:
+  - Windows backup/staging/download file protection, service-account
+    access, staging cleanup, and path behavior (real host).
+  - Packaged `toctl backup` → `recover` roundtrip.
+  - Clean packaged reinstall → restore → login + configuration
+    verification.
+  - Supported older-version backup → newer packaged application
+    (filtered restore path).
+  - Preservation of roles and project assignments through restore.
+  - Session/token invalidation, runners landing in
+    needs-verification, and schedules staying inactive until
+    explicitly re-armed.
+  - Managed encrypted credentials decrypting after `secret.key`
+    restore on the new host.
+  - Failed/interrupted restore leaving a usable configuration with
+    no partially applied key or settings state.
+- Clean-package 8-combination smoke + parallel/recovery/security/
+  upgrade/restore/reinstall gates.
 - Group B charts stay on hold until this closeout is accepted.
