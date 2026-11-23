@@ -355,7 +355,7 @@ def activity_heatmap(rows, mode: str, from_date: str = "",
     hours = list(range(24))
     zmap = {(r["dow"], r["hour"]): r["count"] for r in rows}
     z, txt, cd = [], [], []
-    for di, dname in enumerate(dows):
+    for di in range(len(dows)):
         zr, tr, cr = [], [], []
         for h in hours:
             n = zmap.get((di, h), 0)
