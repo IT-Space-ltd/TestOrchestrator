@@ -1741,3 +1741,60 @@ F3 note: the 933/1/1 suite ran at `8c14b9d0`;
 — suite-covered code identical; `scripts/install.py` is not
 pytest-covered and is exercised end-to-end by the VM V1 row on the
 `124b5567` tarball.
+
+## VM e2e acceptance — `to-accept` (Multipass, Ubuntu 26.04.1, disposable)
+
+Package: `testorchestrator-2.6.0-linux-x86_64.run` sha256 `df6b2d22…f53`
+(tarball `76179316…`); head `64879207` (install.py + build_bundle fixes).
+VM restored to `to-accept.baseline` before install.
+
+### Install + services (real root `/opt` install, first PASS after two defect fixes)
+- V1 install → `/opt`: **PASS** — all 5 units active+enabled;
+  `testorchestrator` user created by installer (uid 999).
+- V2 lifecycle: stop→inactive, start→active, restart→active,
+  kill -9 → auto-restart ~4 s → portal 200: **PASS**.
+- V3 modes: `/var/lib/testorchestrator` 755 to:to; `secret.key` 600;
+  `web.env` 640; `certs/` 700; `release.json` 644 (post-fix): **PASS**.
+- V4 journal: lifecycle lines present, zero secret/apiKey strings: **PASS**.
+- Portal: HTTPS :443 → 200; HTTP :8080 → 301 to HTTPS.
+
+### Worker + framework e2e (real Buildbot PB, real systemd worker)
+- `install_linux_worker.sh` from shipped worker tarball
+  (`TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz`,
+  offline wheels + get-pip fallback): **PASS** — venv, `buildbot.tac`,
+  `to-buildbot-worker` unit enabled+started, PB attach confirmed in
+  master log (`bb-vm-worker attached to to-target-…`).
+- worker + KRE (fake katalonc → JUnit; credential via worker-local
+  `credential_file`, `credential_ref` correctly rejected for remote):
+  execution `0c132764` → **completed**.
+- worker + Robot Framework (**real** robotframework 7.5.1 in worker
+  venv, real `.robot` case): execution `e0bede36` → **completed**.
+- worker + Cypress (fake `npx` → JUnit): execution `d11100bc` → **completed**.
+- worker + Playwright (fake `npx` → JUnit; needs sibling `npm` for the
+  `npm ci` deps step — real node supplies it): `a0ab61f3` → **completed**.
+
+### Agentless SSH + KRE — DEFECT FOUND (reproducible 3/3)
+- Host-key pinning verified: `TO-SSH: host key verified SHA256:o8/M…`
+  on the real OpenSSH_10.2p1 sshd.
+- BUT the staged `source.tar` (`buildbot/staging/<eid>.tar`) is
+  present ~1.8 s after dispatch and **gone before the dispatcher's
+  `sftp.put` at ~2.5 s** → `to_ssh_exec` FileNotFoundError → run goes
+  UNKNOWN with reservations retained (safe reconciliation path, no
+  silent rerun — correct failure semantics).
+- Executions `ec0394ea`, `28a5e8b7`, `347abc8e` all hit it.
+- Root cause not yet pinned; likely a staging lifecycle race
+  (`clear_staging` is only called at finalize + readiness — suspect a
+  reconcile path). **Real defect — needs fix + retest.**
+
+### Notes / boundaries
+- bb-wheels cover cp310–cp312 only; VM's system python3 is 3.14 →
+  worker install needs a 3.10–3.12 interpreter (used uv-installed
+  CPython 3.12.16). Script floors at 3.10 with **no ceiling** — on
+  3.13+ hosts offline install fails mid-way. Finding for docs or a
+  version ceiling.
+- Bundled `python-runtime` is fixed-prefix — cannot create venvs
+  (expected; it is the app runtime, not a general interpreter).
+- UNKNOWN executions hold runner slots until reconciled (by design —
+  verified: second SSH run queued on `capacity: job slots full 1/1`).
+- Fake runtimes (katalonc/npx) validate orchestration + collection;
+  real framework binaries remain product-owner acceptance scope.
