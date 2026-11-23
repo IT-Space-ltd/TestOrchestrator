@@ -1353,3 +1353,28 @@ vulnerability-free or dead-code-free code.
   sessions/tokens — verified on the package (rows above).
 - Session/cookie: secure cookies + Referer enforcement verified on
   the packaged instance.
+
+### Post-scan candidate results
+
+**Full suite at `22fee4c5` (scan-fix head): 911 passed / 1 failed /
+1 skipped** (9m55s), uncombined — sole failure remains
+`test_production_key_auto_loaded` (missing external issuer key —
+environment-blocked, not a pass). Delta vs `753c0c0b`'s 907 = +4 =
+exactly the scan-fix tests (3-role `test_ab05_403_renders_error_template`
++ `test_workdir_with_quotes_survives_quoting`).
+
+**Final internal-test candidate:** built at `22fee4c5` (working tree
+contained the not-yet-committed wheel+whitelist+ledger; committed
+identically at `53a0808e`):
+`testorchestrator-2.6.0-linux-x86_64.tar.gz` — 201,043,529 B,
+SHA-256 `ab07227ac3274c5069e0ae85f3198b0e943f6b3f901623417b6b7abd991fa1ba`;
+`.run` SHA-256 `7e0660d6f65d9da7c0caa69aa4dc69cc8705bb631e7aa2883ad6d93509522952`.
+Still internal-test, scratch-prefix only. Extracted check: package
+carries `paramiko-3.5.1` wheel + pin and `tzdata-2026.6` wheel.
+
+**Scans re-run at final head:** Vulture clean (all real findings
+fixed; only whitelisted/deferred groups remain); Bandit — ssh_check
+now `shlex.quote`'d (B601 pattern still reported, sanitization
+verified manually — Bandit cannot see it); pip-audit — **Terrapin
+cleared by paramiko 3.5.1**; residuals = 2× 2009-Buildbot FPs +
+PYSEC-2026-2858 (no upstream fix, accepted).
