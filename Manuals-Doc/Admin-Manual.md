@@ -989,6 +989,24 @@ TestOrchestrator licence is an offline Ed25519-signed code checked
 against `release/licence_pubkey.pem` (§12.4) — informational only,
 and unrelated to the Katalon licence.
 
+**Process-list exposure (residual risk).** The only confirmed
+mechanism KRE offers for the activation key is the command line,
+so the key is visible in the child's argv to **same-UID users on
+the runner host** (`/proc/<pid>/cmdline`, `ps`) for the process
+lifetime. It is *not* visible to other accounts and never lands in
+logs, artifacts, audit or exports (redaction above). The code
+already supports injecting an environment variable
+(`env_extra`), so if Katalon documents a non-argv mechanism for
+your KRE version it can be adopted without a product change.
+Recommended host hygiene on every runner:
+
+- run the worker under a **dedicated service account** — the
+  exposure is limited to that account's processes;
+- **no shared interactive users** on runner hosts — anyone logged
+  in under the same account could read argv while KRE runs;
+- **rotate the API key** on a schedule and immediately when an
+  owner leaves or a host is retired.
+
 **Administrator checklist.**
 
 - API key is valid and belongs to the organization that owns the
@@ -1361,6 +1379,24 @@ not supported"* until a valid licence is recorded. This is distinct
 from the KRE licence (§4.5 of the User Manual): KRE still requires a
 valid Katalon licence/API key on the worker, and real KRE activation
 failures continue to fail the affected runs.
+
+**Expired and not-yet-valid codes — current behaviour (pending
+confirmation).** Activation validates the *signature and format*
+of a code, not its validity window: an already-expired code and a
+not-yet-valid (future-dated) code are both **accepted and stored**
+at activation time — the success message echoes the declared
+window ("Licence activated … valid `<from>` to `<to>`"). This is
+deliberate for future codes — a renewal can be recorded before its
+window starts, and `status()` never lets it displace a currently
+valid licence. Stored codes are classified for display by
+`status()`: the page shows `expired` / `not-yet-valid` / `valid`
+accordingly, and at expiry of the latest code the state becomes
+`expired` and the login-page notice reappears — still nothing is
+gated. For an expired code, acceptance means it is stored as
+history, not that it grants a valid state. This text records the
+behaviour as implemented; whether an expired code should be
+*rejected* at activation is a product decision pending owner
+confirmation — no code change has been made.
 
 ---
 
