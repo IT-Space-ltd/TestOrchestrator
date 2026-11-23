@@ -51,7 +51,6 @@ from .results import aggregate_outcome, entry_state, parse_junit
 from . import results as results_mod
 
 LEASE_SECONDS = 60
-HEARTBEAT_SECONDS = 15
 
 
 class DispatchError(RuntimeError):

@@ -39,7 +39,6 @@ TERMINAL_STATES = (
     ExecutionState.CANCELED,
 )
 DEFAULT_PERIOD_DAYS = 14
-CHART_DAYS = 14
 MAX_DASHBOARD_PROJECTS = 50   # labelled preview; full list is /projects
 
 

@@ -134,7 +134,7 @@ def check_target(runner, runtimes=None) -> CheckResult:
         # Verify the presented key against the pinned fingerprint
         # AGAIN at connect time — the earlier probe and this session
         # could be answered differently by a MITM.
-        alg2, fp2 = _fingerprint(transport.get_remote_server_key())
+        _alg2, fp2 = _fingerprint(transport.get_remote_server_key())
         if fp2 != stored:
             transport.close()
             return res.fail(
