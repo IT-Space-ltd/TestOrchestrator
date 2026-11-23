@@ -1871,3 +1871,48 @@ Fresh baseline restore → install → full matrix:
 
 Superseded packages: `124b5567…e0fe`, `76179316…` / `df6b2d22…f53`,
 `2b804b8c…1019` / `e1eda0b5…4c82` — all stale vs `b1a8a7ec` build.
+
+## V7 SSH key interop + V5 + V6 — final head `53bea796`
+
+`.run` sha256 `322e3e9557907e52fb73ff9a3310f96a10b6be55499a8ff01b995e99a820af2b`
+(tarball `c3ce118f…09f1`, sources `29d5a23f…0d9a`), internal-test build
+`53bea796`.
+
+### V7 OpenSSH interop — PASS
+- ed25519, ECDSA (nistp256), RSA-3072 client keys each completed the real
+  `to_ssh_exec` connect path on the VM sshd: pinned host key verified,
+  pubkey auth, exec, SFTP round-trip.
+- Password authentication rejected (publickey-only retained).
+- Test keys removed per row.
+
+### V5 uninstall/reinstall — PASS
+- Uninstall removed payload only; data/history/users/secret.key intact.
+- Reinstall → login served; prior project/history rows present.
+
+### V6 2.5.1 → 2.6.0 upgrade — PASS at `53bea796` (found + fixed one more defect)
+- 2.5.1 tarball install + operator repairs (service user, data chown,
+  `release.json` 644) → running 2.5.1 with `buildbot-venv/bin/python3`
+  → `/tmp/to251/...` (pre-fix stale-venv state, still resolvable at
+  upgrade time).
+- Seeded `v6-marker-project-2.5.1`; stopped services; ran `.run --yes`.
+- **Defect found during V6**: `00627ec3`/`b1a8a7ec` only rebuilt the
+  venv when the interpreter symlink was *dangling*; here it still
+  resolved to `/tmp/to251` → `_buildbot_venv_ok` correctly fired the
+  rebuild, but `python -m venv` **does not rewrite existing bin/
+  symlinks** (only pyvenv.cfg) — `bin/python3` stayed on `/tmp/to251`,
+  home= corrected. Deleting `/tmp/to251` post-upgrade left it dangling
+  → units activating/dead. `dc26fb6b` added the outside-payload check;
+  `53bea796` rmtree's the env before recreating.
+- After upgrade at `53bea796`: `bin/python3` →
+  `/opt/testorchestrator/3rdparty/python-runtime/...python3.12` (inside
+  payload), `import buildbot` = 4.3.0, all 5 units active.
+- Deleted `/tmp/to251`, restarted all units → all active, web 200.
+- Marker `v6-marker-project-2.5.1` + `Admin` user preserved; secrets
+  preserved (`web.env`).
+
+### Targeted suite at `53bea796`
+- 36 passed (installer payload incl. `_buildbot_venv_ok` matrix,
+  linux worker install gates, SSH dispatch, buildbot dispatch/staging).
+
+Superseded package: `63f991ab…7d37` / `a39cf1a9…347f` — stale vs
+`53bea796` (venv-rebuild gap on upgrade).
