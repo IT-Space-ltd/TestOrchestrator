@@ -358,6 +358,13 @@ untouched, same reruns-are-safe contract).
   install walkthrough added to the Admin Manual (§4.2, one
   screenshot per step); architecture/dataflow diagrams re-rendered;
   Administrator and User Manuals also ship as PDF release assets.
+- New Admin Manual **§6.9 KRE licensing** — who does what
+  (Katalon licenses/activates KRE; TestOrchestrator only stores the
+  API key as an encrypted credential reference, passes it as
+  `-apiKey=` with log/artifact redaction, and caps concurrent KRE
+  sessions per runner at `min(max_slots, license_slots)`), offline
+  licences, the admin checklist, and an activation-failure
+  troubleshooting order linked from §10.
 
 ## [2.5.0] — 2026-11-19
 
