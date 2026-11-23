@@ -59,6 +59,23 @@ def test_api_token_auth(app):
                  headers=_auth(tok)).status_code == 401
 
 
+def test_api_403_stays_json_envelope(app):
+    """The app-wide HTML 403 handler (main_bp.app_errorhandler) must not
+    leak into the API blueprint — its own HTTPException handler wins
+    and the JSON error envelope survives."""
+    _env(app)
+    read_tok = _token(app, scope="read")
+    c = app.test_client()
+    r = c.post("/api/v1/executions", json={"suite_id": "x"},
+               headers=_auth(read_tok))
+    assert r.status_code == 403
+    assert r.is_json
+    body = r.get_json()
+    assert body["error"]["kind"] in ("scope", "http")
+    assert b"You do not have access" not in r.data
+    assert b"Traceback" not in r.data
+
+
 def test_api_scope_enforcement(app):
     _env(app)
     read_tok = _token(app, scope="read")
