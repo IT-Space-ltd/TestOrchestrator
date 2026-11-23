@@ -1003,19 +1003,38 @@ and unrelated to the Katalon licence.
 
 **Process-list exposure (residual risk).** The only confirmed
 mechanism KRE offers for the activation key is the command line,
-so the key is visible in the child's argv to **same-UID users on
-the runner host** (`/proc/<pid>/cmdline`, `ps`) for the process
-lifetime. It is *not* visible to other accounts and never lands in
-logs, artifacts, audit or exports (redaction above). The code
-already supports injecting an environment variable
+so the key is visible in the child's argv to **any local user on
+the runner host** for the process lifetime — this is broader than
+the service account itself:
+
+- **Linux:** `/proc/<pid>/cmdline` is world-readable
+  (`-r--r--r--`) — every local account, not just same-UID, can
+  read it unless `/proc` is mounted with `hidepid=1` (hides other
+  users' `/proc/<pid>` entries) or `hidepid=2` (also hides them
+  from `/proc` listings; recommended). Note `/proc/<pid>/environ`
+  is owner-only — an environment-variable channel is strictly
+  safer than argv on Linux.
+- **Windows:** command lines are likewise enumerable by local
+  users (WMI `Win32_Process.CommandLine`, `Get-CimInstance`,
+  Process Explorer/`tasklist /v`) — there is no per-user argv
+  hiding; a process argument is not a secret channel.
+- **macOS:** `ps`/sysctl exposes argv to other local users as
+  well; treat argv as public on every supported OS.
+
+It never lands in logs, artifacts, audit or exports (redaction
+above) — the exposure is limited to live local process inspection.
+The code already supports injecting an environment variable
 (`env_extra`), so if Katalon documents a non-argv mechanism for
-your KRE version it can be adopted without a product change.
+your KRE version it should be adopted — on Linux env is strictly
+safer than argv.
 Recommended host hygiene on every runner:
 
-- run the worker under a **dedicated service account** — the
-  exposure is limited to that account's processes;
-- **no shared interactive users** on runner hosts — anyone logged
-  in under the same account could read argv while KRE runs;
+- run the worker under a **dedicated service account** — keeps
+  KRE's argv inside one account's process set;
+- **no shared interactive users** on runner hosts — any local
+  login can read the argv while KRE runs;
+- on Linux mount `/proc` with **`hidepid=2`** where possible —
+  the only mechanism that actually hides other users' argv;
 - **rotate the API key** on a schedule and immediately when an
   owner leaves or a host is retired.
 
