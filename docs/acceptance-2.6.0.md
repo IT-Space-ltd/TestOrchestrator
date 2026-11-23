@@ -1210,3 +1210,146 @@ just the payload.
 
 Live `:39998` remains source-run Waitress — not packaged-
 candidate evidence. No merge, no publication.
+
+### Package and revision boundaries
+
+`testorchestrator-2.6.0-linux-x86_64.tar.gz` — 200,530,903 B
+(~200.5 MB), SHA-256
+`b74a29eae0f0d2c52a8b73584af0fda3ac9b023a5ffc93fa144f05b6416291f4`
+— built at `f96b645b`. Marked **internal-test, scratch-prefix only,
+not a distribution candidate** (built with
+`TO_BUILDBOT_INTERNAL_BUILD=1`). `f96b645b` contains the vendored
+`tzdata-2026.6` wheel + notices entry — **packaging/build-only, no
+application-code change vs `753c0c0b`** (diff = wheel binary,
+`3rdparty/licenses/THIRD-PARTY-NOTICES.txt`,
+`3rdparty/python-wheels/`). The 907/1/1 batch stays pinned to
+`753c0c0b`. The missing wheel was a **corrected build defect**
+caught by the build's own offline-install validation.
+
+Commit classification since the tarball: `8aee8735` docs (ledger),
+`21ab2963`..`22fee4c5` **code** (scan-driven fixes below). Any
+later change makes the `f96b645b` tarball **stale** — the final
+candidate must be rebuilt from final head with its own hash, suite
+run and revision attribution.
+
+### Upgrade provenance (verified — original untouched)
+
+Source `/tmp/manual251-data/testorchestrator.db` re-inspected after
+the packaged upgrade: alembic `r8s9t0u1v2w3`, no `users.timezone`
+column, counts identical (3 users / 3 executions / 9 results /
+1 schedule / 27 audit / 2 secret_refs / 1 project / 1 suite /
+10 settings) — **the packaged upgrade ran on the copy under
+`/tmp/to251-upgrade`, not the original**. The migrated copy is at
+`a2b3c4d5e6f7` with the timezone column. No running service points
+at the copy (`:39998` is source-run on a different DB). No
+approval-boundary incident for `/tmp/manual251-data`.
+
+### Packaged portal-restore rows (on the `f96b645b` package)
+
+`toctl recover` is a verbatim file-level restore; the portal
+`apply_restore` path (Settings backup) was additionally exercised
+on the packaged code against a staged target instance with a real
+decrypted payload (4 users / 1 project / 1 runner / 2 schedules /
+api token / 4 secret_refs, `replace` mode, actor `admin`):
+
+| Row | Result |
+|---|---|
+| Roles + memberships preserved | **PASS** — `tester`→`TESTER`+`Asia/Kolkata`+`['pkgp']`; `manager`/`po`/`Admin` roles intact |
+| Sessions invalidated | **PASS** — every user's `session_version` incremented (prior sessions die on next request) |
+| API/submit tokens revoked | **PASS** — `ci` token `revoked_at` set; target's live token dropped in replace mode; 0 submit tokens resurrected |
+| Runners need re-verification | **PASS** — `health=unknown`, `check_status=pending`, `check_at=None`, `check_error=""` |
+| Schedules safe-rearmed | **PASS** — past single-fire `past-sched` **disabled** + attention note; future interval `fut-sched` stays enabled |
+| Interrupted restore → usable config | **PASS** — corrupted payload (duplicate username → mid-transaction IntegrityError) rolled back atomically; prior config identical before/after, still usable |
+
+Still open: **clean reinstall from `.run` → restore → login**
+(`toctl backup→recover`/`apply_restore` are not a clean reinstall);
+8-combination matrix; §5 packaged security sweep; service-level
+file-mode/journal rows (need a systemd-installed service —
+**approval required**, not installed).
+
+### Packaged exports (on the `f96b645b` package)
+
+| Row | Result |
+|---|---|
+| Audit CSV | **PASS** — `timestamp_utc`/`timestamp_local`/`timezone` (prior pass) |
+| Operational-logs CSV | **PASS** — `200`, `testorchestrator-operational-…-inline.csv`, `timestamp_utc` column family |
+| Analytics CSVs ×5 | **PASS** — `activity`/`project_outcomes`/`first_final`/`queue_wait`/`turnaround` all 200, each appending the `tz` column |
+
+### Source-analysis scans (read-only, at `8aee8735`)
+
+Isolated tool dir `/tmp/scantools` (not the project runtime):
+`vulture==2.14`, `bandit==1.8.3`, `pip-audit==2.9.0` (OSV backend),
+`jscpd@4.0.5` (npx). Scope: first-party Python (`testorchestrator/`),
+`tests/` separately, `testorchestrator/static/js/`, templates.
+Excluded: `static/vendor/plotly.min.js`, `3rdparty/`, generated
+files, `migrations/` boilerplate, installer payloads.
+
+**Vulture** — 365 raw → 204 after `ignore_decorators` (routes, CLI,
+filters, fixtures, errorhandlers) → whitelist module
+`build-scripts/vulture_whitelist.py` (each group commented with its
+consumer); `--min-confidence` left at default. Dynamic lookups
+(`getattr` with built names — `ParsedRun` tuple reads, WTForms
+`validate_<field>`, flask `from_object`) checked by hand.
+
+**Triage table:**
+
+| ID | Tool/rule/ver | Location | Sev/conf | As reported | Classification | Action |
+|---|---|---|---|---|---|---|
+| VULT-1 | vulture unreachable-code 2.14 | secrets_store.py:215 | 100% | `return True` after `return` | Real defect | fixed `21ab2963` |
+| VULT-2 | unused import | dispatch.py:2700 | 90% | `import shutil as _sh` | Real dead code | fixed `eedc0f83` |
+| VULT-3 | unused param | charts.py:437 | 100% | `stale_days` never used | Real dead code | fixed `7d8dd677` (+caller) |
+| VULT-4 | unused var | charts.py:358 | 60% | `dname` loop var | Real dead code | fixed `fb43469f` |
+| VULT-5 | unused var | logexport.py:287 | 60% | `live_names` set | Real dead code | fixed `00d49aff` |
+| VULT-6 | unused func | main/routes.py:432 | 60% | `forbidden` — **missing `@app_errorhandler(403)`** | **Real defect** (403s got default page) | fixed `1fb43c8e` + test `test_ab05_403_renders_error_template` |
+| VULT-7 | unused func | dispatch.py:996 | 60% | `procs_within_budget` | Dead — same rule enforced atomically in `_assign_runner` CAS | fixed `da1862d1`+`236c6608` |
+| VULT-8 | unused func | network.py:91 | 60% | `port_available` | Dead | fixed `176062f7` |
+| VULT-9/10 | unused class | buildbot.py:49, buildbot_cfg.py:31 | 60% | `SubmissionLost`, `BuildbotConfigError` | Dead — never raised/caught | fixed `61e0ea15` |
+| VULT-11 | unused func | charts.py:84 | 60% | `palette()` | Dead | fixed `dc963183` |
+| VULT-12/13 | unused | portal/forms.py:48, readiness.py:253 | 60% | `PlanForm`, `blockers()` | Dead | fixed `762e9452` |
+| VULT-14..18 | unused const | reporting/results/dashboard/dispatch/kre.py | 60% | 5 module constants | Dead | fixed `c9e8f9e6` (+`alg2`→`_alg2`) |
+| VULT-19 | unused func | usertz.py:203 | 60% | `local_day` | Dead — superseded | fixed `633b3c2b` |
+| ASSET-1/2 | manual scan | plan_detail.html, it-space-logo.placeholder.svg | — | orphaned template + dev asset | Dead — zero refs by name/string/template | removed `ffbdb60c` |
+| DEFER-1 | vulture | buildbot.py adapter methods ×3 | 60% | `worker_connected`/`reconfig_pidfile`/`dispatcher_builder_name` | Deferred — documented adapter API surface; zero in-repo callers but removal is an integration-contract decision | whitelisted w/ reason |
+| DEFER-2 | vulture | adapters/updater.py | 60% | `NotConfiguredError`/`Adapter` | Deferred — deliberate 17-line placeholder seam, no importers | whitelisted w/ reason |
+| FP-* | vulture | ~200 entries | 60% | routes/CLI/forms/ORM cols/config attrs/listener args | False positive — framework-registered or serialized | whitelist groups documented |
+| SEC-1 | bandit B202 1.8.3 | updater.py:255 | **High/High** | `tarfile.extractall` | **False positive** — custom filter rewrites links then delegates to `tarfile.data_filter` (rejects traversal/absolute); member names validated | documented; no change |
+| SEC-2 | bandit B601 | ssh_check.py:158,178 | Med/Med | paramiko `exec_command` | **Real defect** — `{x!r}` repr is not a shell escape (both-quote strings break/inject); admin-config values only | fixed `759eaa5d` → `shlex.quote` + test `test_workdir_with_quotes_survives_quoting` |
+| SEC-3 | bandit B314 ×9 | authoring/gitsync/results/runner_readiness XML | Med | ElementTree untrusted parse | Accepted risk — JUnit XML arrives from the runner trust boundary (same actor can already run test code); no external-entity resolution in stdlib ET; defusedxml recommended future hardening | deferred, owner: hardening pass |
+| SEC-4 | bandit B104 | frontend.py:225 | Med | bind `::`/`0.0.0.0` | Accepted — Cheroot IS the public frontend; Waitress stays loopback-only by design | none |
+| SEC-5 | bandit B105/107/110/310/404/603/607 | misc | Low | hardcoded 'Admin'/'' pw, try-except-pass, urlopen, subprocess | FP/accepted — usernames not passwords; subprocess list-form args; CLI-local urlopen | none |
+| DEP-1 | pip-audit OSV | paramiko 2.12.0 | High | PYSEC-2026-1758 / CVE-2023-48795 Terrapin | **Real** — SSH transport prefix-truncation on agentless path | **fixed** `22fee4c5` → paramiko 3.5.1 (pin+wheel); 10 SSH tests pass |
+| DEP-2 | pip-audit OSV | paramiko | Med | PYSEC-2026-2858 / CVE-2026-44405 SHA-1 RSA | Accepted risk — no upstream fix yet; pinned fingerprints + publickey auth bound exposure | deferred to upstream fix |
+| DEP-3/4 | pip-audit OSV | buildbot 4.3.0 | Low | GHSA-jqqh/mj3x (CVE-2009-2959/2967 XSS) | **False positive** — 2009 advisories fixed ≥0.7.11; 4.3.0 unaffected (OSV range mislabel) | none |
+| JS-1 | manual | plotly.min.js v3.3.0 | — | bundled version | CVE-2023-46308 affects <2.25.2 only (not affected); #8168 proto-pollution fixed upstream in 4.3.0 — accepted risk, figures are app-generated not user-supplied | noted |
+
+**jscpd baseline** (token-based, `jscpd@4.0.5`, defaults):
+app Python 62 files — 11 clones, 0.68% lines / 1.02% tokens;
+tests 84 files — 83 clones, 3.19% / 4.36%;
+templates 50 files — 29 clones, 4.23% / 3.66%;
+JS 10 files — 7 clones, 11.49% / 11.32%.
+Baseline recorded, not a zero-clone target. Security-ranked:
+**pytestfw↔robotfw↔nodefw counting/normalization clones** are the
+top risk (counting-policy duplication that can drift — deferred as
+ordinary refactor; adapters are parallel implementations);
+execution.py column blocks are structural ORM noise; JS clones are
+dashboard↔project analytics rendering (no authz); template clones
+are form markup. No authorization/redaction/escaping clones found.
+
+Scan limits: vulture can't see framework/dynamic refs (whitelisted
+above); bandit flags patterns not exploitability; pip-audit covers
+Python deps only (Plotly handled manually); no claim of
+vulnerability-free or dead-code-free code.
+
+### Manual security review notes (this-cycle additions)
+
+- Runner command construction: dispatch SSH path uses
+  `shlex.quote` (`qwd`); ssh_check repr-quoting now fixed (SEC-2).
+- Backup/restore extraction: `apply_restore` payload uses
+  `_restore_filter`→`data_filter` containment (SEC-1 verified safe).
+- Authorization on new routes: analytics CSV gated by
+  `project_allowed` scope (existing); op-logs export ADMIN-only;
+  `forbidden` 403 handler now actually registered (VULT-6).
+- Secrets: log/export redaction unchanged; backup payload excludes
+  sessions/tokens — verified on the package (rows above).
+- Session/cookie: secure cookies + Referer enforcement verified on
+  the packaged instance.
