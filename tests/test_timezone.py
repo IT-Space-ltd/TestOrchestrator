@@ -76,12 +76,12 @@ class TestZoneHelpers:
         assert not usertz.valid_zone("../../etc/passwd")
         assert not usertz.valid_zone("")
 
-    def test_picker_lists_primary_zones_only(self):
-        """The suggestion list is the curated primary-zone table OS
-        pickers use — no alias/backward-compat duplicates — while the
-        backend still accepts any valid IANA name typed in."""
-        zones = usertz.primary_zones()
-        assert "UTC" in zones
+    def test_picker_lists_major_cities_only(self):
+        """The suggestion list is a curated major-city set like OS
+        pickers (~130 entries) — while the backend still accepts any
+        valid IANA name typed in."""
+        zones = usertz.picker_zones()
+        assert zones[0] == "UTC"
         assert "Europe/Budapest" in zones
         assert "Asia/Kolkata" in zones
         # aliases/links and synthetic zones are filtered out
@@ -89,12 +89,23 @@ class TestZoneHelpers:
         assert not any(z.startswith(("Etc/", "US/", "GMT"))
                        for z in zones)
         # far smaller than the raw IANA db — keeps the dropdown usable
+        assert 80 <= len(zones) <= 200
         assert len(zones) < len(usertz.all_zones())
         choices = usertz.tz_choices()
         assert choices[0][0] == "UTC"
         assert len(choices) == len(zones)
         # a zone absent from suggestions is still accepted on save
         assert usertz.valid_zone("Asia/Calcutta")   # legacy link name
+        assert usertz.valid_zone("Pacific/Kiritimati")
+
+    def test_picker_groups_by_region(self):
+        groups = usertz.tz_choice_groups()
+        names = {g for g, _ in groups}
+        assert {"UTC", "Europe", "Africa", "Americas", "Asia",
+                "Oceania & Pacific"} <= names
+        flat = [n for _, opts in groups for n, _ in opts]
+        assert flat[0] == "UTC"
+        assert "Europe/Budapest" in flat
 
     def test_invalid_zone_falls_back_to_utc(self):
         dt = datetime(2026, 11, 22, 10, 0)
@@ -223,7 +234,8 @@ class TestPreference:
         login(client, "tester")
         r = client.get("/account")
         assert r.status_code == 200
-        assert b"tz-options" in r.data          # searchable dropdown
+        assert b'<select name="timezone"' in r.data  # grouped picker
+        assert b"optgroup" in r.data
         assert b"tz-detected" in r.data         # suggestion script
         r = client.post("/account", data={"timezone": "Europe/Budapest"},
                         follow_redirects=True)

@@ -31,73 +31,78 @@ def all_zones() -> list[str]:
     return _ALL_ZONES
 
 
-# Primary-zone list for the picker: zone1970.tab is the table OS
-# installers (Linux/Windows-style pickers) use — one IANA zone per
-# region, without alias/backward-compat duplicates. The datalist still
-# accepts ANY valid IANA name typed in (validated server-side), so
-# nothing becomes unreachable — the suggestions are just curated.
-_FALLBACK_PRIMARY = [
-    "Pacific/Midway", "America/Anchorage", "America/Los_Angeles",
-    "America/Denver", "America/Chicago", "America/New_York",
-    "America/Toronto", "America/Mexico_City", "America/Bogota",
-    "America/Santiago", "America/Sao_Paulo", "America/Argentina/Buenos_Aires",
-    "Atlantic/Azores", "UTC", "Europe/London", "Europe/Lisbon",
-    "Europe/Dublin", "Europe/Paris", "Europe/Madrid", "Europe/Berlin",
-    "Europe/Rome", "Europe/Warsaw", "Europe/Prague", "Europe/Vienna",
-    "Europe/Budapest", "Europe/Stockholm", "Europe/Oslo",
-    "Europe/Copenhagen", "Europe/Amsterdam", "Europe/Brussels",
-    "Europe/Zurich", "Europe/Helsinki", "Europe/Athens",
-    "Europe/Bucharest", "Europe/Sofia", "Europe/Kyiv", "Europe/Istanbul",
-    "Europe/Moscow", "Africa/Cairo", "Africa/Johannesburg",
-    "Africa/Lagos", "Africa/Nairobi", "Asia/Jerusalem", "Asia/Riyadh",
-    "Asia/Dubai", "Asia/Tehran", "Asia/Karachi", "Asia/Kolkata",
-    "Asia/Dhaka", "Asia/Bangkok", "Asia/Jakarta", "Asia/Shanghai",
-    "Asia/Singapore", "Asia/Hong_Kong", "Asia/Taipei", "Asia/Tokyo",
-    "Asia/Seoul", "Australia/Perth", "Australia/Sydney",
-    "Australia/Melbourne", "Australia/Brisbane", "Pacific/Auckland",
-    "Pacific/Fiji", "Pacific/Honolulu",
+# Picker suggestion list — the "main cities" set OS time-zone pickers
+# offer (Windows ~135 entries). Any valid IANA name typed into the
+# field is still accepted and validated server-side, so nothing
+# becomes unreachable — the suggestions are convenience, not a fence.
+_MAJOR_ZONES = [
+    "UTC",
+    # Europe / Atlantic
+    "Atlantic/Azores", "Europe/London", "Europe/Dublin", "Europe/Lisbon",
+    "Europe/Reykjavik", "Europe/Paris", "Europe/Madrid", "Europe/Berlin",
+    "Europe/Rome", "Europe/Amsterdam", "Europe/Brussels",
+    "Europe/Luxembourg", "Europe/Monaco", "Europe/Zurich",
+    "Europe/Vienna", "Europe/Prague", "Europe/Warsaw",
+    "Europe/Bratislava", "Europe/Budapest", "Europe/Zagreb",
+    "Europe/Ljubljana", "Europe/Belgrade", "Europe/Sarajevo",
+    "Europe/Podgorica", "Europe/Tirane", "Europe/Skopje",
+    "Europe/Malta", "Europe/Gibraltar", "Europe/Andorra",
+    "Europe/Stockholm", "Europe/Oslo", "Europe/Copenhagen",
+    "Europe/Helsinki", "Europe/Tallinn", "Europe/Riga",
+    "Europe/Vilnius", "Europe/Kaliningrad", "Europe/Minsk",
+    "Europe/Kyiv", "Europe/Chisinau", "Europe/Bucharest",
+    "Europe/Sofia", "Europe/Athens", "Europe/Istanbul",
+    "Europe/Moscow", "Europe/Volgograd", "Europe/Samara",
+    # Africa
+    "Africa/Casablanca", "Africa/Algiers", "Africa/Tunis",
+    "Africa/Tripoli", "Africa/Cairo", "Africa/Khartoum",
+    "Africa/Lagos", "Africa/Accra", "Africa/Dakar",
+    "Africa/Kinshasa", "Africa/Luanda", "Africa/Nairobi",
+    "Africa/Dar_es_Salaam", "Africa/Addis_Ababa",
+    "Africa/Johannesburg", "Africa/Harare", "Africa/Maputo",
+    # Americas
+    "Pacific/Honolulu", "America/Anchorage", "America/Los_Angeles",
+    "America/Tijuana", "America/Phoenix", "America/Denver",
+    "America/Chicago", "America/Mexico_City", "America/Guatemala",
+    "America/New_York", "America/Toronto", "America/Winnipeg",
+    "America/Halifax", "America/St_Johns", "America/Havana",
+    "America/Panama", "America/Bogota", "America/Lima",
+    "America/Quito", "America/Caracas", "America/La_Paz",
+    "America/Santiago", "America/Asuncion", "America/Sao_Paulo",
+    "America/Argentina/Buenos_Aires", "America/Montevideo",
+    "America/Georgetown", "America/Puerto_Rico",
+    # Asia
+    "Asia/Jerusalem", "Asia/Beirut", "Asia/Amman", "Asia/Baghdad",
+    "Asia/Riyadh", "Asia/Kuwait", "Asia/Dubai", "Asia/Muscat",
+    "Asia/Tehran", "Asia/Baku", "Asia/Yerevan", "Asia/Tbilisi",
+    "Asia/Kabul", "Asia/Karachi", "Asia/Kolkata", "Asia/Colombo",
+    "Asia/Kathmandu", "Asia/Dhaka", "Asia/Almaty", "Asia/Tashkent",
+    "Asia/Bishkek", "Asia/Yangon", "Asia/Bangkok", "Asia/Jakarta",
+    "Asia/Kuala_Lumpur", "Asia/Singapore", "Asia/Manila",
+    "Asia/Hong_Kong", "Asia/Shanghai", "Asia/Taipei", "Asia/Macau",
+    "Asia/Ulaanbaatar", "Asia/Seoul", "Asia/Tokyo",
+    "Asia/Vladivostok", "Asia/Novosibirsk", "Asia/Yekaterinburg",
+    # Oceania / Pacific
+    "Australia/Perth", "Australia/Darwin", "Australia/Adelaide",
+    "Australia/Brisbane", "Australia/Sydney", "Australia/Melbourne",
+    "Australia/Hobart", "Pacific/Auckland", "Pacific/Fiji",
+    "Pacific/Guam", "Pacific/Port_Moresby", "Pacific/Noumea",
+    "Pacific/Tahiti", "Pacific/Midway",
 ]
 
-_PRIMARY_ZONES: list[str] | None = None
+_MAJOR_ZONE_LIST: list[str] | None = None
 
 
-def _zone1970_tab_paths() -> list[str]:
-    import os
-    from zoneinfo import TZPATH
-    paths = [os.path.join(d, "zone1970.tab") for d in TZPATH]
-    try:
-        import tzdata
-        paths.append(os.path.join(os.path.dirname(tzdata.__file__),
-                                  "zoneinfo", "zone1970.tab"))
-    except Exception:
-        pass
-    return paths
-
-
-def primary_zones() -> list[str]:
-    """Curated IANA primary zones (zone1970.tab — the same source OS
-    time-zone pickers consume). UTC first; ~300 entries vs ~600 raw.
-    Falls back to a compact built-in list if the file is missing."""
-    global _PRIMARY_ZONES
-    if _PRIMARY_ZONES is not None:
-        return _PRIMARY_ZONES
-    names: set[str] = {"UTC"}
-    for path in _zone1970_tab_paths():
-        try:
-            with open(path, encoding="utf-8") as fh:
-                for line in fh:
-                    if line.startswith("#") or not line.strip():
-                        continue
-                    parts = line.split("\t")
-                    if len(parts) >= 3:
-                        names.add(parts[2].strip())
-            break                                   # first file wins
-        except OSError:
-            continue
-    if len(names) <= 1:                             # file unavailable
-        names = set(_FALLBACK_PRIMARY)
-    _PRIMARY_ZONES = sorted(n for n in names if valid_zone(n))
-    return _PRIMARY_ZONES
+def picker_zones() -> list[str]:
+    """Curated major-city IANA zones for the picker — UTC first,
+    sorted after it. Entries that fail to load on this host are
+    dropped (e.g. renamed zones on very old tzdata)."""
+    global _MAJOR_ZONE_LIST
+    if _MAJOR_ZONE_LIST is None:
+        rest = sorted(z for z in _MAJOR_ZONES if z != "UTC"
+                      and valid_zone(z))
+        _MAJOR_ZONE_LIST = ["UTC", *rest]
+    return _MAJOR_ZONE_LIST
 
 
 def valid_zone(name: str) -> bool:
@@ -194,7 +199,7 @@ def tz_choices(now: datetime | None = None) -> list[tuple[str, str]]:
     discloses that the offset changes with the date (DST)."""
     now = now or datetime.now(timezone.utc)
     out = [("UTC", "UTC (UTC+00:00)")]
-    for name in primary_zones():
+    for name in picker_zones():
         if name == "UTC":
             continue
         try:
@@ -203,6 +208,32 @@ def tz_choices(now: datetime | None = None) -> list[tuple[str, str]]:
             continue
         out.append((name, f"{name} ({off} now — varies by date)"))
     return out
+
+
+_REGION_LABELS = {
+    "Africa": "Africa", "America": "Americas", "Antarctica": "Polar",
+    "Arctic": "Polar", "Asia": "Asia", "Atlantic": "Atlantic",
+    "Australia": "Oceania & Pacific", "Europe": "Europe",
+    "Indian": "Indian Ocean", "Pacific": "Oceania & Pacific",
+}
+
+
+def tz_choice_groups(now: datetime | None = None
+                     ) -> list[tuple[str, list[tuple[str, str]]]]:
+    """Picker options grouped by world region — drives the <select>
+    optgroups so the list behaves like an OS time-zone picker."""
+    flat = tz_choices(now)
+    groups: dict[str, list[tuple[str, str]]] = {"UTC": []}
+    for name, label in flat:
+        if name == "UTC":
+            groups["UTC"].append((name, label))
+            continue
+        region = _REGION_LABELS.get(name.split("/", 1)[0], "Other")
+        groups.setdefault(region, []).append((name, label))
+    order = ["UTC", "Europe", "Africa", "Americas", "Asia",
+             "Atlantic", "Indian Ocean", "Oceania & Pacific",
+             "Polar", "Other"]
+    return [(g, groups[g]) for g in order if groups.get(g)]
 
 
 # ------------------------------------------------------------ requests

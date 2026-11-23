@@ -81,12 +81,11 @@
     <div class="field">{{ form.username.label }} {{ form.username() }}</div>
     <div class="field">{{ form.display_name.label }} {{ form.display_name() }}</div>
     <div class="field">{{ form.timezone.label }}
-      {{ form.timezone(list="tz-options", autocomplete="off",
-                       placeholder="e.g. Europe/Budapest or UTC") }}
-      {% include "_tz_datalist.html" %}
-      <p class="muted">IANA zone name — display only; the shown offset
-         varies by date. Defaults to UTC. The list shows primary zones
-         (as OS pickers do); typing any valid IANA name also works.</p></div>
+      {% set current = form.timezone.data or "UTC" %}
+      {% include "_tz_select.html" %}
+      <p class="muted">Major-city IANA zones grouped by region, like OS
+         pickers — the shown offset is current and varies by date.
+         Defaults to UTC.</p></div>
     <fieldset class="field"><legend>{{ form.role.label }}</legend>
       {% for sub in form.role %}<div class="checkbox">{{ sub() }} {{ sub.label }}</div>{% endfor %}
     </fieldset>

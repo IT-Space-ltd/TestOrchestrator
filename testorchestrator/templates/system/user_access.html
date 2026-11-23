@@ -19,13 +19,13 @@
     {{ tz_form.csrf_token }}
     <div class="field">
       {{ tz_form.timezone.label }}
-      {{ tz_form.timezone(list="tz-options", autocomplete="off",
-                          placeholder="e.g. Europe/Budapest or UTC") }}
-      {% include "_tz_datalist.html" %}
-      <p class="muted">IANA zone name — the user's display zone; stored
-         instants stay UTC. The list shows primary zones; typing any
-         valid IANA name also works. Changing this only affects how
-         times are shown to them, not schedules or memberships.</p>
+      {% set current = tz_form.timezone.data or "UTC" %}
+      {% include "_tz_select.html" %}
+      <p class="muted">Major-city IANA zones grouped by region, like OS
+         pickers — the shown offset is current and varies by date. The
+         user's display zone; stored instants stay UTC. Changing this
+         only affects how times are shown to them, not schedules or
+         memberships.</p>
       {% for e in tz_form.timezone.errors %}
       <p class="flash flash-error">{{ e }}</p>
       {% endfor %}

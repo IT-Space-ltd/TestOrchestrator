@@ -1,0 +1,23 @@
+{# Shared curated time-zone <select> — grouped by region like OS
+   time-zone pickers, so the list is short and natively scrollable.
+   Expects: tz_groups [(region, [(iana, label)])] and current (str —
+   the saved zone, "" when creating). A saved zone that is not in the
+   curated list is appended and kept selected so nothing is lost. #}
+<select name="timezone" id="timezone" required>
+  {% set tzns = namespace(listed=false) %}
+  {% for region, opts in tz_groups %}
+  <optgroup label="{{ region }}">
+    {% for name, label in opts %}
+    <option value="{{ name }}"
+            {% if name == current %}selected{% set tzns.listed = true %}{% endif %}>
+      {{ label }}</option>
+    {% endfor %}
+  </optgroup>
+  {% endfor %}
+  {% if current and not tzns.listed %}
+  <optgroup label="Saved">
+    <option value="{{ current }}" selected>
+      {{ current }} (saved — type is still honoured)</option>
+  </optgroup>
+  {% endif %}
+</select>

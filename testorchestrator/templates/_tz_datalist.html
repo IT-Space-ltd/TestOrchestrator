@@ -1,8 +1,0 @@
-{# Shared searchable time-zone options — bind an input with
-   list="tz-options". Values are IANA identifiers; labels show the
-   CURRENT offset and disclose that it varies by date. #}
-<datalist id="tz-options">
-  {% for name, label in tz_options %}
-  <option value="{{ name }}">{{ label }}</option>
-  {% endfor %}
-</datalist>

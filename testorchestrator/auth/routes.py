@@ -128,7 +128,7 @@ def account():
     detected zone is offered as a suggestion only; it never overrides
     the saved preference. Role and project membership are untouched."""
     from ..extensions import db
-    from ..usertz import tz_choices
+    from ..usertz import tz_choice_groups
     form = AccountForm()
     if form.validate_on_submit():
         new = form.timezone.data.strip()
@@ -143,4 +143,4 @@ def account():
     elif request.method == "GET":
         form.timezone.data = current_user.timezone or "UTC"
     return render_template(
-        "auth/account.html", form=form, tz_options=tz_choices())
+        "auth/account.html", form=form, tz_groups=tz_choice_groups())

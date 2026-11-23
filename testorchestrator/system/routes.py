@@ -714,13 +714,13 @@ def users():
     from ..models import User
     from ..execution import Project
     record_audit(current_user.username, "page.users")
-    from ..usertz import tz_choices
+    from ..usertz import tz_choice_groups
     return render_template(
         "system/users.html",
         users=User.query.order_by(User.username).all(),
         projects=Project.query.order_by(Project.name).all(),
         form=UserForm(), reset_form=ResetForm(), apply_form=ApplyForm(),
-        tz_options=tz_choices())
+        tz_groups=tz_choice_groups())
 
 
 @system_bp.route("/users", methods=["POST"])
@@ -837,7 +837,7 @@ def user_access(user_id):
     'all projects through role' — no ineffective deny controls."""
     from ..models import User
     from ..execution import Project
-    from ..usertz import tz_choices
+    from ..usertz import tz_choice_groups
     user = db.session.get(User, user_id)
     if user is None:
         abort(404)
@@ -847,7 +847,7 @@ def user_access(user_id):
         "system/user_access.html", u=user, projects=projects,
         assigned=set(user.assigned_project_ids()),
         apply_form=ApplyForm(), tz_form=tz_form,
-        tz_options=tz_choices())
+        tz_groups=tz_choice_groups())
 
 
 @system_bp.route("/users/<int:user_id>/access", methods=["POST"])

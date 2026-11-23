@@ -18,15 +18,12 @@
     {{ form.csrf_token }}
     <div class="field">
       {{ form.timezone.label }}
-      {{ form.timezone(list="tz-options", autocomplete="off",
-                       placeholder="e.g. Europe/Budapest or UTC") }}
-      {% include "_tz_datalist.html" %}
-      <p class="muted">IANA zone name — the offset shown next to each
-         entry is the current offset; it varies by date. The list shows
-         primary zones (as OS pickers do); type to filter or enter any
-         IANA name — it is validated on save. Timestamps across the app
-         render in this zone with a numeric UTC offset; stored instants
-         always stay UTC.</p>
+      {% set current = form.timezone.data or "UTC" %}
+      {% include "_tz_select.html" %}
+      <p class="muted">Major-city IANA zones grouped by region, like OS
+         pickers — the shown offset is current and varies by date.
+         Timestamps across the app render in this zone with a numeric
+         UTC offset; stored instants always stay UTC.</p>
       {% for e in form.timezone.errors %}
       <p class="flash flash-error">{{ e }}</p>
       {% endfor %}
@@ -50,7 +47,14 @@
       document.getElementById("tz-detected").textContent = detected;
       document.getElementById("tz-detect-note").hidden = false;
       document.getElementById("tz-use-detected").addEventListener(
-        "click", function () { input.value = detected; });
+        "click", function () {
+          if (!input.querySelector('option[value="' + detected + '"]')) {
+            var o = document.createElement("option");
+            o.value = o.textContent = detected;
+            input.appendChild(o);
+          }
+          input.value = detected;
+        });
     }
   } catch (e) { /* detection unavailable — page works without it */ }
 })();
