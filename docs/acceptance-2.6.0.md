@@ -2044,3 +2044,67 @@ No merge, no tag, no publication; PR #4 stays draft.
 - Boundary: `/var/snap/multipass/…/vault/instances/` is root-only;
   directory listing not verified without sudo — `multipass list`
   (the authoritative client view) reports zero instances.
+
+## UI acceptance phase — post-`124347c7` defects + rebuild + Playwright suite
+
+### Product defects found by the browser suite (fix + test each)
+
+1. `e8ac8ff0` — duplicate runner name POSTed through the portal raised
+   SQLite `UNIQUE` → HTTP 500. Now a visible flash + redirect; regression
+   test in `tests/test_execution_targets.py`.
+2. `1b3fa5fb` — Buildbot units shipped without `User=` (ran as root):
+   UI-issued worker PB passwords never reached the running master
+   (SIGHUP from the `testorchestrator` web process → EPERM under
+   `NoNewPrivileges`), so issued workers stayed "awaiting registration".
+   Units now run as the service user; `iT-space-logo.png` package mode
+   0700→644 (PermissionError on portal pages).
+
+### Rebuild — package at `1b3fa5fb`
+
+- `.run` `34a73313d06b86966e10ceb967ddbb6690f75b4bb11370ead25590fa4afa19f7`
+- tarball `435213a82e3caac78c361996ea4cde5c24c8fa88d2d14d0e7fd04470301a2915`
+- **Stale**: `08284bdb…`/`05ca313d…`/`3ca1c41c…` (head `124347c7`) and all
+  earlier artifacts. Windows payload `7d74e5d0…` is stale too — the
+  runner-duplicate fix is app code; rebuild before W-kit delivery.
+
+### Flow 9 recheck — 2.5.1 → `34a73313` upgrade on `to-ui` VM
+
+- 2.5.1 install (documented operator repairs: service user, data-dir
+  chown, release.json mode) → marker project seeded → upgrade →
+  **marker preserved, login 200, all 5 units active, buildbot units now
+  `User=testorchestrator`, release.json `source_rev=1b3fa5fb`**.
+- Boundary: `enable --now` returned nonzero when the host OOM-stalled
+  the guest mid-install; units were enabled and verified active after
+  recovery — a host-resource incident, not an installer defect.
+
+### Playwright suite — `tests/e2e-ui/` committed `a27fad40` (tooling)
+
+Label: **browser** chromium+firefox · **package** `34a73313…f7` ·
+**revision** `1b3fa5fb` · VM `to-ui` (Multipass, 8 GB, Ubuntu 26.04).
+
+| Run | Result |
+|---|---|
+| chromium #1 | 26 passed, 1 skipped |
+| chromium #2 | 26 passed, 1 skipped |
+| chromium #3 | 26 passed, 1 skipped |
+| firefox | 26 passed, 1 skipped |
+
+**Flake rate 0/104.** The consistent skip is
+`test_login_and_forced_password_change` — bootstrap already consumed on
+this install (the flow itself passed on its first execution, which is
+what consumed it). `test_cert_warning_negative` verifies the browser
+blocks the self-signed cert with `ignore_https_errors` off.
+
+**Flow results:** 1 bootstrap/TLS PASS · 2 users+403 PASS ·
+3 settings PASS (logging settings are env-level `TO_LOGS_*`, no portal
+form — boundary, documented in `docs/external-logging.md`) ·
+4 project/credential/binding PASS · 5 runner+PB-issue+worker
+install+online PASS · 6 dispatch/wait-reasons/detail/exports PASS ·
+7 UNKNOWN reconciliation + license-kind + offline-worker PASS ·
+8 backup `.tobackup` + restore boundary PASS · 9 upgrade PASS (above).
+
+**Not covered:** live KRE execution with a real Katalon key (needs owner
+approval — credential plan + removal). Discovery is `.prj`-centric by
+design; the pytest fixture item/binding/runtimes are seeded test data via
+a VM-local script — all *user actions* go through the browser only.
+Known deferred defect (not failed): invisible keyboard-focus indicator.
