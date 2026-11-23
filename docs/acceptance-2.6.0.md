@@ -699,7 +699,7 @@ ISO T/Z timestamps).
 | Advanced Analytics Group B | On hold — NOT authorized by Group A acceptance |
 | Backup and Restore | Implemented; source-level tests verified at `175094f` (14/14, within that full-suite batch). Windows protection/path behavior and packaged reinstall, recovery, and upgrade/restore acceptance remain outstanding. Settings-only scope — this format does not back up execution history, reports, artifacts, or the audit trail |
 | Windows W1–W15 | Real-host acceptance outstanding |
-| Clean packaged candidate + final matrix | Outstanding — now includes §5b zone-database rows (Win + Linux installer checks, missing-db degradation) |
+| Clean packaged candidate + final matrix | Partial — first Linux pass recorded above (install, zoneinfo §5b, backup/recover, 2.5.1 upgrade, export); 8-combination matrix + remaining §5 sweep outstanding |
 | External licence-issuer-key test | Blocked — missing external private key |
 
 ### Remaining gates (unchanged, still open)
@@ -870,6 +870,42 @@ vs the `175094f` batch (852) = +17, exactly the new Group B
 tests. The preview outage and recovery are recorded as
 environmental evidence only.
 
+### Packaged Linux acceptance — first pass (`f96b645b`)
+
+Candidate artifact built from `cea6b9be` (application code
+`753c0c0b` + the `f96b645b` vendored-wheel fix; build tree showed
+DIRTY only for that uncommitted fix):
+`dist/release/linux/testorchestrator-2.6.0-linux-x86_64.tar.gz`
+(200,530,903 B, sha256
+`b74a29eae0f0d2c52a8b73584af0fda3ac9b023a5ffc93fa144f05b6416291f4`)
++ `.run` — built with `TO_BUILDBOT_INTERNAL_BUILD=1` (internal
+packaging test; the manifest marks it **not approved for
+distribution** — GPL redistribution approval stays an explicit
+decision).
+
+**Corrected defect found by this build** — `tzdata==2026.6` was
+pinned in `requirements.txt` but absent from the vendored
+`3rdparty/python-wheels/` set, so the packaged offline
+`--no-index` install failed validation (`No matching
+distribution`). Fixed in `f96b645b` by vendoring the wheel +
+notices entry; the re-run build passed.
+
+| §5b/§4 row | Result |
+|---|---|
+| Install `.run` → payload/data/config, buildbot provisioned offline, DB migrated to head | **PASS** |
+| Linux package zoneinfo: `ZoneInfo('Europe/Budapest')` + `ZoneInfo('Asia/Kolkata')` load | **PASS** — and with `PYTHONTZPATH` pointed at an empty dir (host db unreachable) both zones still resolve → the **bundled** tzdata is proven, not the host db |
+| Missing-database degradation: `PYTHONTZPATH`=empty + `tzdata` removed | **PASS** — two explicit `usertz` warnings logged, all output `+00:00`, `all_zones()`→`[]`, picker renders UTC-only; no crash, login path unaffected |
+| `toctl backup` → `.tobackup` | **PASS** (36 members) |
+| `toctl recover` → scratch dir | **PASS** — DB + `secret.key` restored; `tester` keeps `Asia/Kolkata` + `['pkgp']` (**assignment preservation**); `pkg-git` secret decrypts on the recovered instance (**credential recovery** — key travels in the encrypted payload) |
+| Upgrade: real 2.5.1 DB (`/tmp/manual251-data`, alembic `r8s9t0u1v2w3`, no tz column) → packaged `toctl db-upgrade` | **PASS** — all 9 migrations applied to `a2b3c4d5e6f7`; every table count preserved (3 users / 3 executions / 9 results / 1 schedule / 27 audit / 2 secrets / 10 settings); `users.timezone`=UTC; `notified_at` backfilled; `runtime_kind`=`kre`; `/login` 200 on upgraded data |
+| Export/logging on the package | **PASS** — audit CSV via the installed app carries `timestamp_utc` (`Z`) + `timestamp_local` + `timezone`; secure-cookie + Referer enforcement intact |
+| `flask diag` / `health` / `install-info` | **PASS** (`health` → ok; diag no mismatch) |
+
+Still open on this package: 8-combination execution matrix,
+parallel/recovery/security §5 sweep, service-level file-mode/journal
+rows — they need the systemd-installed services and run hosts, not
+just the payload.
+
 ### Status board (updated)
 
 | Area | Status |
@@ -878,7 +914,7 @@ environmental evidence only.
 | Advanced Analytics Group B | Implemented; source-level evidence above at `c955c79` — **acceptance review pending; does not close any gate below** |
 | Backup and Restore | Implemented; source-level tests verified at `175094f` (14/14 within that batch). Windows/package gates outstanding. Settings-only scope |
 | Windows W1–W15 | Real-host acceptance outstanding |
-| Clean packaged candidate + final matrix | Outstanding — now includes §5b zone-database rows (Win + Linux installer checks, missing-db degradation) |
+| Clean packaged candidate + final matrix | Partial — first Linux pass recorded above (install, zoneinfo §5b, backup/recover, 2.5.1 upgrade, export); 8-combination matrix + remaining §5 sweep outstanding |
 | External licence-issuer-key test | Blocked — missing external private key |
 
 Live `:39998` remains source-run Waitress at `c955c79` — not
@@ -1123,6 +1159,42 @@ onto `f2142c81` and its `create_all`-style DB gained
 (the migration itself is Alembic-tested; the instance has no
 `alembic_version` table).
 
+### Packaged Linux acceptance — first pass (`f96b645b`)
+
+Candidate artifact built from `cea6b9be` (application code
+`753c0c0b` + the `f96b645b` vendored-wheel fix; build tree showed
+DIRTY only for that uncommitted fix):
+`dist/release/linux/testorchestrator-2.6.0-linux-x86_64.tar.gz`
+(200,530,903 B, sha256
+`b74a29eae0f0d2c52a8b73584af0fda3ac9b023a5ffc93fa144f05b6416291f4`)
++ `.run` — built with `TO_BUILDBOT_INTERNAL_BUILD=1` (internal
+packaging test; the manifest marks it **not approved for
+distribution** — GPL redistribution approval stays an explicit
+decision).
+
+**Corrected defect found by this build** — `tzdata==2026.6` was
+pinned in `requirements.txt` but absent from the vendored
+`3rdparty/python-wheels/` set, so the packaged offline
+`--no-index` install failed validation (`No matching
+distribution`). Fixed in `f96b645b` by vendoring the wheel +
+notices entry; the re-run build passed.
+
+| §5b/§4 row | Result |
+|---|---|
+| Install `.run` → payload/data/config, buildbot provisioned offline, DB migrated to head | **PASS** |
+| Linux package zoneinfo: `ZoneInfo('Europe/Budapest')` + `ZoneInfo('Asia/Kolkata')` load | **PASS** — and with `PYTHONTZPATH` pointed at an empty dir (host db unreachable) both zones still resolve → the **bundled** tzdata is proven, not the host db |
+| Missing-database degradation: `PYTHONTZPATH`=empty + `tzdata` removed | **PASS** — two explicit `usertz` warnings logged, all output `+00:00`, `all_zones()`→`[]`, picker renders UTC-only; no crash, login path unaffected |
+| `toctl backup` → `.tobackup` | **PASS** (36 members) |
+| `toctl recover` → scratch dir | **PASS** — DB + `secret.key` restored; `tester` keeps `Asia/Kolkata` + `['pkgp']` (**assignment preservation**); `pkg-git` secret decrypts on the recovered instance (**credential recovery** — key travels in the encrypted payload) |
+| Upgrade: real 2.5.1 DB (`/tmp/manual251-data`, alembic `r8s9t0u1v2w3`, no tz column) → packaged `toctl db-upgrade` | **PASS** — all 9 migrations applied to `a2b3c4d5e6f7`; every table count preserved (3 users / 3 executions / 9 results / 1 schedule / 27 audit / 2 secrets / 10 settings); `users.timezone`=UTC; `notified_at` backfilled; `runtime_kind`=`kre`; `/login` 200 on upgraded data |
+| Export/logging on the package | **PASS** — audit CSV via the installed app carries `timestamp_utc` (`Z`) + `timestamp_local` + `timezone`; secure-cookie + Referer enforcement intact |
+| `flask diag` / `health` / `install-info` | **PASS** (`health` → ok; diag no mismatch) |
+
+Still open on this package: 8-combination execution matrix,
+parallel/recovery/security §5 sweep, service-level file-mode/journal
+rows — they need the systemd-installed services and run hosts, not
+just the payload.
+
 ### Status board (updated)
 
 | Area | Status |
@@ -1130,10 +1202,10 @@ onto `f2142c81` and its `create_all`-style DB gained
 | Advanced Analytics Group A | Source-level acceptance closed at `175094f`; time-dependent behaviour re-verified under viewer zones — local-day bucketing covered at `f2142c81`, re-verified at `3b0d6e6e` |
 | Advanced Analytics Group B | Implemented; source-level evidence at `c955c79` + zone-aware re-verification at `f2142c81` — **acceptance review still pending; does not close any gate below** |
 | Per-user time zones | Implemented — **completed full-suite batch with the known external issuer-key failure; source-level time-zone verification complete** (907 / 1 / 1 at `753c0c0b`, uncombined; the missing issuer key stays an environment-blocked test failure, not a pass). Windows + packaged pending — packaged rows defined in `packaged-acceptance.md` §5b |
-| `usertz` fallback hardening | Tested at source level (`test_missing_database_falls_back_with_diagnostic`, `test_display_survives_missing_zone_db`); **verify on an installed package** (§5b row) |
-| Backup and Restore | Implemented; timezone field covered at `f2142c81`. Windows/package gates outstanding. Settings-only scope |
+| `usertz` fallback hardening | Source tests + **verified on the installed Linux package** (§5b missing-db row: warnings + UTC fallback, no breakage); Windows package verify still pending (W16) |
+| Backup and Restore | Implemented; source-tested + **packaged backup→recover verified** (36 members; assignments, timezone and decryptable secrets preserved). Windows gate + portal-staged-restore package sweep outstanding. Settings-only scope |
 | Windows W1–W16 | Real-host acceptance outstanding; W16 (zone selection/display/local-day filter/CSV + packaged `zoneinfo` load of Europe/Budapest + Asia/Kolkata) added to the kit — pending real-host execution |
-| Clean packaged candidate + final matrix | Outstanding — now includes §5b zone-database rows (Win + Linux installer checks, missing-db degradation) |
+| Clean packaged candidate + final matrix | Partial — first Linux pass recorded above (install, zoneinfo §5b, backup/recover, 2.5.1 upgrade, export); 8-combination matrix + remaining §5 sweep outstanding |
 | External licence-issuer-key test | Blocked — missing external private key |
 
 Live `:39998` remains source-run Waitress — not packaged-
