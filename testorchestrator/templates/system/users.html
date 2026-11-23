@@ -43,7 +43,7 @@
           </form>
         </td>
         <td>
-          <div class="cell-actions">
+          <div class="cell-actions access-cell">
           {% if u.role.value == "admin" %}
             <span class="muted">All projects <small>(via role)</small></span>
           {% elif u.assigned_project_ids() %}
