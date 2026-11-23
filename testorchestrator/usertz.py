@@ -31,6 +31,75 @@ def all_zones() -> list[str]:
     return _ALL_ZONES
 
 
+# Primary-zone list for the picker: zone1970.tab is the table OS
+# installers (Linux/Windows-style pickers) use — one IANA zone per
+# region, without alias/backward-compat duplicates. The datalist still
+# accepts ANY valid IANA name typed in (validated server-side), so
+# nothing becomes unreachable — the suggestions are just curated.
+_FALLBACK_PRIMARY = [
+    "Pacific/Midway", "America/Anchorage", "America/Los_Angeles",
+    "America/Denver", "America/Chicago", "America/New_York",
+    "America/Toronto", "America/Mexico_City", "America/Bogota",
+    "America/Santiago", "America/Sao_Paulo", "America/Argentina/Buenos_Aires",
+    "Atlantic/Azores", "UTC", "Europe/London", "Europe/Lisbon",
+    "Europe/Dublin", "Europe/Paris", "Europe/Madrid", "Europe/Berlin",
+    "Europe/Rome", "Europe/Warsaw", "Europe/Prague", "Europe/Vienna",
+    "Europe/Budapest", "Europe/Stockholm", "Europe/Oslo",
+    "Europe/Copenhagen", "Europe/Amsterdam", "Europe/Brussels",
+    "Europe/Zurich", "Europe/Helsinki", "Europe/Athens",
+    "Europe/Bucharest", "Europe/Sofia", "Europe/Kyiv", "Europe/Istanbul",
+    "Europe/Moscow", "Africa/Cairo", "Africa/Johannesburg",
+    "Africa/Lagos", "Africa/Nairobi", "Asia/Jerusalem", "Asia/Riyadh",
+    "Asia/Dubai", "Asia/Tehran", "Asia/Karachi", "Asia/Kolkata",
+    "Asia/Dhaka", "Asia/Bangkok", "Asia/Jakarta", "Asia/Shanghai",
+    "Asia/Singapore", "Asia/Hong_Kong", "Asia/Taipei", "Asia/Tokyo",
+    "Asia/Seoul", "Australia/Perth", "Australia/Sydney",
+    "Australia/Melbourne", "Australia/Brisbane", "Pacific/Auckland",
+    "Pacific/Fiji", "Pacific/Honolulu",
+]
+
+_PRIMARY_ZONES: list[str] | None = None
+
+
+def _zone1970_tab_paths() -> list[str]:
+    import os
+    from zoneinfo import TZPATH
+    paths = [os.path.join(d, "zone1970.tab") for d in TZPATH]
+    try:
+        import tzdata
+        paths.append(os.path.join(os.path.dirname(tzdata.__file__),
+                                  "zoneinfo", "zone1970.tab"))
+    except Exception:
+        pass
+    return paths
+
+
+def primary_zones() -> list[str]:
+    """Curated IANA primary zones (zone1970.tab — the same source OS
+    time-zone pickers consume). UTC first; ~300 entries vs ~600 raw.
+    Falls back to a compact built-in list if the file is missing."""
+    global _PRIMARY_ZONES
+    if _PRIMARY_ZONES is not None:
+        return _PRIMARY_ZONES
+    names: set[str] = {"UTC"}
+    for path in _zone1970_tab_paths():
+        try:
+            with open(path, encoding="utf-8") as fh:
+                for line in fh:
+                    if line.startswith("#") or not line.strip():
+                        continue
+                    parts = line.split("\t")
+                    if len(parts) >= 3:
+                        names.add(parts[2].strip())
+            break                                   # first file wins
+        except OSError:
+            continue
+    if len(names) <= 1:                             # file unavailable
+        names = set(_FALLBACK_PRIMARY)
+    _PRIMARY_ZONES = sorted(n for n in names if valid_zone(n))
+    return _PRIMARY_ZONES
+
+
 def valid_zone(name: str) -> bool:
     """True iff `name` is a loadable IANA identifier on this host."""
     if not name or len(name) > 64:
@@ -125,7 +194,7 @@ def tz_choices(now: datetime | None = None) -> list[tuple[str, str]]:
     discloses that the offset changes with the date (DST)."""
     now = now or datetime.now(timezone.utc)
     out = [("UTC", "UTC (UTC+00:00)")]
-    for name in all_zones():
+    for name in primary_zones():
         if name == "UTC":
             continue
         try:

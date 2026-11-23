@@ -85,7 +85,8 @@
                        placeholder="e.g. Europe/Budapest or UTC") }}
       {% include "_tz_datalist.html" %}
       <p class="muted">IANA zone name — display only; the shown offset
-         varies by date. Defaults to UTC.</p></div>
+         varies by date. Defaults to UTC. The list shows primary zones
+         (as OS pickers do); typing any valid IANA name also works.</p></div>
     <fieldset class="field"><legend>{{ form.role.label }}</legend>
       {% for sub in form.role %}<div class="checkbox">{{ sub() }} {{ sub.label }}</div>{% endfor %}
     </fieldset>

@@ -23,8 +23,9 @@
                           placeholder="e.g. Europe/Budapest or UTC") }}
       {% include "_tz_datalist.html" %}
       <p class="muted">IANA zone name — the user's display zone; stored
-         instants stay UTC. Changing this only affects how times are
-         shown to them, not schedules or memberships.</p>
+         instants stay UTC. The list shows primary zones; typing any
+         valid IANA name also works. Changing this only affects how
+         times are shown to them, not schedules or memberships.</p>
       {% for e in tz_form.timezone.errors %}
       <p class="flash flash-error">{{ e }}</p>
       {% endfor %}

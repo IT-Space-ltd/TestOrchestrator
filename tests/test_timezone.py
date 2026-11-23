@@ -76,6 +76,26 @@ class TestZoneHelpers:
         assert not usertz.valid_zone("../../etc/passwd")
         assert not usertz.valid_zone("")
 
+    def test_picker_lists_primary_zones_only(self):
+        """The suggestion list is the curated primary-zone table OS
+        pickers use — no alias/backward-compat duplicates — while the
+        backend still accepts any valid IANA name typed in."""
+        zones = usertz.primary_zones()
+        assert "UTC" in zones
+        assert "Europe/Budapest" in zones
+        assert "Asia/Kolkata" in zones
+        # aliases/links and synthetic zones are filtered out
+        assert "US/Eastern" not in zones
+        assert not any(z.startswith(("Etc/", "US/", "GMT"))
+                       for z in zones)
+        # far smaller than the raw IANA db — keeps the dropdown usable
+        assert len(zones) < len(usertz.all_zones())
+        choices = usertz.tz_choices()
+        assert choices[0][0] == "UTC"
+        assert len(choices) == len(zones)
+        # a zone absent from suggestions is still accepted on save
+        assert usertz.valid_zone("Asia/Calcutta")   # legacy link name
+
     def test_invalid_zone_falls_back_to_utc(self):
         dt = datetime(2026, 11, 22, 10, 0)
         bad = usertz.coerce_zone("Mars/Olympus")
