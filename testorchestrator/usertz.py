@@ -200,11 +200,6 @@ def fmt_local_date(dt, tz: ZoneInfo) -> str:
     return local.strftime("%Y-%m-%d") if local is not None else ""
 
 
-def local_day(dt, tz: ZoneInfo) -> str:
-    """Local calendar day key — analytics bucketing."""
-    return fmt_local_date(dt, tz)
-
-
 def utc_iso(dt) -> str:
     """Machine/canonical form — aware-UTC ISO-8601 ('...+00:00')."""
     aware = _aware_utc(dt)
