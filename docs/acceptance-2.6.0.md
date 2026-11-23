@@ -1536,3 +1536,19 @@ Tests: `tests/test_worker_tray.py` — 20 display-free cases,
 bounds + outline + untouched corners — all pass. Real-host rows
 added: **W17** (tray states/themes/DPI + screenshots), **W18**
 (licensing on Windows). Docs: Admin-Manual §6.1 + CHANGELOG.
+
+### `.run` non-root install → restore → login — PASS
+
+On `/tmp/to26-final-inst` (`--payload` scratch prefix, `--no-service-start`,
+non-root): install provisioned Buildbot + `web.env` + migrated DB;
+app bound `:38445` (Cheroot) + `:8080` loopback (Waitress — stale
+`/tmp/to251d` instance stopped to free the loopback port). Seeded
+`restore-admin`, `create_backup` → wiped user → `apply_restore`
+replace mode → user restored with password intact → HTTPS
+`/login` 302→`/` 200. Old `/tmp/test-backup.tobackup` passphrase
+unknown — cycle used a fresh backup instead; format identical.
+
+§5 live-instance membership/RBAC spot-checks: suite-backed items
+(`tests/test_project_access.py` 17 tests) covered by the packaged
+912-run; interactive two-project live verification pending the
+final candidate.

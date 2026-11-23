@@ -86,3 +86,9 @@ producer_failures             # ParsedRun — getattr(run, name) tuple at result
 producer_errors               # ParsedRun — getattr(run, name) tuple at results.py:97
 producer_skipped              # ParsedRun — getattr(run, name) tuple at results.py:97
 _.partial                     # ParsedRun.partial — written + read across parse path
+# framework-registered callbacks (decorator names don't match the
+# ignore globs — confirmed registered, not dead)
+load_user            # flask-login user_loader, __init__.py
+_gates               # app.before_request gate chain, bootstrap.py
+_sqlite_pragmas      # event.listens_for(Engine,"connect"), extensions.py
+inject_about_context # app_context_processor, main/routes.py
