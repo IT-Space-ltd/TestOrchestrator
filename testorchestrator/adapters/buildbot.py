@@ -46,12 +46,6 @@ class NotConfigured(RuntimeError):
     """Actionable status when the Buildbot endpoint/credential is absent."""
 
 
-class SubmissionLost(RuntimeError):
-    """The force response could not be read — the buildrequest may or may
-    not exist. The caller reconciles by execution-id property, never by
-    blind resubmission."""
-
-
 class BuildbotAdapter:
     """Versioned client for the localhost Buildbot REST API (v2)."""
 

@@ -28,10 +28,6 @@ LOCAL_WORKER = "to-local"
 SSH_DISPATCHER = "to-ssh-dispatcher"
 
 
-class BuildbotConfigError(RuntimeError):
-    pass
-
-
 # ---------- paths ----------
 
 def home() -> Path:
