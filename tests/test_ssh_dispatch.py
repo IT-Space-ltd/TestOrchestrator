@@ -97,6 +97,49 @@ def test_fresh_run_collects(tmp_path):
         .read_text().strip() == "<testsuite tests='1'/>"
 
 
+def test_unwritable_remote_workdir_reports_actionably(tmp_path):
+    """Remote workdir the SSH user can't create → dispatcher exits 2
+    naming the workdir/permission problem — never an opaque bare
+    FileNotFoundError from a downstream sftp.put."""
+    server = TestSSHServer(Path("/"))
+    exe = _runner_exec(tmp_path, "echo unreachable\n")
+    ro = tmp_path / "ro-parent"
+    ro.mkdir()
+    ro.chmod(0o555)
+    spec = _spec(tmp_path, server, exe, ro / "run")
+    work = tmp_path / "dwork4"
+    work.mkdir()
+    try:
+        proc = _run_dispatcher(spec, work)
+        out, _ = proc.communicate(timeout=60)
+        assert proc.returncode == 2
+        assert "not creatable/writable" in out
+        assert str(ro / "run") in out
+    finally:
+        ro.chmod(0o755)
+
+
+def test_existing_readonly_remote_workdir_reports_actionably(
+        tmp_path):
+    """Workdir exists (mkdir -p is a no-op) but is read-only → same
+    actionable failure via the write probe."""
+    server = TestSSHServer(Path("/"))
+    exe = _runner_exec(tmp_path, "echo unreachable\n")
+    wd = tmp_path / "ro-existing" / "run"
+    wd.mkdir(parents=True)
+    wd.chmod(0o555)
+    spec = _spec(tmp_path, server, exe, wd)
+    work = tmp_path / "dwork5"
+    work.mkdir()
+    try:
+        proc = _run_dispatcher(spec, work)
+        out, _ = proc.communicate(timeout=60)
+        assert proc.returncode == 2
+        assert "not creatable/writable" in out
+    finally:
+        wd.chmod(0o755)
+
+
 def test_running_cancel_confirms_remote_kill(tmp_path):
     server = TestSSHServer(Path("/"))
     marker = tmp_path / "rd2" / "killed-marker"
@@ -158,3 +201,72 @@ def test_host_key_mismatch_hard_fails(tmp_path):
     out, _ = proc.communicate(timeout=30)
     assert "HOST KEY MISMATCH" in out
     assert proc.returncode != 0
+
+
+def test_credential_wrapper_staged_and_scrubs(tmp_path):
+    """credential_file set → dispatcher sftp-stages kre_cred_exec.py
+    into the remote run dir; run.sh invokes it path-only (no secret in
+    argv), and the wrapper scrubs the credential from child output."""
+    server = TestSSHServer(Path("/"))
+    secret = "KREKEY-abc123_test"
+    # fake KRE echoes its argv — the wrapper passes -apiKey=<v>
+    exe = _runner_exec(tmp_path, 'echo "argv:$*"\nexit 0\n')
+    cred_dir = tmp_path / "remote-creds"
+    cred_dir.mkdir()
+    cred_file = cred_dir / "run.cred"
+    cred_file.write_text(secret)
+    cred_file.chmod(0o600)
+    spec = _spec(tmp_path, server, exe, tmp_path / "rd6")
+    data = json.loads(spec.read_text())
+    data["credential_file"] = str(cred_file)
+    spec.write_text(json.dumps(data))
+    work = tmp_path / "dwork6"
+    work.mkdir()
+    proc = _run_dispatcher(spec, work)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out
+    wd = tmp_path / "rd6"
+    # wrapper was staged remote-side (remote == same fs in the harness)
+    assert (wd / "kre_cred_exec.py").exists()
+    # run.sh carries paths only — never the secret value
+    run_sh = (wd / "run.sh").read_text()
+    assert secret not in run_sh
+    assert "kre_cred_exec.py" in run_sh
+    # child saw the resolved key in argv, output is scrubbed at source
+    run_out = (work / "remote-artifacts" / "run.out").read_text()
+    assert secret not in run_out
+    assert "***REDACTED***" in run_out
+
+
+def test_credential_wrapper_explicit_remote_path_not_staged(tmp_path):
+    """An explicit remote_cred_wrapper is honored as-is — no upload,
+    no rewrite of the admin-provided path."""
+    server = TestSSHServer(Path("/"))
+    wd = tmp_path / "rd7"
+    # admin-provided wrapper already 'on the remote': a real script
+    # that just execs the runner verbatim (no credential handling —
+    # the point is the dispatcher must NOT overwrite it).
+    wrapper = tmp_path / "remote-wrapper.py"
+    wrapper.write_text(
+        "#!/usr/bin/env python3\nimport os,sys\n"
+        "os.execv(sys.argv[2], [sys.argv[2]] + sys.argv[3:])\n")
+    wrapper.chmod(0o755)
+    exe = _runner_exec(tmp_path, 'echo "wrap-arg:$1"\nexit 0\n')
+    cred_dir = tmp_path / "remote-creds7"
+    cred_dir.mkdir()
+    cred_file = cred_dir / "run.cred"
+    cred_file.write_text("KREKEY-explicit")
+    cred_file.chmod(0o600)
+    spec = _spec(tmp_path, server, exe, wd)
+    data = json.loads(spec.read_text())
+    data["credential_file"] = str(cred_file)
+    data["remote_cred_wrapper"] = str(wrapper)
+    spec.write_text(json.dumps(data))
+    work = tmp_path / "dwork7"
+    work.mkdir()
+    proc = _run_dispatcher(spec, work)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out
+    run_sh = (wd / "run.sh").read_text()
+    assert str(wrapper) in run_sh
+    assert not (wd / "kre_cred_exec.py").exists()

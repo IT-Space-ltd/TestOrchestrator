@@ -2071,8 +2071,16 @@ def _buildbot_assign_and_submit(ex: Execution) -> None:
         _fail(ex, "infrastructure",
               f"Buildbot submission failed — reconcile before retry: "
               f"{str(exc)[:300]}")
+        # Terminal before submit — the staged archive/credential has no
+        # consumer left; _submit_buildbot staged before failing.
+        buildbot_cfg.clear_staging(ex.id)
         return
     db.session.refresh(ex)
+    if ex.state == ExecutionState.FAILED:
+        # _submit_buildbot's own _fail paths (version-gated options,
+        # browser validation, ssh/worker credential gates) run AFTER
+        # stage_source — a terminal run has no consumer for the tar.
+        buildbot_cfg.clear_staging(ex.id)
     if ex.state == ExecutionState.CANCEL_REQUESTED:
         # Cancel landed between assignment and submit — issue the
         # buildrequest cancel now (brid exists, request_cancel saw none).
@@ -2962,4 +2970,42 @@ def reconcile_buildbot_runs() -> int:
             db.session.commit()
         except Exception:
             pass
+    _sweep_stale_staging()
     return fixed
+
+
+def _sweep_stale_staging() -> int:
+    """Staging-dir GC: staged tars/credentials whose execution is
+    already terminal (pre-dispatch _fail paths, crashed confirms) have
+    no consumer left. Live runs are never touched — the SSH dispatcher
+    still reads its tar while DISPATCHED, and QUEUED retries re-stage.
+    A .tar.tmp only counts as orphan once it outlives a write window."""
+    sd = buildbot_cfg.staging_dir()
+    try:
+        names = list(sd.iterdir())
+    except OSError:
+        return 0
+    if not names:
+        return 0
+    eids = set()
+    for n in names:
+        for suf in (".tar.tmp", ".tar", ".cred"):
+            if n.name.endswith(suf):
+                eids.add(n.name[:-len(suf)])
+                break
+    terminal = {row[0] for row in db.session.query(Execution.id).filter(
+        Execution.id.in_(eids),
+        Execution.state.in_(_TERMINAL_STATES))}
+    removed = 0
+    for eid in terminal:
+        buildbot_cfg.clear_staging(eid)
+        removed += 1
+    for n in names:
+        if n.name.endswith(".tar.tmp"):
+            try:
+                if n.stat().st_mtime < time.time() - 3600:
+                    n.unlink()
+                    removed += 1
+            except OSError:
+                pass
+    return removed

@@ -530,3 +530,47 @@ def test_ssh_remote_cancel_kills_process_group(app, monkeypatch, tmp_path):
             "u", None, run_config={"runtime_id": rtid},
             source_item=db.session.get(DiscoveredItem, diid))
         assert d._ssh_remote_cancel(ex2) is None
+
+
+def test_staging_cleared_on_predispatch_fail(app, monkeypatch, tmp_path):
+    """A _fail INSIDE _submit_buildbot (after stage_source — e.g. the
+    ssh credential gate) leaves no staged tar/cred behind."""
+    stub = _BBProbe()
+    ids = _env(app, monkeypatch, stub, target_type="ssh")
+    rid, rtid, diid = ids
+    with app.app_context():
+        rt = db.session.get(RuntimeConnection, rtid)
+        rt.credential_ref = "portal-side-secret"   # ssh: rejected gate
+        db.session.commit()
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        sd = buildbot_cfg.staging_dir()
+        sd.mkdir(parents=True, exist_ok=True)
+        d._buildbot_assign_and_submit(ex)
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert "credential_ref is portal-side" in ex.error_text
+        assert not (sd / f"{ex.id}.tar").exists()
+        assert not (sd / f"{ex.id}.cred").exists()
+
+
+def test_sweep_removes_terminal_leftovers_keeps_live(app, tmp_path):
+    """Reconcile sweep deletes staged files of terminal executions;
+    DISPATCHED/QUEUED runs and unknown ids keep theirs."""
+    with app.app_context():
+        sd = buildbot_cfg.staging_dir()
+        sd.mkdir(parents=True, exist_ok=True)
+        done = Execution(project_id="p-x",
+                         state=ExecutionState.FAILED)
+        live = Execution(project_id="p-x",
+                         state=ExecutionState.DISPATCHED)
+        db.session.add_all([done, live])
+        db.session.commit()
+        for eid in (done.id, live.id, "no-such-exec"):
+            (sd / f"{eid}.tar").write_text("x")
+        removed = d._sweep_stale_staging()
+        assert removed >= 1
+        assert not (sd / f"{done.id}.tar").exists()
+        assert (sd / f"{live.id}.tar").exists()
+        assert (sd / "no-such-exec.tar").exists()
