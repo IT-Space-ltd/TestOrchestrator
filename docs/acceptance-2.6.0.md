@@ -2032,3 +2032,15 @@ whitelist only.
 | `test_production_key_auto_loaded` | **BLOCKED** | `/tmp/to-license-issuer/private.pem` absent — not provisioned, per instruction |
 
 No merge, no tag, no publication; PR #4 stays draft.
+
+## VM10 / VM11 — environment teardown
+
+- `multipass delete to-accept --purge` → `multipass list`: **no
+  instances**. Purge removes the instance, its disk image and the
+  `to-accept.baseline` snapshot.
+- Host throwaway key `~/.ssh/id_to_accept{,.pub}` deleted; the
+  in-VM key `~/.ssh/to_agentless` died with the VM.
+- No `qemu`-`to-accept` process remains.
+- Boundary: `/var/snap/multipass/…/vault/instances/` is root-only;
+  directory listing not verified without sudo — `multipass list`
+  (the authoritative client view) reports zero instances.
