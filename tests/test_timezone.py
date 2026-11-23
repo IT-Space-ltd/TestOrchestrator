@@ -209,6 +209,25 @@ class TestPreference:
                 AuditEvent.id.desc()).first()
             assert ev and "UTC -> Asia/Kolkata" in (ev.detail or "")
 
+    def test_users_list_inline_save_redirects_back(self, app, client):
+        """The per-row selector on the Users list saves and returns
+        to the list (next=users), with the saved zone selected."""
+        login(client, "admin")
+        with app.app_context():
+            uid = User.query.filter_by(username="tester").one().id
+        r = client.get("/system/users")
+        assert f'id="tz-{uid}"'.encode() in r.data   # per-row select
+        r = client.post(f"/system/users/{uid}/timezone",
+                        data={"timezone": "Asia/Kolkata",
+                              "next": "users"})
+        assert r.status_code == 302
+        assert r.headers["Location"].endswith("/system/users")
+        with app.app_context():
+            assert db.session.get(User, uid).timezone == "Asia/Kolkata"
+        r = client.get("/system/users")
+        assert b'value="Asia/Kolkata"\n            selected' in r.data \
+            or b'value="Asia/Kolkata" selected' in r.data
+
     def test_admin_edit_invalid_zone_warns_and_keeps_old(
             self, app, client):
         login(client, "admin")

@@ -720,7 +720,7 @@ def users():
         users=User.query.order_by(User.username).all(),
         projects=Project.query.order_by(Project.name).all(),
         form=UserForm(), reset_form=ResetForm(), apply_form=ApplyForm(),
-        tz_groups=tz_choice_groups())
+        tz_groups=tz_choice_groups(), tz_row_form=UserTimezoneForm())
 
 
 @system_bp.route("/users", methods=["POST"])
@@ -875,6 +875,8 @@ def save_user_access(user_id):
         f"{user.username}: {sorted(before)} -> {sorted(after)}")
     flash(f"Project access for {user.username} saved "
           f"({len(after)} assigned).", "info")
+    if request.form.get("next") == "users":
+        return redirect(url_for("system.users"))
     return redirect(url_for("system.user_access", user_id=user.id))
 
 
@@ -902,6 +904,8 @@ def save_user_timezone(user_id):
         for errs in form.errors.values():
             for e in errs:
                 flash(str(e), "error")
+    if request.form.get("next") == "users":
+        return redirect(url_for("system.users"))
     return redirect(url_for("system.user_access", user_id=user.id))
 
 

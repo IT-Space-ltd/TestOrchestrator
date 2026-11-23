@@ -23,7 +23,18 @@
           {% else %}<span class="badge danger">disabled</span>{% endif %}
           {% if u.must_change_password %}<span class="badge warn">must change</span>{% endif %}
         </td>
-        <td><code>{{ u.timezone or "UTC" }}</code></td>
+        <td>
+          <form method="post" class="inline"
+                action="{{ url_for('system.save_user_timezone', user_id=u.id) }}">
+            {{ tz_row_form.csrf_token }}
+            <input type="hidden" name="next" value="users">
+            {% set current = u.timezone or "UTC" %}
+            {% set select_id = "tz-" ~ u.id %}
+            {% set compact = true %}
+            {% include "_tz_select.html" %}
+            <button type="submit" class="button secondary sm">Save</button>
+          </form>
+        </td>
         <td>
           <div class="cell-actions">
           {% if u.role.value == "admin" %}
