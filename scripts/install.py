@@ -236,7 +236,8 @@ def main() -> None:
         sys.path.insert(0, str(REPO / "scripts"))
         import provision_buildbot
         bb_args = ["--home", str(bb_home),
-                   "--repo-root", str(REPO)]
+                   "--repo-root", str(REPO),
+                   "--service-user", args.service_user]
         if bb_py:
             bb_args += ["--python", bb_py, "--setup"]
         else:

@@ -245,3 +245,14 @@ def test_remove_buildbot_venv_refuses_outside_payload(tmp_path):
     with pytest.raises(SystemExit):
         inst._remove_buildbot_venv(payload, outside)
     assert outside.is_dir()
+
+
+def test_buildbot_units_run_as_service_user(tmp_path):
+    """Regression: units staged without User= ran the master as root —
+    the portal's trigger_reconfig SIGHUP then failed EPERM and
+    UI-issued worker passwords never reached the running master."""
+    import provision_buildbot as pb
+    out = pb._unit("u.service", "d", "x", tmp_path,
+                   user="testorchestrator")
+    assert "User=testorchestrator" in out
+    assert "Group=testorchestrator" in out

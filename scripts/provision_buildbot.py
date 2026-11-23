@@ -60,11 +60,17 @@ def _existing_passwords(secrets_path: Path) -> dict:
 
 
 def _unit(name: str, desc: str, exec_cmd: str,
-          workdir: Path, env: dict = None) -> str:
+          workdir: Path, env: dict = None, user: str = "") -> str:
     lines = [f"[Unit]\nDescription={desc}\nAfter=network.target\n",
              "[Service]\nType=simple\n"]
     for k, v in (env or {}).items():
         lines.append(f"Environment={k}={v}\n")
+    if user:
+        # Same service account as the web unit — the portal's
+        # trigger_reconfig() SIGHUPs the master; root-owned units made
+        # os.kill() fail EPERM and UI-issued worker passwords never
+        # reached the running master.
+        lines.append(f"User={user}\nGroup={user}\n")
     lines.append(f"ExecStart={exec_cmd}\n"
                  f"WorkingDirectory={workdir}\n"
                  "Restart=on-failure\nRestartSec=5\n"
@@ -84,6 +90,8 @@ def main(argv=None):
                     help="explicit REST credential (rotation); "
                          "otherwise preserved or generated")
     ap.add_argument("--repo-root", default=".")
+    ap.add_argument("--service-user", default="testorchestrator",
+                    help="User=/Group= written into the staged units")
     ap.add_argument("--setup", action="store_true",
                     help="also create the master + worker basedirs "
                          "(buildbot create-master/upgrade-master/"
@@ -181,17 +189,17 @@ def main(argv=None):
                 "testorchestrator-buildbot-master",
                 "TestOrchestrator Buildbot master",
                 f"{pydir}/buildbot start --nodaemon {master_dir}",
-                master_dir),
+                master_dir, user=a.service_user),
             "testorchestrator-buildbot-local.service": _unit(
                 "testorchestrator-buildbot-local",
                 "TestOrchestrator Buildbot local worker",
                 f"{pydir}/buildbot-worker start --nodaemon "
-                f"{local_dir}", local_dir),
+                f"{local_dir}", local_dir, user=a.service_user),
             "testorchestrator-buildbot-ssh.service": _unit(
                 "testorchestrator-buildbot-ssh",
                 "TestOrchestrator Buildbot SSH dispatcher",
                 f"{pydir}/buildbot-worker start --nodaemon "
-                f"{disp_dir}", disp_dir),
+                f"{disp_dir}", disp_dir, user=a.service_user),
         }
         for name, text in units.items():
             (units_dir / name).write_text(text)
