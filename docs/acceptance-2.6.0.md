@@ -1798,3 +1798,76 @@ VM restored to `to-accept.baseline` before install.
   verified: second SSH run queued on `capacity: job slots full 1/1`).
 - Fake runtimes (katalonc/npx) validate orchestration + collection;
   real framework binaries remain product-owner acceptance scope.
+
+## Root-cause correction — SSH+KRE "staged-tar loss" (was misdiagnosed)
+
+Deeper tracing on the VM showed the earlier hypothesis was wrong: the
+tar was deleted by *normal* `_collect_buildbot` → `clear_staging`
+finalization at ~3.9 s — AFTER the build had already failed. The real
+exec-time failure was `to_ssh_exec` rc=2 with remote-side
+`FileNotFoundError` (no local path — the paramiko SFTP signature).
+
+Actual defects found and fixed (`00627ec3`, `b1a8a7ec`):
+
+1. **Remote workdir not creatable** — fixture `/tmp/to-ssh` was
+   root-owned; `mkdir -p <workdir>` failed but `_prepare` ignored the
+   exec rc, surfacing only an opaque sftp.put failure. Fix: mkdir +
+   write-probe up front → actionable `RuntimeError` naming the workdir
+   and SSH user. Regression tests: unwritable + existing-read-only
+   workdir (tests/test_ssh_dispatch.py).
+2. **Cred wrapper never staged** — `credential_file` runs invoke
+   `remote_cred_wrapper` default `/tmp/kre_cred_exec.py`, which nothing
+   installed on the remote → run.sh exit 127. Fix: `_prepare` sftp-stages
+   the bundled `kre_cred_exec.py` into the run dir (explicit
+   `remote_cred_wrapper` still honored, not overwritten). Tests: staged
+   + scrubbing, explicit-path honored.
+3. **Stale staging leak** — pre-dispatch `_fail` paths (credential
+   gates, version gates) left `<eid>.tar`/`.cred` forever. Fix: clear
+   staging on post-submit terminal state + terminal-owner sweep in
+   `reconcile_buildbot_runs` (live DISPATCHED/QUEUED tars untouched).
+   Tests: pre-dispatch fail clears, sweep keeps live.
+4. **Worker installer python ceiling** — `>=3.10` floor only, bundled
+   wheels cp39–cp312 → py3.13/3.14 hosts failed mid-install (VM hit on
+   system python 3.14.4). Fix: derive supported range from wheel ABI
+   tags, refuse up front with the range + found version; `--online`
+   warns only. Tests: 4 cases incl. stub-versioned python3.
+5. **buildbot-venv interpreter symlink into extraction dir** —
+   install.py created the venv with `sys.executable` = the .run
+   `/tmp/to-install-*` python, deleted after install → master dies
+   203/EXEC on first restart (services only LOOKED healthy — the
+   restart was never exercised). Fix: `create_buildbot_venv_offline`
+   bases on `bundled_python(payload)`. Tests: interpreter-base contract.
+
+Fixture defects corrected (not product): `/tmp/to-ssh` ownership,
+fake-katalonc ignoring `-reportFolder`, missing `npm` sibling to fake
+`npx`, robot venv pointing at system 3.14 (real venv on CPython 3.12.16
+via uv), vm-setup.sh ordering (project tree before optional steps).
+
+## VM e2e acceptance RERUN — head `b1a8a7ec`, package `63f991ab…7d37`
+
+`.run` sha256 `63f991abe2ae1185607f81ecee1644331de9e874a78d532ba2faf33f8cf87d37`
+(tarball `a39cf1a9…347f`), internal-test build `b1a8a7ec`.
+Fresh baseline restore → install → full matrix:
+
+- `/opt` install + all 5 units active+enabled; service user created;
+  modes correct (`secret.key` 600, `web.env` 640, `release.json` 644).
+- **Master + worker restart after install: all units active** —
+  venv-symlink fix verified (previously restart-killing).
+- Worker-install gate: `python3 3.9-3.12 required — bundled wheels
+  carry only those ABI tags (found: Python 3.14.4)` rc=2, before any
+  privileged action: **PASS** (finding 4 verified).
+- Worker install under CPython 3.12.16 → unit active; PB attach:
+  `bb-vm-worker attached to to-target-…`: **PASS**.
+- SSH+KRE (agentless, host-key pinned, wrapper staged, remote cred
+  file): `de843ee9` → **COMPLETED**; junit.xml + run.out + manifest
+  collected; staging dir empty post-run.
+- worker+KRE: `18258373` → **COMPLETED**.
+- worker+Robot (real RF 7.5.1): `61cefdb9` → **COMPLETED**.
+- worker+Cypress: `786cd852` → **COMPLETED**.
+- worker+Playwright: `b4e56e6b` → **COMPLETED**.
+- Suite at `b1a8a7ec`: **945 passed / 1 skipped / 1 blocked**
+  (issuer-key `test_production_key_auto_loaded` — labeled blocked,
+  needs production issuer key).
+
+Superseded packages: `124b5567…e0fe`, `76179316…` / `df6b2d22…f53`,
+`2b804b8c…1019` / `e1eda0b5…4c82` — all stale vs `b1a8a7ec` build.
