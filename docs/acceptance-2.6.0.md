@@ -1916,3 +1916,31 @@ Superseded packages: `124b5567…e0fe`, `76179316…` / `df6b2d22…f53`,
 
 Superseded package: `63f991ab…7d37` / `a39cf1a9…347f` — stale vs
 `53bea796` (venv-rebuild gap on upgrade).
+
+## Strict matrix at `02ee37b2`, package `5b8a12c6…7f7d`
+
+`.run` sha256 `5b8a12c6f973f36218db4c5aed4a71fd072564a94ae422343d44526556bd7f7d`
+(tarball `5d07c782…8b7c`, sources `636182a4…8f2d`). Clean baseline →
+full matrix on the venv-hardening head:
+
+- `/opt` install: all 5 units active+enabled; `buildbot-venv/bin/python3`
+  resolves INSIDE payload; **zero "Unknown user" journal lines**
+  (step-1d confirmed: the two earlier lines were the pre-fix install
+  only); modes 600/640/644 verified: **PASS**.
+- Worker gate: py3.14 refused upfront (`3.9-3.12 required …`), no
+  privileged action: **PASS**.
+- Worker install under CPython 3.12.16: unit active, PB attach
+  `bb-vm-worker attached to to-target-4e710f…`: **PASS**.
+- SSH+KRE `db595cfc`: **COMPLETED** — host-key pinned, wrapper +
+  source staged remotely, remote run, JUnit collected. First attempt
+  UNKNOWN by design: `kre_cred_exec` rejected fixture cred file mode
+  644 (permission gate working); resolved operator-side, re-ran.
+- worker+KRE `9bae78dc`: **COMPLETED** (same designed cred-mode gate
+  on first attempt).
+- worker+Robot `b81e642f` (real RF 7.5.1): **COMPLETED**.
+- worker+Cypress `b5d31598`: **COMPLETED**.
+- worker+Playwright `0c974a81`, `ffcd9d95`: **COMPLETED** (two
+  dispatches, both green).
+
+Superseded packages: `322e3e95…af2b`, `b12fb834…`, `63f991ab…7d37` —
+stale vs `02ee37b2`.

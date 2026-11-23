@@ -951,18 +951,30 @@ on port 443 to Katalon.
 
 **TestOrchestrator's side.**
 
-- **Where the key is stored:** the Katalon API key is saved as a
-  runtime *credential reference* on the execution target —
-  `runtime_connections.credential_ref` names an entry in the
-  encrypted secret store (`secrets_store`). The store is a file
-  keyed by `<instance>/secret.key` (mode `0600`); the runner row
-  carries only the reference name, never the value.
-- **How it is passed:** at dispatch the value is resolved and
-  handed to KRE as the `-apiKey=<value>` argument (the
-  Katalon-documented flag). The same value is registered as a
-  redaction term — `run_invocation` scrubs it from stdout/stderr
-  captures, logs and artifacts; a `user:pass@` embedded in a remote
-  WebDriver URL is scrubbed the same way.
+- **Where the key lives:** on the execution host only, in a
+  **credential file** — a regular `0600` file owned by the account
+  that runs KRE. The runtime's `credential_file` field carries the
+  *path*; the key value is never stored in the portal database on
+  remote topologies, never appears in Buildbot properties, specs,
+  logs or argv — only the file path travels.
+- **Three topologies:** on a *controller-local* runner the portal
+  may resolve a `credential_ref` secret-store entry into a per-run
+  `0600` file (cleaned after the run); on *remote Buildbot workers*
+  and *SSH targets* `credential_ref` is **rejected** (portal-side
+  only) — the administrator places the credential file on the
+  worker/remote host and sets `credential_file` to its path.
+- **How it reaches KRE:** the execution spec invokes
+  `kre_cred_exec.py` (shipped with the product; staged to the remote
+  workdir on SSH targets) with the credential-file path. The wrapper
+  validates the file (regular file, no symlink, owner-only mode,
+  no group/other bits, narrowly-shaped key — our VM acceptance saw
+  it refuse a `0644` file), then execs KRE with `-apiKey=<value>` in
+  the child's argv — the only command-line mechanism KRE offers —
+  and byte-scrubs the value out of the child's stdout/stderr at the
+  source, before Buildbot step capture or portal collection can see
+  it. A pre-supplied `-apiKey` in run flags is rejected: exactly one
+  credential source. `run_invocation` additionally scrubs a
+  `user:pass@` embedded in a remote WebDriver URL the same way.
 - **Concurrency rule:** per execution target,
   `capacity_limit = min(max_slots, license_slots)` — the declared
   hardware slots and the **License slots** field set on the runner
