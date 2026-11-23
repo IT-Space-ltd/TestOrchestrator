@@ -1434,3 +1434,19 @@ the client only authenticates to hosts whose **pinned** fingerprint
 is pre-verified (`ssh_host_key_fingerprint`) and auth is
 publickey-only — but the SHA-1 capability itself is upstream and
 unfixed (PYSEC-2026-2858, no fix version).
+
+### Packaged full suite — final candidate
+
+`pytest tests/` with `PYTHONPATH` pointed at the extracted
+`testorchestrator-2.6.0-linux-x86_64` package (imports verified to
+resolve to the packaged copy): **912 passed / 1 failed / 1 skipped**
+(9m52s), uncombined — sole failure remains the external issuer-key
+blocker. The +1 vs the source-run 911 is the newly added
+`test_api_403_stays_json_envelope`.
+
+**Still open:** `.run` clean-install→restore→login (installer
+targets `/opt` — needs root, same approval boundary as the systemd
+rows; proposal recorded in `packaged-acceptance.md`); Linux-only
+matrix rows + §5 packaged sweep (need the installed running stack —
+same `.run`/service boundary); Windows W1–W16; issuer key; Group B
+review.
