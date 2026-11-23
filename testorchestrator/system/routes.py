@@ -1533,6 +1533,11 @@ def create_runner():
         (p.id, p.name) for p in Project.query.all()]
     if form.validate_on_submit():
         kind = form.target_type.data or "local"
+        if Runner.query.filter_by(
+                name=form.name.data.strip()).first() is not None:
+            flash("An execution target with that name already "
+                  "exists.", "error")
+            return redirect(url_for("system.infrastructure"))
         runner = Runner(
             name=form.name.data.strip(),
             description=form.description.data or "",
