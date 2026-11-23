@@ -221,8 +221,12 @@ def main() -> None:
         if not _buildbot_venv_ok(payload, bb_py):
             bb_wheels = payload / "3rdparty" / "buildbot-wheels"
             if bb_wheels.is_dir():
-                # Offline controller-side stack — created once;
-                # existing installs keep their venv on rerun.
+                # `python -m venv` does not rewrite existing bin/
+                # symlinks — a symlink that still resolves (to an old
+                # extraction dir) would silently survive the rebuild.
+                # Remove the stale env before recreating it.
+                if bb_venv.exists():
+                    shutil.rmtree(bb_venv)
                 print(f"[install] buildbot venv: {bb_venv} "
                       f"(offline from {bb_wheels})")
                 create_buildbot_venv_offline(payload, bb_wheels,
