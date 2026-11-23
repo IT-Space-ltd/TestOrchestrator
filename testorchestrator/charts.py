@@ -433,8 +433,7 @@ def duration_regression_bars(rows, mode: str = "seconds") -> str:
                  "uirevision": "adv-regression-" + mode})
 
 
-def freshness_heatmap(rows, suites, envs,
-                      stale_days: float) -> str:
+def freshness_heatmap(rows, suites, envs) -> str:
     """rows: [{suite, env, state, age_s, last_execution_id,
     last_finished_at, outcome}]. Age heatmap (sequential scale —
     magnitude, not outcome). 'never' cells are unfilled with a label;

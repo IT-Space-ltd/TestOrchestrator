@@ -546,7 +546,7 @@ def _proj_adv(project_id: str, args):
             data["duration_regression"], reg_mode),
         "fig_freshness": freshness_heatmap(
             data["evidence_freshness"], data["freshness_suites"],
-            data["freshness_envs"], data["freshness_threshold_days"]),
+            data["freshness_envs"]),
     }
 
 
