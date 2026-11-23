@@ -1944,3 +1944,12 @@ full matrix on the venv-hardening head:
 
 Superseded packages: `322e3e95…af2b`, `b12fb834…`, `63f991ab…7d37` —
 stale vs `02ee37b2`.
+
+## Scan rerun at `a9cabfb2` (post strict-matrix head)
+
+| Tool | Baseline | Rerun | Verdict |
+|---|---|---|---|
+| vulture | 2.14, ~200 FPs whitelisted | 2.16, **129 new hits** — all 60%-conf unused-attr, post-2.5.x ORM cols/serialized attrs (verified read via routes/queries; whitelisted w/ consumer comment) | **1 real new finding**: `verified_capabilities` column (`execution.py:306`) — declared, zero readers/writers → **DEFER-3** (drop needs migration; schema-stability decision for owner) |
+| bandit | 1.8.3 triage SEC-1..5 | 1.8.3, same classes; new locs `dispatch.py:734` (B601 — `shlex.quote`d remote_workdir, SEC-2 pattern correctly applied) and `dispatch.py:2172` (B310 — admin-configured webhook `urlopen`, SEC-5 class) | consistent, no new issues |
+| pip-audit | 2.9.0 OSV DEP-1..4 | 2.9.0 on clean requirements env: **1 vuln** — paramiko 3.5.1 `PYSEC-2026-2858` = recorded DEP-2 accepted risk (SHA-1 RSA, no upstream fix; DEP-1 Terrapin confirmed resolved by 3.5.1 pin) | consistent |
+| jscpd | 4.0.5 baseline | 4.0.5: app py 62f/11 clones/0.68%/1.02% **identical**; templates 50f/29/4.23%/3.66% **identical**; JS 10f/7/11.49%/11.32% **identical**; tests 86f/83 clones/3.11%/4.25% (same clone count, +2 new test files → slightly lower %) | consistent |
