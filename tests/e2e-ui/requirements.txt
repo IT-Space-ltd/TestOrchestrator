@@ -1,0 +1,4 @@
+# UI acceptance tooling — ISOLATED venv only, never the product runtime.
+playwright>=1.49,<2.0
+pytest-playwright>=0.7,<1.0
+pytest>=8.0,<10.0
