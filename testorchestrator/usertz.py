@@ -14,10 +14,19 @@ Rules enforced here:
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo, available_timezones
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
-UTC = ZoneInfo("UTC")
+log = logging.getLogger(__name__)
+
+try:
+    UTC = ZoneInfo("UTC")
+except ZoneInfoNotFoundError:  # no zone database installed on this host
+    UTC = timezone.utc
+    log.warning("zoneinfo database unavailable — all timestamps "
+                "display as UTC until tzdata is present")
+
 FALLBACK = "UTC"
 
 # Cached zone list — the IANA db is static per process.
@@ -27,7 +36,11 @@ _ALL_ZONES: list[str] | None = None
 def all_zones() -> list[str]:
     global _ALL_ZONES
     if _ALL_ZONES is None:
-        _ALL_ZONES = sorted(available_timezones())
+        try:
+            _ALL_ZONES = sorted(available_timezones())
+        except Exception:
+            log.warning("zoneinfo database unavailable — zone list empty")
+            _ALL_ZONES = []
     return _ALL_ZONES
 
 
@@ -117,9 +130,15 @@ def valid_zone(name: str) -> bool:
 
 
 def coerce_zone(name: str) -> ZoneInfo:
-    """ZoneInfo for `name`; invalid/empty → UTC (never raises)."""
+    """ZoneInfo for `name`; invalid/empty/unloadable → UTC with a
+    logged diagnostic (never raises)."""
     try:
         return ZoneInfo(name) if name else UTC
+    except ZoneInfoNotFoundError:
+        log.warning("time zone %r not loadable (identifier unknown or "
+                    "tz database missing) — displaying UTC instead",
+                    name)
+        return UTC
     except Exception:
         return UTC
 

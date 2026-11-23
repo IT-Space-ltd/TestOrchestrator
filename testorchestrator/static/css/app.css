@@ -1126,7 +1126,7 @@ tr:has(.reset-toggle:checked) label.button.secondary.sm { outline: 2px solid var
 .tz-edit { display: none; }
 .tz-toggle:checked ~ .tz-view { display: none; }
 .tz-toggle:checked ~ .tz-edit { display: flex; align-items: center;
-  gap: .4rem; }
+  gap: .4rem; flex-wrap: wrap; }
 .tz-edit select { min-width: 15rem; }
 .tz-view label.button, .tz-edit label.button { cursor: pointer; }
 @media (prefers-color-scheme: dark) {

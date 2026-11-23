@@ -624,3 +624,109 @@ class TestBackupRestore:
                 assert u.timezone == "UTC"
             assert not any("time zone" in a
                            for a in report["attention"])
+
+
+# ---------------------------------------------- click-to-edit Users cell
+
+
+class TestUsersCellToggle:
+    """The Users-table timezone cell is a CSS-only click-to-edit
+    control: hidden checkbox + for-matched labels + a real <form>.
+    No JavaScript participates in the toggle, Cancel can never POST,
+    and each row owns an independent checkbox that shares no id space
+    with the reset-password toggles on the same page."""
+
+    def test_toggle_ids_unique_and_no_reset_collision(
+            self, app, client):
+        login(client, "admin")
+        h = client.get("/system/users").data.decode()
+        import re
+        tz_ids = re.findall(r'class="tz-toggle" id="(tzt-\d+)"', h)
+        rst_ids = re.findall(r'class="reset-toggle"\s+id="(reset-\d+)"',
+                             h)
+        assert len(tz_ids) >= 2                       # multiple rows
+        assert len(tz_ids) == len(set(tz_ids))        # independent ids
+        assert len(rst_ids) >= 1
+        assert not set(tz_ids) & set(rst_ids)         # disjoint id space
+        for tid in tz_ids:                            # Edit + Cancel labels
+            assert h.count(f'for="{tid}"') == 2
+
+    def test_edit_and_cancel_are_labels_not_submitting(
+            self, app, client):
+        """Edit/Cancel are <label for=…> — selecting them only flips
+        the hidden checkbox; neither can submit the form, so Cancel
+        provably writes no audit event (no request is possible)."""
+        login(client, "admin")
+        h = client.get("/system/users").data.decode()
+        import re
+        assert re.search(
+            r'<label for="tzt-\d+" class="button secondary sm">'
+            r'Edit</label>', h)
+        assert re.search(
+            r'<label for="tzt-\d+" class="button ghost sm">'
+            r'Cancel</label>', h)
+        # inside each tz-edit form the only submit control is Save;
+        # Cancel is a label and can never post
+        forms = re.findall(
+            r'<form method="post" class="tz-edit".*?</form>',
+            h, re.S)
+        assert len(forms) >= 2
+        for block in forms:
+            assert block.count('type="submit"') == 1
+            assert '>Save</button>' in block
+            assert 'Cancel</button>' not in block
+
+    def test_non_admin_sees_no_users_page(self, app, client):
+        """Non-admins are denied the Users list entirely, so the Edit
+        control is never rendered to them; direct POST denial is
+        covered by test_non_admin_cannot_edit_others."""
+        login(client, "tester")
+        r = client.get("/system/users")
+        assert r.status_code in (302, 403)
+        assert b'tz-toggle' not in r.data
+
+    def test_missing_database_falls_back_with_diagnostic(
+            self, app, caplog, monkeypatch):
+        """A missing/corrupt zone database must not break display:
+        coercion degrades to UTC and logs a clear warning."""
+        from zoneinfo import ZoneInfoNotFoundError
+        monkeypatch.setattr(
+            usertz, "ZoneInfo",
+            lambda name: (_ for _ in ()).throw(
+                ZoneInfoNotFoundError(name)))
+        # env.py's fileConfig() resets root handlers and disables
+        # existing loggers mid-suite — re-enable + attach caplog.
+        usertz.log.disabled = False
+        usertz.log.addHandler(caplog.handler)
+        try:
+            z = usertz.coerce_zone("Europe/Budapest")
+        finally:
+            usertz.log.removeHandler(caplog.handler)
+        assert z is usertz.UTC
+        assert any("Europe/Budapest" in r.getMessage()
+                   for r in caplog.records)
+
+    def test_display_survives_missing_zone_db(
+            self, app, caplog, monkeypatch):
+        """fmt_local/user_zone keep working (UTC output) when the db
+        cannot load a zone — dashboards and login are unaffected."""
+        from zoneinfo import ZoneInfoNotFoundError
+        monkeypatch.setattr(
+            usertz, "ZoneInfo",
+            lambda name: (_ for _ in ()).throw(
+                ZoneInfoNotFoundError(name)))
+        usertz.log.disabled = False
+        usertz.log.addHandler(caplog.handler)
+        try:
+            with app.app_context():
+                u = User.query.filter_by(username="tester").one()
+                u.timezone = "Europe/Budapest"
+                db.session.commit()
+                z = usertz.user_zone(u)
+                out = usertz.fmt_local(datetime(2026, 1, 1, 12, 0), z)
+        finally:
+            usertz.log.removeHandler(caplog.handler)
+        assert z is usertz.UTC
+        assert out == "2026-01-01 12:00:00 +00:00"
+        assert any("Europe/Budapest" in r.getMessage()
+                   for r in caplog.records)
