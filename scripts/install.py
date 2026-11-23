@@ -224,9 +224,9 @@ def main() -> None:
                 # `python -m venv` does not rewrite existing bin/
                 # symlinks — a symlink that still resolves (to an old
                 # extraction dir) would silently survive the rebuild.
-                # Remove the stale env before recreating it.
-                if bb_venv.exists():
-                    shutil.rmtree(bb_venv)
+                # Remove the stale env before recreating it; the
+                # helper refuses links/paths outside the payload.
+                _remove_buildbot_venv(payload, bb_venv)
                 print(f"[install] buildbot venv: {bb_venv} "
                       f"(offline from {bb_wheels})")
                 create_buildbot_venv_offline(payload, bb_wheels,
@@ -561,6 +561,27 @@ def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
         shutil.copy2(src, dst_dir / src.name)
         print(f"[install] linux worker bundle asset: {src.name}")
     return dst
+
+
+def _remove_buildbot_venv(payload: Path, bb_venv: Path) -> None:
+    """Remove a stale buildbot-venv, strictly inside the payload.
+
+    - A symlink (live or dangling) is unlinked as-is — its target is
+      never touched, and rmtree refuses symlinks anyway.
+    - A real directory is removed only when it resolves inside the
+      payload; anything else is refused loudly.
+    """
+    if bb_venv.is_symlink():
+        bb_venv.unlink()
+        return
+    if not bb_venv.exists():
+        return
+    root = payload.resolve()
+    if root not in bb_venv.resolve().parents:
+        raise SystemExit(
+            f"[install] refusing to remove {bb_venv} — "
+            f"resolves outside payload {root}")
+    shutil.rmtree(bb_venv)
 
 
 def _buildbot_venv_ok(payload: Path, bb_py: str) -> bool:

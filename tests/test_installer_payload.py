@@ -186,3 +186,62 @@ def test_buildbot_venv_ok_only_when_interpreter_inside_payload(
     bb_py.unlink()
     bb_py.symlink_to(str(inside))
     assert inst._buildbot_venv_ok(payload, str(bb_py)) is True
+
+
+def test_remove_buildbot_venv_unlinks_symlink_never_follows(tmp_path):
+    """venv dir itself a symlink -> unlink the link ONLY; the outside
+    target (and everything in it) must survive untouched."""
+    payload = (tmp_path / "opt" / "to").resolve()
+    payload.mkdir(parents=True)
+    outside = tmp_path / "elsewhere" / "venv-target"
+    outside.mkdir(parents=True)
+    marker = outside / "keep-me.txt"
+    marker.write_text("important")
+    bb_venv = payload / "buildbot-venv"
+    bb_venv.symlink_to(str(outside), target_is_directory=True)
+
+    inst._remove_buildbot_venv(payload, bb_venv)
+
+    assert not bb_venv.exists() and not bb_venv.is_symlink()
+    assert marker.read_text() == "important"          # target untouched
+    assert outside.is_dir()
+
+
+def test_remove_buildbot_venv_unlinks_dangling_symlink(tmp_path):
+    """Dangling symlink (exists() False, is_symlink() True) must still
+    be removed — venv creation would otherwise hit FileExistsError."""
+    payload = (tmp_path / "opt" / "to").resolve()
+    payload.mkdir(parents=True)
+    bb_venv = payload / "buildbot-venv"
+    bb_venv.symlink_to(str(tmp_path / "gone"), target_is_directory=True)
+
+    inst._remove_buildbot_venv(payload, bb_venv)
+
+    assert not bb_venv.is_symlink()
+    assert not (tmp_path / "gone").exists()
+
+
+def test_remove_buildbot_venv_removes_real_dir_inside_payload(
+        tmp_path):
+    payload = (tmp_path / "opt" / "to").resolve()
+    bb_venv = payload / "buildbot-venv"
+    (bb_venv / "bin").mkdir(parents=True)
+    (bb_venv / "bin" / "python3").write_text("x")
+
+    inst._remove_buildbot_venv(payload, bb_venv)
+
+    assert not bb_venv.exists()
+
+
+def test_remove_buildbot_venv_refuses_outside_payload(tmp_path):
+    """A path resolving outside the payload is refused, not removed."""
+    payload = (tmp_path / "opt" / "to").resolve()
+    payload.mkdir(parents=True)
+    outside = tmp_path / "somewhere" / "buildbot-venv"
+    outside.mkdir(parents=True)
+    (outside / "keep").write_text("x")
+
+    import pytest
+    with pytest.raises(SystemExit):
+        inst._remove_buildbot_venv(payload, outside)
+    assert outside.is_dir()
