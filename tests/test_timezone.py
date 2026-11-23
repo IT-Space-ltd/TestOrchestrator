@@ -94,6 +94,12 @@ class TestZoneHelpers:
         choices = usertz.tz_choices()
         assert choices[0][0] == "UTC"
         assert len(choices) == len(zones)
+        # labels lead with the CITY so native-select type-ahead (which
+        # matches the option-text prefix) finds "budapest", "kolkata"…
+        labels = {n: lab for n, lab, _ in choices}
+        assert labels["Europe/Budapest"].startswith("Budapest — ")
+        assert labels["Asia/Kolkata"].startswith("Kolkata — ")
+        assert "Europe/Budapest" in labels["Europe/Budapest"]
         # a zone absent from suggestions is still accepted on save
         assert usertz.valid_zone("Asia/Calcutta")   # legacy link name
         assert usertz.valid_zone("Pacific/Kiritimati")
@@ -103,7 +109,7 @@ class TestZoneHelpers:
         names = {g for g, _ in groups}
         assert {"UTC", "Europe", "Africa", "Americas", "Asia",
                 "Oceania & Pacific"} <= names
-        flat = [n for _, opts in groups for n, _ in opts]
+        flat = [n for _, opts in groups for n, _, _ in opts]
         assert flat[0] == "UTC"
         assert "Europe/Budapest" in flat
 

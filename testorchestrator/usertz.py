@@ -211,13 +211,18 @@ def utc_iso(dt) -> str:
     return aware.isoformat() if aware is not None else ""
 
 
-def tz_choices(now: datetime | None = None) -> list[tuple[str, str]]:
-    """(iana_name, 'Name (UTC+01:00 now — varies by date)') choices.
+def tz_choices(now: datetime | None = None) -> list[
+        tuple[str, str, str]]:
+    """(iana_name, full_label, short_label) choices.
 
-    UTC is listed first; offsets are the CURRENT offset — the label
-    discloses that the offset changes with the date (DST)."""
+    Labels lead with the CITY name ("Budapest — Europe/Budapest
+    (UTC+01:00 now — varies by date)") so the native <select>
+    type-ahead — which matches from the start of the option text —
+    finds a zone by the city users actually type. Offsets are the
+    CURRENT offset; the label discloses that the offset changes
+    with the date (DST). UTC is listed first."""
     now = now or datetime.now(timezone.utc)
-    out = [("UTC", "UTC (UTC+00:00)")]
+    out = [("UTC", "UTC (UTC+00:00)", "UTC")]
     for name in picker_zones():
         if name == "UTC":
             continue
@@ -225,7 +230,10 @@ def tz_choices(now: datetime | None = None) -> list[tuple[str, str]]:
             off = offset_label(ZoneInfo(name), now)
         except Exception:
             continue
-        out.append((name, f"{name} ({off} now — varies by date)"))
+        city = name.rsplit("/", 1)[-1].replace("_", " ")
+        out.append((name, f"{city} — {name} ({off} now "
+                          f"— varies by date)",
+                    f"{city} — {name}"))
     return out
 
 
@@ -243,12 +251,13 @@ def tz_choice_groups(now: datetime | None = None
     optgroups so the list behaves like an OS time-zone picker."""
     flat = tz_choices(now)
     groups: dict[str, list[tuple[str, str]]] = {"UTC": []}
-    for name, label in flat:
+    for row in flat:
+        name = row[0]
         if name == "UTC":
-            groups["UTC"].append((name, label))
+            groups["UTC"].append(row)
             continue
         region = _REGION_LABELS.get(name.split("/", 1)[0], "Other")
-        groups.setdefault(region, []).append((name, label))
+        groups.setdefault(region, []).append(row)
     order = ["UTC", "Europe", "Africa", "Americas", "Asia",
              "Atlantic", "Indian Ocean", "Oceania & Pacific",
              "Polar", "Other"]

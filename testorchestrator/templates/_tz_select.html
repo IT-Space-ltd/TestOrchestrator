@@ -7,10 +7,10 @@
   {% set tzns = namespace(listed=false) %}
   {% for region, opts in tz_groups %}
   <optgroup label="{{ region }}">
-    {% for name, label in opts %}
+    {% for name, label, short in opts %}
     <option value="{{ name }}"
             {% if name == current %}selected{% set tzns.listed = true %}{% endif %}>
-      {{ name if compact else label }}</option>
+      {{ short if compact else label }}</option>
     {% endfor %}
   </optgroup>
   {% endfor %}
