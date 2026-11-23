@@ -993,29 +993,7 @@ def _active_procs_subquery(runner: Runner, exclude_id):
             .scalar_subquery())
 
 
-def procs_within_budget(runner: Runner, ex: Execution) -> bool:
-    """Combined-capacity rule: job slots AND the process budget are
-    independent ceilings — an admitted job must not bypass the
-    intended process budget via its own parallel setting."""
-    if not runner.max_procs:
-        return True
-    active = db.session.query(db.func.coalesce(
-        db.func.sum(db.case((
-            db.func.coalesce(db.func.json_extract(
-                Execution.snapshot_json,
-                "$.run_config.parallel_mode"), "default")
-            == "parallel",
-            db.func.coalesce(db.func.json_extract(
-                Execution.snapshot_json,
-                "$.run_config.parallel"), 0)), else_=1)), 0)
-    ).filter(
-        Execution.runner_id == runner.id,
-        Execution.id != ex.id,
-        Execution.state.in_(_ACTIVE_STATES)).scalar()
-    return int(active or 0) + requested_procs(ex) <= runner.max_procs
-
-
-def _runner_cap(runner: Runner) -> int:
+def _runner_cap(runner: Runner) -> int:def _runner_cap(runner: Runner) -> int:
     return capacity_limit(runner)
 
 
