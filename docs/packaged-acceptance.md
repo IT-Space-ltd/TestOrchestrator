@@ -172,6 +172,35 @@ Re-run the Stage-5 core on packaged builds (not the dev tree):
   output rows on the Windows controller (path handling, file modes,
   rotation).
 
+## 5b. Time-zone data (`tzdata`) on the package
+
+Pinning `tzdata` and resolving wheels is the build plan — these rows
+prove the installed package actually carries a usable IANA database
+and degrades safely without one. Each row is recorded with commit,
+package SHA-256 and `deployed_rev` like every other acceptance row.
+
+- **Windows installer — zone database present.** On the installed
+  Windows controller, run its bundled Python:
+  `python -c "from zoneinfo import ZoneInfo; print(ZoneInfo('Europe/Budapest'), ZoneInfo('Asia/Kolkata'))"`
+  — both must load from the installed package (not the host zoneinfo,
+  which Windows lacks). Failure is BLOCKED, not waived.
+- **Linux package — zone database present.** Same check against the
+  installed Linux controller package's interpreter. `tzdata` is
+  bundled, so the check must pass even on a minimal container host
+  without `/usr/share/zoneinfo`.
+- **Missing-database degradation.** With the zone database made
+  unreachable (e.g. `TZPATH` pointed at an empty directory and no
+  `tzdata` importable): service log shows the explicit
+  `usertz` warning, every timestamp renders as UTC (`+00:00`), and
+  login + dashboards keep working — no 500s. Source-level proof:
+  `test_missing_database_falls_back_with_diagnostic` /
+  `test_display_survives_missing_zone_db` (the packaged row repeats
+  it on the real install).
+- **Windows W-kit** — kit row **W16** exercises the feature end-to-end
+  on the Windows controller (zone selection, localized display,
+  local-day filtering, CSV columns) — see
+  `windows-acceptance-kit.md`.
+
 ## 6. Exit criteria
 
 - All 8 matrix cells PASS (or waived with reason in the ledger).

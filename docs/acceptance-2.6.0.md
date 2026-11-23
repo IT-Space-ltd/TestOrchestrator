@@ -699,7 +699,7 @@ ISO T/Z timestamps).
 | Advanced Analytics Group B | On hold — NOT authorized by Group A acceptance |
 | Backup and Restore | Implemented; source-level tests verified at `175094f` (14/14, within that full-suite batch). Windows protection/path behavior and packaged reinstall, recovery, and upgrade/restore acceptance remain outstanding. Settings-only scope — this format does not back up execution history, reports, artifacts, or the audit trail |
 | Windows W1–W15 | Real-host acceptance outstanding |
-| Clean packaged candidate + final matrix | Outstanding |
+| Clean packaged candidate + final matrix | Outstanding — now includes §5b zone-database rows (Win + Linux installer checks, missing-db degradation) |
 | External licence-issuer-key test | Blocked — missing external private key |
 
 ### Remaining gates (unchanged, still open)
@@ -878,7 +878,7 @@ environmental evidence only.
 | Advanced Analytics Group B | Implemented; source-level evidence above at `c955c79` — **acceptance review pending; does not close any gate below** |
 | Backup and Restore | Implemented; source-level tests verified at `175094f` (14/14 within that batch). Windows/package gates outstanding. Settings-only scope |
 | Windows W1–W15 | Real-host acceptance outstanding |
-| Clean packaged candidate + final matrix | Outstanding |
+| Clean packaged candidate + final matrix | Outstanding — now includes §5b zone-database rows (Win + Linux installer checks, missing-db degradation) |
 | External licence-issuer-key test | Blocked — missing external private key |
 
 Live `:39998` remains source-run Waitress at `c955c79` — not
@@ -894,16 +894,49 @@ Implementation commits: `4a9d8779` (feature + focused tests),
 changelog). Application candidate for the completed full-suite
 batch: **`f2142c81`**.
 
+Post-`f2142c81` commit chain (each classified — code changes
+application behaviour or markup; docs touches evidence/prose only):
+
+| Commit | Kind | Content |
+|---|---|---|
+| `7f754ea3` | docs | This ledger section (`f2142c81..7f754ea3` is ledger-only — confirmed by `git show --stat`) |
+| `57428d34` | code | Picker curated to primary zones (`zone1970.tab`) + test |
+| `45fa907c` | code | Grouped `<select>` replaces the datalist everywhere |
+| `04a1a0ac` | code | Inline per-row timezone selector on Users list + test |
+| `d34d75a5` | code | Cell becomes click-to-edit (checkbox + CSS `:has`) |
+| `5f0128f2` | code | Edit/Cancel labels: secondary style + pointer cursor |
+| `0ba42be0` | code | Access page reordered (access first), button styles, cell width |
+| `e1cf50c0` | code | Timezone card removed from access page; cell widened |
+| `9d7cfc27` | docs | CHANGELOG wording |
+| `a5fd9787` | code | Users-table Edit buttons right-aligned |
+| `3b0d6e6e` | code | Missing-tzdata resilience + diagnostic; 5 structural tests; narrow-screen wrap |
+
+The branch tip is `3b0d6e6e` — past the `d34d75a5` named in the
+verification directive; `5f0128f2`/`0ba42be0`/`e1cf50c0`/`a5fd9787`
+are the extra code commits, `9d7cfc27` docs. The **899/1/1 batch
+stays attributed to `f2142c81`** — no later commit ran a full batch.
+Source-run `:39998` currently serves `3b0d6e6e` — still not
+packaged-candidate evidence.
+
 ### What was delivered
 
 - `users.timezone` IANA column — migration `a2b3c4d5e6f7`,
   server-default `UTC`; every existing user keeps identical
-  display (Alembic path tested). Searchable picker with readable
-  labels + current offset ("varies by date") on Create User,
-  the admin user edit page and `/account` self-service; browser
-  detection suggests only, never overrides. Backend validates
-  IANA identifiers; admin edits audit `user.timezone` without
-  touching role or memberships; non-admins cannot edit others.
+  display (Alembic path tested). The picker is a grouped
+  `<select>` of ~140 curated major-city zones under region
+  optgroups (UTC / Europe / Africa / Americas / Asia / Atlantic /
+  Oceania & Pacific) with current-offset labels ("varies by
+  date") — **this replaced the earlier searchable `<datalist>`
+  on every surface** (Create User, the Users-list inline
+  click-to-edit cell, and `/account` self-service; the native
+  select retains type-ahead search). The admin project-access
+  page is access-only — the zone shows read-only in its facts
+  header. Any valid IANA identifier outside the curated list is
+  still accepted server-side; a saved off-list zone stays
+  selectable under a "Saved" group. Browser detection suggests
+  only, never overrides. Backend validates IANA identifiers;
+  admin edits audit `user.timezone` without touching role or
+  memberships; non-admins cannot edit others.
 - Shared `usertz` helpers — safe validation + UTC fallback,
   `fmt_local*` with numeric offset (never `Z`), DST-correct
   local-day→UTC bounds, repeated-local-time disambiguation.
@@ -950,14 +983,82 @@ UTC; backup round-trip / legacy-without-field / invalid-value
 warning+fallback. **Result: 30 passed** (focused run at
 `4a9d8779`, re-run inside the `f2142c81` batch).
 
+Later focused results — kept separate, not added to the totals
+above: **33 passed** at `d34d75a5` (picker curation + inline-save
+tests), then **38 passed** at `3b0d6e6e` (+5 structural/resilience
+tests: per-row toggle ids unique and disjoint from the
+reset-password toggles; Edit/Cancel are non-submitting labels so
+Cancel can never POST or audit; non-admin denied the Users page;
+missing zone database → UTC output + logged diagnostic).
+
 ### Affected regressions
 
 Dashboard, project dashboard, analytics, log exports,
 operational logs (incl. live tail), schedules + plans, schedule
 targets, settings backup, backup regressions, project access:
-**172 passed** at `4a9d8779`. The 7 playwright modal tests that
-caught the template null-guard defect re-ran green standalone
-(10/10 in the two modal files) at `f2142c81`.
+**172 passed** at `4a9d8779` — recorded as `4a9d8779` evidence
+(that run predates the null-guard fix). Re-run at **`3b0d6e6e`**
+across the same 14 files: **188 passed** (test count grew with
+the picker/inline additions); the live-tail test first hit
+`ERR_CONNECTION_REFUSED` because `:39995` was down — an
+environmental restart, not a code failure — and passed on rerun.
+The 7 playwright modal tests that caught the template null-guard
+defect re-ran green standalone (10/10 in the two modal files) at
+`f2142c81`.
+
+### Users-table click-to-edit cell — verification record
+
+The cell exists on `/system/users` only (admin-gated; the access
+page is access-only, `/account` is the user's self-service).
+Mechanics: hidden per-row checkbox + `for`-matched labels, state
+shown via CSS `tr:has(.tz-toggle:checked)` — **no JavaScript
+participates**; the grouped `<select>`, Save (`type=submit`) and
+Cancel (label) are a plain POST form to the existing audited
+`save_user_timezone` route (`next=users` redirects back).
+
+Browser verification at `3b0d6e6e` on scratch source-run instance
+`:39997` (copy of the `:39998` data) **with JavaScript disabled** —
+all 15 checks passed: login; ≥2 rows with tz cells; select hidden
+by default; Edit reveals the grouped select; Cancel visible;
+opening one row leaves other rows in view mode; Cancel hides the
+select **and fired no request** (verified via request capture — no
+audit write is possible); Save POSTs, redirects to `/system/users`,
+persists the zone (`tester → Asia/Kolkata`) and returns to
+text + Edit; Space on the hidden checkbox toggles the editor
+(keyboard operable); tester (non-admin) gets no Users page/Edit;
+420 px viewport: editor wraps. Audit table confirmed
+`user.timezone: tester: UTC -> Asia/Kolkata` written by Save and
+**no** event for the Cancel interactions. Focus after Save
+returns to the document top (plain page navigation — same as
+every other non-JS form on the page).
+
+Structural tests at `3b0d6e6e` additionally prove: toggle ids
+(`tzt-<uid>`) are unique per row and disjoint from the
+reset-password toggles (`reset-<uid>`, separate class/id space —
+no collision possible); the only `type=submit` inside a tz form
+is Save; a non-admin is denied the page outright; missing
+`tzdata` yields UTC + a logged warning.
+
+### Localized vs non-localized surfaces (existing evidence)
+
+- **Localized** (viewer zone, numeric offset): execution lists +
+  details + attempt history, live log-viewer timestamps, audit
+  trail, operational logs, schedule lists/forms + upcoming-fire
+  displays, releases, admin/system pages, log-export job pages,
+  app-generated report summaries, dashboard + project-dashboard
+  charts (axes, hover, tables, heatmap buckets — analytics cache
+  key includes the viewer zone, proven by the two-viewer test),
+  CSV local columns carrying the offset + zone name.
+- **Deliberately not localized**: raw runner stdout/stderr,
+  downloaded execution logs, third-party report artifacts
+  (source-generated content is preserved verbatim); CSV `*_utc`
+  columns and machine-facing ISO/`Z` fields stay UTC; stored
+  schedule fire instants unchanged (form discloses execution
+  zone vs display zone — `test_schedule_form_keeps_utc_semantics`,
+  `test_preference_does_not_move_schedule`).
+- **Backup**: `test_older_backup_without_zone_defaults_utc`,
+  `test_invalid_restored_zone_warns_and_falls_back`,
+  `test_timezone_roundtrips_through_backup`.
 
 ### Suite accounting — recorded separately, not combined
 
@@ -988,10 +1089,10 @@ onto `f2142c81` and its `create_all`-style DB gained
 |---|---|
 | Advanced Analytics Group A | Source-level acceptance closed at `175094f`; time-dependent behaviour **re-verified under viewer zones** — local-day bucketing covered by the new focused tests at `f2142c81` |
 | Advanced Analytics Group B | Implemented; source-level evidence at `c955c79` + zone-aware re-verification at `f2142c81` — **acceptance review still pending; does not close any gate below** |
-| Per-user time zones | Implemented; source-level evidence above at `f2142c81` — **acceptance review pending; packaged-install verification outstanding** |
+| Per-user time zones | Implemented; source-level evidence above at `f2142c81`, cell change re-verified at `3b0d6e6e` — **acceptance review pending; packaged rows defined in `packaged-acceptance.md` §5b, execution outstanding** |
 | Backup and Restore | Implemented; timezone field covered at `f2142c81`. Windows/package gates outstanding. Settings-only scope |
-| Windows W1–W15 | Real-host acceptance outstanding; kit should add a packaged `zoneinfo` availability check |
-| Clean packaged candidate + final matrix | Outstanding |
+| Windows W1–W16 | Real-host acceptance outstanding; W16 (zone selection/display/local-day filter/CSV + packaged `zoneinfo` load of Europe/Budapest + Asia/Kolkata) added to the kit — pending real-host execution |
+| Clean packaged candidate + final matrix | Outstanding — now includes §5b zone-database rows (Win + Linux installer checks, missing-db degradation) |
 | External licence-issuer-key test | Blocked — missing external private key |
 
 Live `:39998` remains source-run Waitress — not packaged-
