@@ -1571,3 +1571,52 @@ final candidate.
   (same triage: B202 FP, 2×B601 pattern-flagged with `shlex.quote`
   verified); pip-audit — 3 residuals (2× Buildbot 2009 FPs +
   PYSEC-2026-2858 accepted-risk); jscpd — 11 clones / 1.02% tokens.
+
+### License rows — test-keyed scratch install (decision 1)
+
+Method per instruction: copy of `/tmp/to26-final-inst` →
+`/tmp/to26-lickey`; shipped `licence_pubkey.pem` (sha256
+`213b2896…3eba`) replaced with a throwaway Ed25519 test public key;
+private key lived in `/tmp/to-test-issuer/` only (outside repo and
+package) and was **deleted** with the scratch copy afterward.
+Codes minted `TO1` format, `key_id="prod"`, real Ed25519
+signatures. Results labeled **test-keyed scratch install** — they
+do not prove the production key path.
+
+| Row | Result |
+|---|---|
+| Valid key | PASS — activated; stored row shows `licence_id`, `customer` (holder), `valid_from`/`valid_until`; audit logs id+customer only |
+| Expired key | **Accepted, then classified** — `add()` stores it ("Licence activated… valid 2020→2021"); `status()` reports expired. Not a rejection — renewal-window design stores history; licence is informational (§12.4) |
+| Not-yet-valid key | Same — stored, `status()` classifies `not-yet-valid` |
+| Tampered: one char changed | PASS — `malformed code` (base64 decode fails) |
+| Tampered: payload edited | PASS — `invalid signature` |
+| Tampered: signature replaced | PASS — `invalid signature` |
+| Wrong issuer key | PASS — `invalid signature` (fresh Ed25519 pair) |
+| Missing field (`customer=""`) | PASS — `missing customer` |
+| Empty/garbage code | PASS — `malformed code`, no crash |
+| Licence survives backup→restore | PASS — stored row + code identical after `apply_restore` (`licences` is settings-scoped) |
+| Secrets in logs/exports | PASS — no private-key material in stored rows; activation audit logs id+customer only |
+| Enforced limits | N/A — licence is informational, gates nothing by design |
+| Private key hygiene | Deleted; never in repo/package/logs |
+
+**Spec-vs-code difference reported:** "expired key rejected" —
+actual behavior is *accepted into the store and classified
+expired/not-yet-valid* by `status()`; activation messaging reflects
+the declared window. Same for not-yet-valid (future renewals are
+intentionally storable). The production-issuer row remains blocked
+on the legitimate key.
+
+### Confirmations requested
+
+- Candidate `917e35ee…ca22` app code = `37b10cf2`;
+  `git diff 37b10cf2..aee96d87` = `docs/acceptance-2.6.0.md` only
+  (ledger). Tray fix `a9d3d942` + docs `8fe6476b` postdate the
+  build → **Windows-side tray payload code in the candidate is
+  stale by one commit** (tooltip text); Linux tarball unaffected by
+  docs but flagged honestly — Windows package rebuild owed.
+- Tray deps: `pystray` + `pillow` **already shipped** in the
+  Windows worker payload (`build-scripts/_common.py:319`) — no new
+  dependencies added. "Running" = process alive; a live-but-
+  disconnected worker shows green — limitation stated in §6.1
+  manual text and tooltip claims process state only (`— Running`
+  / `— Not running`), never connectivity.
