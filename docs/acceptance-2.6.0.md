@@ -2108,3 +2108,11 @@ approval — credential plan + removal). Discovery is `.prj`-centric by
 design; the pytest fixture item/binding/runtimes are seeded test data via
 a VM-local script — all *user actions* go through the browser only.
 Known deferred defect (not failed): invisible keyboard-focus indicator.
+
+### `to-ui` teardown
+
+- `multipass delete to-ui --purge` → `multipass list`: **no instances**.
+- Host key `~/.ssh/id_to_ui{,.pub}` deleted; in-VM keys/material die
+  with the purged instance. No qemu process, no `/tmp` artifacts on host.
+- Trace/screenshot artifacts: none produced (retain-on-failure, all
+  runs green); nothing committed to git.
