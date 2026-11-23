@@ -1953,3 +1953,82 @@ stale vs `02ee37b2`.
 | bandit | 1.8.3 triage SEC-1..5 | 1.8.3, same classes; new locs `dispatch.py:734` (B601 — `shlex.quote`d remote_workdir, SEC-2 pattern correctly applied) and `dispatch.py:2172` (B310 — admin-configured webhook `urlopen`, SEC-5 class) | consistent, no new issues |
 | pip-audit | 2.9.0 OSV DEP-1..4 | 2.9.0 on clean requirements env: **1 vuln** — paramiko 3.5.1 `PYSEC-2026-2858` = recorded DEP-2 accepted risk (SHA-1 RSA, no upstream fix; DEP-1 Terrapin confirmed resolved by 3.5.1 pin) | consistent |
 | jscpd | 4.0.5 baseline | 4.0.5: app py 62f/11 clones/0.68%/1.02% **identical**; templates 50f/29/4.23%/3.66% **identical**; JS 10f/7/11.49%/11.32% **identical**; tests 86f/83 clones/3.11%/4.25% (same clone count, +2 new test files → slightly lower %) | consistent |
+
+## V8 — §2 Linux matrix + §5 sweep at `02ee37b2`, package `5b8a12c6…7f7d`
+
+### §2 eight-combination matrix — Linux cells (this run)
+
+| Framework | Linux PB worker | Linux SSH target | Windows PB worker |
+|---|---|---|---|
+| Playwright | `0c974a81`/`ffcd9d95` COMPLETED | `f9da4548` COMPLETED | W-kit (product owner) |
+| Cypress | `b5d31598` COMPLETED | `68fd2d38` COMPLETED | W-kit (product owner) |
+| Robot | `b81e642f` COMPLETED (real RF 7.5.1) | `50568837` COMPLETED (real RF) | W-kit — **required**, owner |
+| pytest | `cfc26095` COMPLETED (real pytest 9.2.0) | `23da805a` COMPLETED (real pytest) | W-kit — **required**, owner |
+
+All 8 Linux cells PASS on package `5b8a12c6…7f7d`. SSH cells ran over
+real sshd with pinned host key + pubkey auth to `ubuntu@127.0.0.1`.
+KRE cells (`db595cfc` SSH, `9bae78dc` worker) ran earlier in the same
+session — KRE is not part of the §2 matrix (it gates on Katalon, not
+the release matrix).
+
+### §5 packaged security sweep
+
+- Journal: zero plaintext secrets/API keys; only 2 historical systemd
+  "unknown user" lines from the PRE-FIX install (13:23), **zero
+  recurrence** on fresh install at `02ee37b2`.
+- File modes: `secret.key` 600, `web.env` 640, `release.json` 644,
+  certs dir 700 — verified on fresh install.
+- Payload absolute-path scan: all `venv/bin` + `buildbot-venv/bin`
+  shebangs resolve inside `/opt/testorchestrator`; zero `.pth` files
+  with outside-payload paths; unit ExecStart/WorkingDirectory all
+  payload/data-contained.
+- §5b tzdata: `ZoneInfo('Europe/Budapest')` + `('Asia/Kolkata')` load
+  from the bundled package interpreter.
+- CSRF/RBAC/token-bounding/revocation rows: suite-covered
+  (`test_project_access.py` 17 tests green this revision).
+
+## D5 — revision boundary (uncombined)
+
+- Suite at `02ee37b2` (code == `a9cabfb2` == `124347c7`, docs-only
+  deltas): **950 passed / 1 skipped / 1 failed-blocked**
+  (`test_production_key_auto_loaded` — external issuer key absent).
+- Strict 5-case matrix + worker install: package `5b8a12c6…7f7d`,
+  head `02ee37b2`.
+- V8 8-cell Linux matrix: same package, same session.
+- Stale: `322e3e95…` (`53bea796`), `63f991ab…` (`b1a8a7ec`),
+  `e1eda0b5…`, `df6b2d22…`, `124b5567…`, `76179316…`, `2b804b8c…`,
+  `6957accc…`, `a39cf1a9…` — every earlier tarball/run superseded.
+- Windows payload at `124347c7`: setup exe `7d74e5d0…b2d7` unsigned,
+  internal-test build — delivered with W1–W18 kit; W-rows run by the
+  product owner.
+
+## FINAL CANDIDATE — head `124347c7`, consolidated gate table
+
+**Artifacts (internal-test build, `TO_BUILDBOT_INTERNAL_BUILD=1`):**
+- `.run` `08284bdb9c1884a6c1be338d9640085111abdd14186309b3a59397b0f6c3d18b`
+- tarball `05ca313db54b83b98c8ea92e15ca7f69572532bb5058f6f2e16c37b71a2a8f0e`
+- bb sources `3ca1c41c9d3e7562125f8e0fc2361b529e68af64ca1f6b724b141bca5cc36819`
+- Windows setup `7d74e5d0d29a23f322ff1eb65a2182e54e01fab2ec6ad09f1e450e32a9ddb2d7` (UNSIGNED)
+
+Matrix/upgrade verification ran on `5b8a12c6…` (`02ee37b2`); code is
+byte-identical to `124347c7` — delta is Manuals-Doc + ledger +
+whitelist only.
+
+| Row | Result | Boundary |
+|---|---|---|
+| Fresh `/opt` install, 5 units, modes, venv-inside-payload | PASS | `02ee37b2` package |
+| Worker install (py3.14 gate refuse + py3.12 install + PB attach) | PASS | `02ee37b2` package |
+| §2 Linux cells ×8 (worker+SSH × pw/cy/robot/pytest) | PASS | `02ee37b2` package; SSH cells real sshd+pubkey |
+| KRE worker + SSH dispatch (cred-file, wrapper, scrub) | PASS | same; fake katalonc = orchestration proof, not Katalon product |
+| V5 uninstall/reinstall preserve | PASS | earlier `53bea796` package |
+| V6 2.5.1→2.6.0 upgrade (venv rebuild, data preserved) | PASS | `53bea796` package — final fix verified |
+| V7 SSH key interop (ed25519/ECDSA/RSA; password rejected) | PASS | dispatcher-level, key-type matrix |
+| Lifecycle kill -9 → auto-restart | PASS | `02ee37b2` |
+| §5 sweep (journal, modes, path containment, CSRF/RBAC/token suite) | PASS | VM + suite |
+| §5b tzdata | PASS | bundled interpreter loads zones |
+| Suite | **950 passed / 1 skipped / 1 BLOCKED** | `test_production_key_auto_loaded` — external issuer key absent by design |
+| Scans (vulture/bandit/pip-audit/jscpd) | consistent w/ triage + DEFER-3 dead col | `a9cabfb2` rerun |
+| W1–W18 Windows kit | **run by the product owner** | payload `7d74e5d0…` delivered |
+| `test_production_key_auto_loaded` | **BLOCKED** | `/tmp/to-license-issuer/private.pem` absent — not provisioned, per instruction |
+
+No merge, no tag, no publication; PR #4 stays draft.
