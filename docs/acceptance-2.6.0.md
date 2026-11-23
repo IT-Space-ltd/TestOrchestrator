@@ -1716,3 +1716,28 @@ pip-audit unchanged (deps frozen since `22fee4c5` — paramiko
 | Production issuer-key test | **BLOCKED** | legitimate external key |
 | Expired-licence behaviour decision | Pending owner | §12.4 documents current design |
 | Group B acceptance review | Pending owner | — |
+
+### F-cycle correction — true frozen head `192dbc12`
+
+Commit-order correction to the F-section above: the `install.py`
+service-user fix (`192dbc12`) was committed AFTER `25f2cfe8`, so the
+real frozen head is **`192dbc12`**. Two interim builds ran on the
+`8c14b9d0` working tree *with* the uncommitted fix (dirty flag) —
+their artifacts `3881cbb2…b1e4` / `8cb6b816…812b` /
+`941608f5…40c0` are correct-content but wrong-provenance and are
+**stale**.
+
+Rebuilt cleanly at `192dbc12`:
+
+| Artifact | Bytes | SHA-256 |
+|---|---|---|
+| linux tarball | 201,055,155 | `124b5567ae0d0719c80781d8ed68f7499c8e8ab6a1e7c2e755ddaaa2976ee0fe` |
+| linux `.run` | 201,057,159 | `d4e3e5ee2d6f726ab1967d5f2be3ed30999485223ce342b9de8fa58835d5c543` |
+| windows setup (UNSIGNED) | 115,931,700 | `941608f547c9072fc94c2806400ce4ff79a45bf98d38a25d6f729ae6bb8840c0` (rebuilt at `192dbc12`) |
+| Buildbot sources | 4,708,345 | `347550aa843b2c65c8893fd54160d84fa93c193352c0316617bae9b211812d12` |
+
+F3 note: the 933/1/1 suite ran at `8c14b9d0`;
+`git diff 8c14b9d0..192dbc12 -- testorchestrator/ tests/` is **empty**
+— suite-covered code identical; `scripts/install.py` is not
+pytest-covered and is exercised end-to-end by the VM V1 row on the
+`124b5567` tarball.
