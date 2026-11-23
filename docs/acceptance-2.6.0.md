@@ -1664,3 +1664,55 @@ owner confirmation. No code change.
 | `b74a29ea…f4` (200,530,903 B) | `f96b645b` | stale — pre-tray, internal-test only |
 | `ab07227a…1ba` (201,043,529 B) | `22fee4c5` | stale — pre-tray |
 | `917e35ee…ca22` (201,047,132 B) | `37b10cf2` | current Linux candidate; Windows tray payload inside predates `a9d3d942` — Windows rebuild owed at F2 |
+
+## Final candidate — F1–F6 (frozen head `8c14b9d0`)
+
+**F1 freeze.** Last application-code change = `a9d3d942` (tray
+tooltip). Everything after = docs/ledger. Frozen head `8c14b9d0`.
+
+**F2 artifacts (all internal-test, unsigned where applicable):**
+
+| Artifact | Bytes | SHA-256 |
+|---|---|---|
+| linux tarball | 201,054,308 | `3881cbb225d991eb5761596036fe01844c0fa68fc4aaa784300e43230efab1e4` |
+| linux `.run` | 201,056,312 | `8cb6b8162502de60b3a9eded599f0c866b46ca0d2b7f79780bb3eefb595f812b` |
+| windows setup (UNSIGNED) | 115,931,700 | `941608f547c9072fc94c2806400ce4ff79a45bf98d38a25d6f729ae6bb8840c0` |
+| Buildbot sources | 4,708,367 | `5d4f87d7eb65ba158e7f8fddf1b791af5a4b721d16d0e9bebfd1cc88e578305c` |
+
+Windows build note: first attempt raced the NSIS output vs the
+staging glob — clean retry succeeded; artifact carries the
+`a9d3d942` tray code. W1–W18 kit (`docs/windows-acceptance-kit.md`)
+hands over with the Windows payload — **run by the product owner**.
+
+**F3 suite at `8c14b9d0`: 933 passed / 1 failed / 1 skipped**
+(932+1 = `test_tooltip_text_per_state`). The 1 failure =
+`test_production_key_auto_loaded` — **blocked** on the legitimate
+external issuer key, not a product failure.
+
+**F4 scans at `8c14b9d0`:** Vulture 0 non-ORM findings (128
+dynamic-attr residuals, whitelisted classes); Bandit 104 (same
+triage: B202 FP, 2×B601 pattern-only); jscpd 11 clones/1.02%;
+pip-audit unchanged (deps frozen since `22fee4c5` — paramiko
+3.5.1 triage stands). All same as recorded — no new findings.
+
+**F5 stale marks:** `b74a29ea…f4` (f96b645b), `ab07227a…1ba`
+(22fee4c5), `917e35ee…ca22` (37b10cf2) — all stale; superseded by
+`3881cbb2…b1e4` at `8c14b9d0`.
+
+**F6 consolidated gate table:**
+
+| Row | Status | Boundary |
+|---|---|---|
+| Linux package (scratch prefix, install→restore→login) | PASS | — |
+| Full suite at frozen head | 933/1/1 | 1 = issuer-key blocker |
+| Scans at frozen head | Same triage | — |
+| Tray dot source + 21 unit tests | PASS at `a9d3d942` | — |
+| Admin docs: KRE licensing §6.9, §12.4 licence behaviour, argv exposure | PASS (docs) | — |
+| License flow (test-keyed scratch) | PASS — expired/future accepted-then-classified (documented §12.4) | prod key path unproven by design |
+| `systemd-analyze verify` ×5 units | PASS | — |
+| User-level service lifecycle + journal (VM8 fallback) | PASS | system-level rows remain |
+| V1–V9 system-level rows (`/opt` install, units, modes, journal, reinstall, upgrade, OpenSSH, §5, matrix, installed-package suite) | **BLOCKED** | no VM tool + RAM 3.6G<4G; awaits owner confirmation to `snap install multipass` (host changes listed) |
+| W1–W18 (Windows host) | **Run by the product owner** | real Windows host |
+| Production issuer-key test | **BLOCKED** | legitimate external key |
+| Expired-licence behaviour decision | Pending owner | §12.4 documents current design |
+| Group B acceptance review | Pending owner | — |
