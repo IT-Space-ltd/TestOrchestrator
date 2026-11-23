@@ -1620,3 +1620,47 @@ on the legitimate key.
   disconnected worker shows green — limitation stated in §6.1
   manual text and tooltip claims process state only (`— Running`
   / `— Not running`), never connectivity.
+
+### D1–D5 records
+
+**D1 — tray tooltip coverage.** `test_tooltip_text_per_state`
+(asserts "Running"/"Not running"/"status check failed" per state
+and that "connected" never appears) + `test_status_text_and_
+unknown_is_red` — both in `tests/test_worker_tray.py`. Covered by
+the 21-test targeted run at `a9d3d942`; the 932/1/1 full-suite run
+predates `a9d3d942`, so full-suite coverage of the tooltip fix is
+owed at F3 (recorded, not assumed).
+
+**D2 — how the API key reaches KRE.** Only mechanism: `-apiKey=`
+argv (vendor-documented; `docs/integration-contracts.md` already
+records this as residual exposure). No vendor-supported env/file
+alternative confirmed; `run_invocation` has an `env_extra`
+injection seam if one emerges. Standalone tests used argv
+(`tests/test_pipeline.py:523-538` asserts `-apiKey=FAKEKEY-…` in
+child argv and `***REDACTED***` in logs). Exposure: key visible in
+child argv to same-UID users (`/proc/<pid>/cmdline`, `ps`) for
+process lifetime — never in logs/artifacts/audit/exports/UI.
+§6.9 now carries the exposure + host-hygiene recommendations.
+
+**D4 — expired/not-yet-valid behaviour.** Documented in Admin
+Manual §12.4: accepted at activation (signature+format validated,
+not the window), stored as history, classified by `status()`;
+UI shows `expired`/`not-yet-valid`; at expiry the login-page
+notice reappears; nothing gated. Marked current design pending
+owner confirmation. No code change.
+
+**D5 — run/revision ledger (uncombined):**
+
+| Run | Where | Revision | Tally | Failure |
+|---|---|---|---|---|
+| Suite | source tree | `22fee4c5` | 911/1/1 | issuer-key (external) |
+| Suite | extracted pkg PYTHONPATH | `22fee4c5` app code | 912/1/1 | issuer-key |
+| Suite | source tree | `37b10cf2` | 932/1/1 | issuer-key |
+| Tray targeted | source tree | `5611dc8a` | 20/0 | — |
+| Tray targeted | source tree | `a9d3d942` | 21/0 | — |
+
+| Tarball | Built at | Status |
+|---|---|---|
+| `b74a29ea…f4` (200,530,903 B) | `f96b645b` | stale — pre-tray, internal-test only |
+| `ab07227a…1ba` (201,043,529 B) | `22fee4c5` | stale — pre-tray |
+| `917e35ee…ca22` (201,047,132 B) | `37b10cf2` | current Linux candidate; Windows tray payload inside predates `a9d3d942` — Windows rebuild owed at F2 |
