@@ -122,3 +122,21 @@ def test_missing_runner_executable_named(app, ssh_env, tmp_path):
         assert "kre" in res.error
     server_dir = tmp_path / "remote" / "to-runs"
     assert server_dir.is_dir()   # workdir created by the check
+
+
+def test_workdir_with_quotes_survives_quoting(app, ssh_env, tmp_path):
+    """Regression for repr(!r)-quoting of remote shell args: a workdir
+    containing BOTH quote kinds mangles under repr() but survives
+    shlex.quote(). The fake server executes via a real shell."""
+    rid = _runner(app, ssh_env, tmp_path)
+    with app.app_context():
+        r = db.session.get(Runner, rid)
+        r.ssh_host_key_fingerprint = ssh_env.fingerprint
+        r.ssh_host_key_alg = ssh_env.key_alg
+        wd = tmp_path / "remote 'q\"d" / "to-runs"
+        r.ssh_workdir = str(wd)
+        db.session.commit()
+        res = ssh_check.check_target(r)
+        assert res.status == "ok", res.stages
+        assert wd.is_dir()          # remote side created the real path
+        assert not (tmp_path / "remote 'q\\\"d").exists()
