@@ -220,13 +220,8 @@ def main() -> None:
                 # existing installs keep their venv on rerun.
                 print(f"[install] buildbot venv: {bb_venv} "
                       f"(offline from {bb_wheels})")
-                subprocess.check_call(
-                    [sys.executable, "-m", "venv", str(bb_venv)])
-                subprocess.check_call(
-                    [bb_py, "-m", "pip", "install", "--no-index",
-                     "--find-links", str(bb_wheels),
-                     "buildbot[bundled]", "buildbot-worker",
-                     "buildbot-www", "paramiko"])
+                create_buildbot_venv_offline(payload, bb_wheels,
+                                             bb_venv)
             else:
                 bb_py = os.environ.get("TO_BUILDBOT_PYTHON") or ""
         sys.path.insert(0, str(REPO / "scripts"))
@@ -557,6 +552,24 @@ def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
         shutil.copy2(src, dst_dir / src.name)
         print(f"[install] linux worker bundle asset: {src.name}")
     return dst
+
+
+def create_buildbot_venv_offline(payload: Path, bb_wheels: Path,
+                                 bb_venv: Path) -> Path:
+    """Create the buildbot orchestrator venv from the INSTALLED bundled
+    runtime + vendored wheels. sys.executable is the .run EXTRACTION
+    dir's python — its path dies with the temp dir, leaving the venv's
+    interpreter symlink dangling and the master unable to restart
+    (203/EXEC). Always base on the installed payload path."""
+    base = bundled_python(payload) or Path(sys.executable)
+    subprocess.check_call([str(base), "-m", "venv", str(bb_venv)])
+    bb_py = str(bb_venv / "bin" / "python3")
+    subprocess.check_call(
+        [bb_py, "-m", "pip", "install", "--no-index",
+         "--find-links", str(bb_wheels),
+         "buildbot[bundled]", "buildbot-worker",
+         "buildbot-www", "paramiko"])
+    return bb_venv
 
 
 def create_venv_offline(payload: Path) -> Path:

@@ -110,3 +110,45 @@ def test_isolated_payload_without_package_fails_import(tmp_path):
         capture_output=True, text=True, cwd=tmp_path)
     assert r.returncode != 0
     assert "No module named 'reporting_labs'" in r.stderr
+
+
+def test_buildbot_venv_uses_installed_runtime_not_extraction_dir(
+        tmp_path, monkeypatch):
+    """.run regression: the buildbot venv must be based on the
+    INSTALLED bundled runtime. sys.executable under the self-extracting
+    wrapper is the /tmp/to-install-* extraction dir — a venv created
+    from it has a dangling interpreter symlink after cleanup and the
+    master can never restart (203/EXEC)."""
+    payload = tmp_path / "opt" / "to"
+    rt = (payload / "3rdparty" / "python-runtime" / "python" / "bin"
+          / "python3")
+    rt.parent.mkdir(parents=True)
+    rt.write_text("")  # marker — bundled_python() only checks exists()
+    wheels = payload / "3rdparty" / "buildbot-wheels"
+    wheels.mkdir(parents=True)
+    calls = []
+    monkeypatch.setattr(inst.subprocess, "check_call",
+                        lambda cmd: calls.append(cmd))
+    inst.create_buildbot_venv_offline(
+        payload, wheels, payload / "buildbot-venv")
+    # first call: <installed-runtime> -m venv <bb_venv>
+    assert calls[0][0] == str(rt), \
+        f"venv based on {calls[0][0]!r} — must be the installed runtime"
+    assert calls[0][1:] == ["-m", "venv",
+                            str(payload / "buildbot-venv")]
+    # pip install runs under the NEW venv's python — offline, pinned
+    pip_call = calls[1]
+    assert pip_call[0].endswith("buildbot-venv/bin/python3") \
+        or pip_call[0].endswith("buildbot-venv\\Scripts\\python.exe")
+    assert "--no-index" in pip_call
+
+
+def test_bundled_python_resolves_payload_path(tmp_path):
+    """bundled_python returns the payload-local interpreter only —
+    never the running installer's own (extraction-dir) python."""
+    assert inst.bundled_python(tmp_path) is None
+    rt = (tmp_path / "3rdparty" / "python-runtime" / "python" / "bin"
+          / "python3")
+    rt.parent.mkdir(parents=True)
+    rt.write_text("")
+    assert inst.bundled_python(tmp_path) == rt
