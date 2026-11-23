@@ -213,7 +213,12 @@ def main() -> None:
         bb_home = data / "buildbot"
         bb_venv = payload / "buildbot-venv"
         bb_py = str(bb_venv / "bin" / "python3")
-        if not Path(bb_py).exists():
+        # Rebuild when the venv is absent OR its interpreter resolves
+        # outside the payload — a pre-fix install left the symlink (and
+        # pyvenv.cfg home) on the installer's extraction path, which is
+        # either already deleted or dangling state an upgrade must not
+        # carry forward.
+        if not _buildbot_venv_ok(payload, bb_py):
             bb_wheels = payload / "3rdparty" / "buildbot-wheels"
             if bb_wheels.is_dir():
                 # Offline controller-side stack — created once;
@@ -552,6 +557,17 @@ def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
         shutil.copy2(src, dst_dir / src.name)
         print(f"[install] linux worker bundle asset: {src.name}")
     return dst
+
+
+def _buildbot_venv_ok(payload: Path, bb_py: str) -> bool:
+    """Existing buildbot venv usable? Only when its interpreter symlink
+    resolves to a live file INSIDE the payload — a missing or
+    outside-payload target means stale/upgraded-broken state."""
+    try:
+        resolved = Path(bb_py).resolve(strict=True)
+    except OSError:
+        return False
+    return str(resolved).startswith(str(payload.resolve()) + os.sep)
 
 
 def create_buildbot_venv_offline(payload: Path, bb_wheels: Path,

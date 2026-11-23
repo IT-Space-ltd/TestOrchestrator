@@ -152,3 +152,37 @@ def test_bundled_python_resolves_payload_path(tmp_path):
     rt.parent.mkdir(parents=True)
     rt.write_text("")
     assert inst.bundled_python(tmp_path) == rt
+
+
+def test_buildbot_venv_ok_only_when_interpreter_inside_payload(
+        tmp_path):
+    """Upgrade gate: a venv whose python3 resolves outside the payload
+    (dangling .run extraction path, tarball dir, system python) must be
+    rebuilt — carrying it forward leaves the master restart-dead."""
+    payload = (tmp_path / "opt" / "to").resolve()
+    bb_py = payload / "buildbot-venv" / "bin" / "python3"
+    bb_py.parent.mkdir(parents=True)
+
+    # missing entirely -> rebuild
+    assert inst._buildbot_venv_ok(payload, str(bb_py)) is False
+
+    # dangling symlink to a deleted extraction dir -> rebuild
+    bb_py.symlink_to("/tmp/to-install-gone/python/bin/python3")
+    assert inst._buildbot_venv_ok(payload, str(bb_py)) is False
+
+    # live target OUTSIDE payload -> rebuild (e.g. old tarball path)
+    outside = tmp_path / "elsewhere" / "python3"
+    outside.parent.mkdir(parents=True)
+    outside.write_text("")
+    bb_py.unlink()
+    bb_py.symlink_to(str(outside))
+    assert inst._buildbot_venv_ok(payload, str(bb_py)) is False
+
+    # live target inside payload -> keep
+    inside = (payload / "3rdparty" / "python-runtime" / "python" / "bin"
+              / "python3")
+    inside.parent.mkdir(parents=True)
+    inside.write_text("")
+    bb_py.unlink()
+    bb_py.symlink_to(str(inside))
+    assert inst._buildbot_venv_ok(payload, str(bb_py)) is True
