@@ -28,7 +28,7 @@
                  aria-label="Edit time zone for {{ u.username }}">
           <div class="tz-view">
             <code>{{ u.timezone or "UTC" }}</code>
-            <label for="tzt-{{ u.id }}" class="button ghost sm">Edit</label>
+            <label for="tzt-{{ u.id }}" class="button secondary sm">Edit</label>
           </div>
           <form method="post" class="tz-edit"
                 action="{{ url_for('system.save_user_timezone', user_id=u.id) }}">
