@@ -900,22 +900,27 @@ application behaviour or markup; docs touches evidence/prose only):
 | Commit | Kind | Content |
 |---|---|---|
 | `7f754ea3` | docs | This ledger section (`f2142c81..7f754ea3` is ledger-only — confirmed by `git show --stat`) |
-| `57428d34` | code | Picker curated to primary zones (`zone1970.tab`) + test |
-| `45fa907c` | code | Grouped `<select>` replaces the datalist everywhere |
-| `04a1a0ac` | code | Inline per-row timezone selector on Users list + test |
-| `d34d75a5` | code | Cell becomes click-to-edit (checkbox + CSS `:has`) |
-| `5f0128f2` | code | Edit/Cancel labels: secondary style + pointer cursor |
-| `0ba42be0` | code | Access page reordered (access first), button styles, cell width |
-| `e1cf50c0` | code | Timezone card removed from access page; cell widened |
+| `57428d34` | code | `usertz` picker curated from ~600 `available_timezones()` to 313 primary zones read from `zone1970.tab` (TZPATH or bundled `tzdata`, hardcoded fallback) + hint text + test — all in scope |
+| `45fa907c` | code | Picker becomes a grouped native `<select>` (`_tz_select.html` include, region optgroups, "Saved" group for off-list zones); routes pass `tz_groups`; datalist include deleted; all in scope |
+| `04a1a0ac` | code | Users-table timezone cell becomes a per-row grouped `<select>` + Save posting to `save_user_timezone`; `next=users` redirect added; test — all in scope |
+| `d34d75a5` | code | Cell becomes click-to-edit: hidden checkbox `tzt-<uid>` + `tr:has(.tz-toggle:checked)` CSS swap between plain-text view and the select/Save/Cancel form; CSS-only, no JS — in scope |
+| `5f0128f2` | code | Edit/Cancel labels restyled `ghost`→`secondary` (the ghost style rendered invisible on the table) + `cursor: pointer` — in scope |
+| `0ba42be0` | code | `user_access` page reordered so project-access leads and the timezone card follows; access Edit link → `secondary`; cell/select widened — in scope |
+| `e1cf50c0` | code | Timezone card removed from the access page entirely (access page = assignments only; zone shown read-only in the facts header); `tz_form`/`tz_groups` dropped from that route; cell widened further — in scope |
 | `9d7cfc27` | docs | CHANGELOG wording |
-| `a5fd9787` | code | Users-table Edit buttons right-aligned |
-| `3b0d6e6e` | code | Missing-tzdata resilience + diagnostic; 5 structural tests; narrow-screen wrap |
+| `a5fd9787` | code | Users-table Edit controls right-aligned via `space-between` (`.access-cell` class added to the project-access cell; ACTIONS column untouched) — in scope |
+| `3b0d6e6e` | code | `usertz` resilience: module `UTC` falls back to `datetime.timezone.utc` at import if no zone database; `coerce_zone` logs a diagnostic; `all_zones` degrades to `[]`; `.tz-edit` wraps on narrow screens; 5 structural/resilience tests — in scope |
+| `22fbe7c4` | docs | Acceptance docs only (this file, `packaged-acceptance.md` §5b, `windows-acceptance-kit.md` W16) |
+| `753c0c0b` | code | Picker labels lead with the city ("Budapest — Europe/Budapest (UTC+01:00…)") so native-select type-ahead finds zones by city — fixes the searchable requirement in Chromium + Firefox — in scope |
 
-The branch tip is `3b0d6e6e` — past the `d34d75a5` named in the
-verification directive; `5f0128f2`/`0ba42be0`/`e1cf50c0`/`a5fd9787`
-are the extra code commits, `9d7cfc27` docs. The **899/1/1 batch
-stays attributed to `f2142c81`** — no later commit ran a full batch.
-Source-run `:39998` currently serves `3b0d6e6e` — still not
+`3b0d6e6e..22fbe7c4` is confirmed **docs-only** (3 `.md` files) —
+the pushed head added no code beyond `3b0d6e6e` until `753c0c0b`.
+Every code commit above is timezone/UI work — none are unrelated
+features. The **899/1/1 batch stays attributed to `f2142c81`**;
+the 188-passed affected batch and 38 focused tests are `3b0d6e6e`
+evidence and are not carried to `22fbe7c4`/`753c0c0b` — see the
+suite-accounting table for the next batch revision.
+Source-run `:39998` currently serves `753c0c0b` — still not
 packaged-candidate evidence.
 
 ### What was delivered
@@ -925,11 +930,18 @@ packaged-candidate evidence.
   display (Alembic path tested). The picker is a grouped
   `<select>` of ~140 curated major-city zones under region
   optgroups (UTC / Europe / Africa / Americas / Asia / Atlantic /
-  Oceania & Pacific) with current-offset labels ("varies by
-  date") — **this replaced the earlier searchable `<datalist>`
+  Oceania & Pacific) whose labels lead with the city name —
+  `Budapest — Europe/Budapest (UTC+01:00 now — varies by
+  date)` — **this replaced the earlier searchable `<datalist>`
   on every surface** (Create User, the Users-list inline
-  click-to-edit cell, and `/account` self-service; the native
-  select retains type-ahead search). The admin project-access
+  click-to-edit cell, and `/account` self-service). The native
+  select's type-ahead matches the option-text prefix, so city-
+  first labels are what make typing find a zone: verified in
+  Chromium and Firefox — `budapest` → `Europe/Budapest`,
+  `kolkata` → `Asia/Kolkata`, `utc` → `UTC` (`753c0c0b`; the
+  region-prefixed labels before it matched only "europe/…"
+  prefixes — recorded as a defect in the searchable
+  requirement, fixed, not a scope change). The admin project-access
   page is access-only — the zone shows read-only in its facts
   header. Any valid IANA identifier outside the curated list is
   still accepted server-side; a saved off-list zone stays
@@ -998,10 +1010,13 @@ operational logs (incl. live tail), schedules + plans, schedule
 targets, settings backup, backup regressions, project access:
 **172 passed** at `4a9d8779` — recorded as `4a9d8779` evidence
 (that run predates the null-guard fix). Re-run at **`3b0d6e6e`**
-across the same 14 files: **188 passed** (test count grew with
-the picker/inline additions); the live-tail test first hit
-`ERR_CONNECTION_REFUSED` because `:39995` was down — an
-environmental restart, not a code failure — and passed on rerun.
+across the same 14 files — recorded as three separate rows:
+
+| Step | Result |
+|---|---|
+| Batch run 1 (`3b0d6e6e`) | 109 passed, then `test_stale_response_dropped_on_pause` failed `ERR_CONNECTION_REFUSED` — `:39995` was intentionally stopped (only `:39998` was asked to stay up); **environmental, not a code failure** |
+| `:39995` restarted on preserved `/tmp/to-preview-data` seed | env recovery — no code change |
+| Batch run 2 (`3b0d6e6e`, incl. live tail) | **79 passed → 188 total**, all green |
 The 7 playwright modal tests that caught the template null-guard
 defect re-ran green standalone (10/10 in the two modal files) at
 `f2142c81`.
@@ -1031,6 +1046,15 @@ text + Edit; Space on the hidden checkbox toggles the editor
 **no** event for the Cancel interactions. Focus after Save
 returns to the document top (plain page navigation — same as
 every other non-JS form on the page).
+
+Accessibility notes (accepted for now, queued for a later
+a11y pass): focus after Save returns to the document top —
+plain page navigation identical to every non-JS form on the
+page; the hidden toggle checkbox is keyboard-focusable
+(Space toggles the editor, verified) but its focus ring is
+invisible while `opacity:0` — a visible-focus treatment is a
+candidate improvement; the type-ahead fix (`753c0c0b`)
+improves keyboard findability of zones.
 
 Structural tests at `3b0d6e6e` additionally prove: toggle ids
 (`tzt-<uid>`) are unique per row and disjoint from the
@@ -1067,8 +1091,13 @@ is Save; a non-admin is denied the page outright; missing
 | Full-suite batch at `4a9d8779` (first candidate) | **892 passed / 8 failed / 1 skipped** — 7 failures were a real defect this change introduced: dropped `se`/`c.stats` null guards in `project_detail.html` → 500 on the project page → modal-open timeouts; NOT counted as clean |
 | Fix verification at `f2142c81` | 10/10 modal playwright tests passed standalone |
 | Completed full-suite batch at `f2142c81` | **899 passed / 1 failed / 1 skipped** (8 m 29 s) |
+| Completed full-suite batch at `753c0c0b` | **907 passed / 1 failed / 1 skipped** (10 m 07 s) |
 
-The sole `f2142c81` failure is
+The sole `753c0c0b` failure is also
+`test_production_key_auto_loaded` — the same external-issuer-key
+blocker; delta vs `f2142c81` = +8, exactly the timezone tests
+added since (picker curation/groups/inline + 5 structural +
+label-format assertions). The sole `f2142c81` failure is
 `test_production_key_auto_loaded` — external licence-issuer
 private key absent (`/tmp/to-license-issuer/private.pem`) —
 **blocked, not passed**. The 1 skip is the separately
@@ -1087,9 +1116,10 @@ onto `f2142c81` and its `create_all`-style DB gained
 
 | Area | Status |
 |---|---|
-| Advanced Analytics Group A | Source-level acceptance closed at `175094f`; time-dependent behaviour **re-verified under viewer zones** — local-day bucketing covered by the new focused tests at `f2142c81` |
+| Advanced Analytics Group A | Source-level acceptance closed at `175094f`; time-dependent behaviour re-verified under viewer zones — local-day bucketing covered at `f2142c81`, re-verified at `3b0d6e6e` |
 | Advanced Analytics Group B | Implemented; source-level evidence at `c955c79` + zone-aware re-verification at `f2142c81` — **acceptance review still pending; does not close any gate below** |
-| Per-user time zones | Implemented; source-level evidence above at `f2142c81`, cell change re-verified at `3b0d6e6e` — **acceptance review pending; packaged rows defined in `packaged-acceptance.md` §5b, execution outstanding** |
+| Per-user time zones | Implemented; source-tested — full-suite batch green-modulo-blocker at `753c0c0b`; cell + type-ahead verified; Windows + packaged pending — packaged rows defined in `packaged-acceptance.md` §5b |
+| `usertz` fallback hardening | Tested at source level (`test_missing_database_falls_back_with_diagnostic`, `test_display_survives_missing_zone_db`); **verify on an installed package** (§5b row) |
 | Backup and Restore | Implemented; timezone field covered at `f2142c81`. Windows/package gates outstanding. Settings-only scope |
 | Windows W1–W16 | Real-host acceptance outstanding; W16 (zone selection/display/local-day filter/CSV + packaged `zoneinfo` load of Europe/Budapest + Asia/Kolkata) added to the kit — pending real-host execution |
 | Clean packaged candidate + final matrix | Outstanding — now includes §5b zone-database rows (Win + Linux installer checks, missing-db degradation) |
