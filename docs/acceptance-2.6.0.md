@@ -920,8 +920,19 @@ features. The **899/1/1 batch stays attributed to `f2142c81`**;
 the 188-passed affected batch and 38 focused tests are `3b0d6e6e`
 evidence and are not carried to `22fbe7c4`/`753c0c0b` — see the
 suite-accounting table for the next batch revision.
-Source-run `:39998` currently serves `753c0c0b` — still not
-packaged-candidate evidence.
+Revision closeout: **`753c0c0b`** is the application candidate —
+browser type-ahead verification + the completed full-suite batch;
+**`f4629343`** is the reported remote head (its ledger/doc change
+kept separate — no code). **`:39998` is a source-run deployment
+at `753c0c0b`, not packaged evidence.**
+
+Recorded limitations (kept visible; no further selector/a11y work
+in this closeout): the native `<select>` provides city-prefix
+type-ahead, **not** arbitrary substring search; option-label UTC
+offsets are *current* offsets, not fixed year-round values; focus
+returns to the document top after Save; the invisible keyboard-
+focus indicator on the hidden toggle checkbox is an explicitly
+**deferred accessibility defect**, not an accessibility pass.
 
 ### What was delivered
 
@@ -1118,7 +1129,7 @@ onto `f2142c81` and its `create_all`-style DB gained
 |---|---|
 | Advanced Analytics Group A | Source-level acceptance closed at `175094f`; time-dependent behaviour re-verified under viewer zones — local-day bucketing covered at `f2142c81`, re-verified at `3b0d6e6e` |
 | Advanced Analytics Group B | Implemented; source-level evidence at `c955c79` + zone-aware re-verification at `f2142c81` — **acceptance review still pending; does not close any gate below** |
-| Per-user time zones | Implemented; source-tested — full-suite batch green-modulo-blocker at `753c0c0b`; cell + type-ahead verified; Windows + packaged pending — packaged rows defined in `packaged-acceptance.md` §5b |
+| Per-user time zones | Implemented — **completed full-suite batch with the known external issuer-key failure; source-level time-zone verification complete** (907 / 1 / 1 at `753c0c0b`, uncombined; the missing issuer key stays an environment-blocked test failure, not a pass). Windows + packaged pending — packaged rows defined in `packaged-acceptance.md` §5b |
 | `usertz` fallback hardening | Tested at source level (`test_missing_database_falls_back_with_diagnostic`, `test_display_survives_missing_zone_db`); **verify on an installed package** (§5b row) |
 | Backup and Restore | Implemented; timezone field covered at `f2142c81`. Windows/package gates outstanding. Settings-only scope |
 | Windows W1–W16 | Real-host acceptance outstanding; W16 (zone selection/display/local-day filter/CSV + packaged `zoneinfo` load of Europe/Budapest + Asia/Kolkata) added to the kit — pending real-host execution |
