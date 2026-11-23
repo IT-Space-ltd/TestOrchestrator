@@ -81,10 +81,6 @@ def failure_breakdown(rows) -> str:
     return _fig(tr, {"xaxis": {"title": "Occurrences"}})
 
 
-def palette(key):
-    return _PALETTE.get(key, _PALETTE["unknown"])
-
-
 # ---------------------------------------------------------------------
 # Advanced analytics builders (docs/analytics-counting.md).
 # Outcome categories reuse _PALETTE; magnitude heatmaps use a sequential
