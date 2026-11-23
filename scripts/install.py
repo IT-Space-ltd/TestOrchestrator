@@ -281,6 +281,12 @@ def main() -> None:
                 cwd=payload, env=env)
             print("[install] database migrated to head")
 
+        # The staged units run as User=<service-user>: the account must
+        # exist (a fresh host fails 217/USER otherwise) and must own the
+        # writable data tree — ReadWritePaths grants capability, not
+        # ownership of a root-created directory.
+        _ensure_service_user(args.service_user, data, args.dry_run)
+
         # Enable + start when authorized; --no-service-start or non-root
         # leaves units staged under config for manual activation.
         enable_services(args, config)
@@ -387,6 +393,33 @@ def _enabled_units(args) -> tuple:
 def _systemctl(*argv, check=True):
     return subprocess.run(["systemctl", *argv], check=check,
                           stdout=subprocess.DEVNULL)
+
+
+def _ensure_service_user(user: str, data: Path, dry_run: bool) -> None:
+    """The staged units run as ``User=<service-user>``; a fresh host has
+    no such account, so ``systemctl --now`` fails 217/USER — and even an
+    existing account cannot write a root-created data dir
+    (ReadWritePaths grants capability, not ownership). Create a system
+    account + matching group and chown the writable tree when root;
+    otherwise warn so manually-activated units can't fail silently."""
+    if user in ("", "root"):
+        return
+    import pwd
+    try:
+        pwd.getpwnam(user)
+    except KeyError:
+        if dry_run or os.geteuid() != 0 or not shutil.which("useradd"):
+            print(f"[install] NOTE — service user {user!r} does not "
+                  "exist; create it before the units can start")
+            return
+        subprocess.check_call(
+            ["useradd", "--system", "--user-group", "--no-create-home",
+             "--home-dir", str(data), "--shell", "/usr/sbin/nologin",
+             user])
+        print(f"[install] created service user {user}")
+    if dry_run or os.geteuid() != 0:
+        return
+    subprocess.check_call(["chown", "-R", f"{user}:{user}", str(data)])
 
 
 def enable_services(args, config: Path) -> bool:
