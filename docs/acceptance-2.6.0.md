@@ -1552,3 +1552,22 @@ unknown — cycle used a fresh backup instead; format identical.
 (`tests/test_project_access.py` 17 tests) covered by the packaged
 912-run; interactive two-project live verification pending the
 final candidate.
+
+### Post-tray head — fresh verification cycle (5611dc8a…37b10cf2)
+
+- Full suite at `37b10cf2`: **932 passed / 1 failed / 1 skipped**
+  (932 = 911 + 1 API-403 + 20 tray tests). Sole failure =
+  `test_production_key_auto_loaded` — external issuer-key blocker,
+  not a pass. Kept separate from the 911 and 912 runs.
+- Rebuilt internal-test candidate at `37b10cf2`:
+  tarball 201,047,132 B sha256
+  `917e35eee15c34bc63e30b40430181d15f922df27b9a87ac82579e754e2fca22`;
+  `.run` 201,049,136 B sha256
+  `62f7531233e7af5b3822f2ff6bfd85b2755c4ac6f34881358e501c3e2d1d6ff4`.
+  Supersedes `ab07227a…1ba` (stale for final claims).
+- Scans re-run at `37b10cf2`: Vulture — 0 non-ORM findings (128
+  residual = documented dynamic ORM-column reads; 4 framework
+  callbacks added to whitelist, now 62 entries); Bandit — 104
+  (same triage: B202 FP, 2×B601 pattern-flagged with `shlex.quote`
+  verified); pip-audit — 3 residuals (2× Buildbot 2009 FPs +
+  PYSEC-2026-2858 accepted-risk); jscpd — 11 clones / 1.02% tokens.
