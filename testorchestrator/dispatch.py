@@ -993,7 +993,7 @@ def _active_procs_subquery(runner: Runner, exclude_id):
             .scalar_subquery())
 
 
-def _runner_cap(runner: Runner) -> int:def _runner_cap(runner: Runner) -> int:
+def _runner_cap(runner: Runner) -> int:
     return capacity_limit(runner)
 
 
