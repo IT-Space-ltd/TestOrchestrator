@@ -113,3 +113,10 @@ def test_status_text_and_unknown_is_red():
         assert want_text in text
         img = tray._dot_icon(_BASE, tray._STATE["current"] == "running")
         assert img.getpixel(_dot_center(64))[:3] == want_dot[:3]
+
+
+def test_tooltip_text_per_state():
+    assert "Running" in tray._title_for("running")
+    assert "Not running" in tray._title_for("stopped")
+    assert "status check failed" in tray._title_for("unknown")
+    assert "connected" not in tray._title_for("running").lower()

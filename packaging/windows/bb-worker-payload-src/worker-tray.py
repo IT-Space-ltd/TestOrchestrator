@@ -118,16 +118,20 @@ def _refresh_loop(icon, base: Image.Image) -> None:
         if st != _STATE["current"]:
             _STATE["current"] = st
             icon.icon = _dot_icon(base, st == "running")
-            icon.title = (TITLE if st == "running"
-                          else (f"{TITLE} — Not running"
-                                if st == "stopped"
-                                else f"{TITLE} — Not running "
-                                     "(status check failed)"))
+            icon.title = _title_for(st)
             try:
                 icon.update_menu()
             except Exception:
                 pass
         time.sleep(POLL_SECONDS)
+
+
+def _title_for(state: str) -> str:
+    if state == "running":
+        return f"{TITLE} — Running"
+    if state == "stopped":
+        return f"{TITLE} — Not running"
+    return f"{TITLE} — Not running (status check failed)"
 
 
 def _start_watcher(icon, base: Image.Image) -> None:
@@ -153,7 +157,7 @@ def main() -> None:
     _STATE["current"] = _state()
     image = _dot_icon(image, _STATE["current"] == "running")
     icon = pystray.Icon("to-bb-worker", image, TITLE, menu)
-    icon.title = TITLE
+    icon.title = _title_for(_STATE["current"])
     _start_watcher(icon, image)
     icon.run()
 
