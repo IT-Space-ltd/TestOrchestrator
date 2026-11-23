@@ -837,17 +837,14 @@ def user_access(user_id):
     'all projects through role' — no ineffective deny controls."""
     from ..models import User
     from ..execution import Project
-    from ..usertz import tz_choice_groups
     user = db.session.get(User, user_id)
     if user is None:
         abort(404)
     projects = Project.query.order_by(Project.name).all()
-    tz_form = UserTimezoneForm(timezone=user.timezone)
     return render_template(
         "system/user_access.html", u=user, projects=projects,
         assigned=set(user.assigned_project_ids()),
-        apply_form=ApplyForm(), tz_form=tz_form,
-        tz_groups=tz_choice_groups())
+        apply_form=ApplyForm())
 
 
 @system_bp.route("/users/<int:user_id>/access", methods=["POST"])

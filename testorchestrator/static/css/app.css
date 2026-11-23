@@ -1120,8 +1120,8 @@ tr:has(.reset-toggle:checked) label.button.secondary.sm { outline: 2px solid var
 .reset-panel label.button { cursor: pointer; }
 /* users table: click-to-edit time zone (checkbox + label, no JS) */
 .tz-toggle { position: absolute; opacity: 0; width: 0; height: 0; }
-.tz-view { display: flex; align-items: center; gap: .4rem;
-  min-width: 9rem; }
+.tz-view { display: flex; align-items: center; gap: .6rem;
+  min-width: 11rem; }
 .tz-edit { display: none; }
 .tz-toggle:checked ~ .tz-view { display: none; }
 .tz-toggle:checked ~ .tz-edit { display: flex; align-items: center;

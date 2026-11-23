@@ -60,24 +60,4 @@
   {% endif %}
 </section>
 {% endif %}
-<section class="card">
-  <h2>Display time zone</h2>
-  <form method="post" action="{{ url_for('system.save_user_timezone', user_id=u.id) }}">
-    {{ tz_form.csrf_token }}
-    <div class="field">
-      {{ tz_form.timezone.label }}
-      {% set current = tz_form.timezone.data or "UTC" %}
-      {% include "_tz_select.html" %}
-      <p class="muted">Major-city IANA zones grouped by region, like OS
-         pickers — the shown offset is current and varies by date. The
-         user's display zone; stored instants stay UTC. Changing this
-         only affects how times are shown to them, not schedules or
-         memberships.</p>
-      {% for e in tz_form.timezone.errors %}
-      <p class="flash flash-error">{{ e }}</p>
-      {% endfor %}
-    </div>
-    <button type="submit" class="button">Save time zone</button>
-  </form>
-</section>
 {% endblock %}
