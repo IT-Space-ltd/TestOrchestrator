@@ -163,12 +163,18 @@ default `UTC` — existing users keep identical display).
   `/projects/<id>/dashboard` URL still works and now uses the
   wide layout).
 - **Per-user display time zones** — each user picks an IANA time
-  zone (e.g. `Europe/Budapest`) via a searchable dropdown on
-  Create User, the admin user edit page and the new
-  **My Account** self-service page; the label shows the current
-  UTC offset and notes it varies with the date. Existing users
-  migrate to UTC unchanged; a browser-detected zone is only a
-  suggestion, never an override. Stored instants stay UTC —
+  zone (e.g. `Europe/Budapest`) via a grouped `<select>` of ~140
+  curated major-city zones organized by region (UTC / Europe /
+  Africa / Americas / Asia / Atlantic / Oceania & Pacific, with a
+  current-offset label that notes it varies with the date) — the
+  same style as OS pickers — on Create User, inline on the Users
+  list (click Edit on a row's zone to swap text for the dropdown +
+  Save), and the **My Account** self-service page; any valid IANA
+  identifier beyond the curated list is still accepted
+  server-side, and a saved off-list zone is kept selectable under
+  a "Saved" group. Existing users migrate to UTC unchanged; a
+  browser-detected zone is only a suggestion, never an override.
+  Stored instants stay UTC —
   dashboards, execution lists/details, attempt history, audit
   trail, operational logs, schedule/upcoming displays, releases,
   admin pages, log-export jobs and app-generated report summaries
