@@ -50,6 +50,7 @@ index lists each frame's provenance.
   - [6.6 Dispatch a controlled demonstration job **[verified]**](#66-dispatch-a-controlled-demonstration-job-verified)
   - [6.7 Logs, stop, restart, removal](#67-logs-stop-restart-removal)
   - [6.8 Windows worker **[code/CI]**](#68-windows-worker-codeci)
+  - [6.9 KRE licensing](#69-kre-licensing)
 - [7. Security and administration](#7-security-and-administration)
   - [7.1 Users and roles **[verified]**](#71-users-and-roles-verified)
   - [7.2 Secrets **[verified]**](#72-secrets-verified)
@@ -930,6 +931,86 @@ verified leaving only leftover files, no active process). Plan long
 browser runs accordingly and keep the master reachable during
 executions.
 
+### 6.9 KRE licensing
+
+**Who does what.** TestOrchestrator does not license, activate or
+validate KRE. Katalon does that, and the licence belongs to your
+Katalon organization account. The adapter is *connect-only*: it
+registers an existing KRE installation and invokes it — it never
+installs, downloads, upgrades or licenses KRE
+(`testorchestrator/adapters/kre.py`).
+
+**KRE's side** (per Katalon's documentation — see links): with
+online activation, KRE authenticates with a Katalon API key and
+checks the licence each time it starts; a licence allows one
+active session at a time, so the KRE machine needs outbound HTTPS
+on port 443 to Katalon.
+[Activate Licenses — Katalon Docs](https://docs.katalon.com/katalon-studio/get-started/activate-licenses) ·
+[Katalon Runtime Engine](https://katalon.com/katalon-runtime-engine) ·
+[KRE won't activate with my API key (forum)](https://forum.katalon.com/t/katalon-runtime-engine-kre-wont-activate-with-my-api-key/195385)
+
+**TestOrchestrator's side.**
+
+- **Where the key is stored:** the Katalon API key is saved as a
+  runtime *credential reference* on the execution target —
+  `runtime_connections.credential_ref` names an entry in the
+  encrypted secret store (`secrets_store`). The store is a file
+  keyed by `<instance>/secret.key` (mode `0600`); the runner row
+  carries only the reference name, never the value.
+- **How it is passed:** at dispatch the value is resolved and
+  handed to KRE as the `-apiKey=<value>` argument (the
+  Katalon-documented flag). The same value is registered as a
+  redaction term — `run_invocation` scrubs it from stdout/stderr
+  captures, logs and artifacts; a `user:pass@` embedded in a remote
+  WebDriver URL is scrubbed the same way.
+- **Concurrency rule:** per execution target,
+  `capacity_limit = min(max_slots, license_slots)` — the declared
+  hardware slots and the **License slots** field set on the runner
+  in Admin → Infrastructure. A floating KRE licence is consumed
+  per concurrent session, so dispatch never exceeds the declared
+  seat count *on that runner*. This is per-runner: there is no
+  cross-machine licence pool and no global seat ledger.
+- **Failure handling:** stdout containing `license` / `licence` /
+  `activation` classifies the run as `error_kind='license'` — the
+  run reports as a normal **failure** with that kind recorded.
+  TestOrchestrator shows it; it does not retry around it and cannot
+  repair the Katalon side.
+
+**Offline licenses.** Katalon also supports an offline licence
+file under the `.katalon/license` folder of the user account that
+runs KRE (see the Katalon activation docs above). TestOrchestrator
+has no code path that installs or manages that file — placing it
+is the operator's job on each execution host, under the account
+the worker runs as. **Offline KRE execution was not tested** in
+this release's evidence set.
+
+**Separate from TestOrchestrator's own licence.** The
+TestOrchestrator licence is an offline Ed25519-signed code checked
+against `release/licence_pubkey.pem` (§12.4) — informational only,
+and unrelated to the Katalon licence.
+
+**Administrator checklist.**
+
+- API key is valid and belongs to the organization that owns the
+  licence (use a placeholder such as `<KATALON-API-KEY>` in
+  runbooks — never a real key).
+- The runner can reach Katalon on outbound 443, including through
+  any configured proxy.
+- **License slots** on each KRE runner does not exceed the
+  licensed concurrent sessions.
+- Treat the key as a secret: keep it out of logs, exports,
+  screenshots and tickets. The dispatch layer redacts it from
+  captured output, but a key pasted into suite scripts or bug
+  reports is outside that protection.
+- Rotate keys when their owner leaves.
+
+**Troubleshooting order** (see also §10): if a run fails at
+activation, check the KRE log, then the key, then the network
+(outbound 443 / proxy), then the organization ID — then whether
+another machine is consuming the same licence's session.
+TestOrchestrator cannot repair a revoked or expired key, a blocked
+network, or a licence in use elsewhere.
+
 
 ## 7. Security and administration
 
@@ -1166,7 +1247,7 @@ diagnostic commands is §21.
 | `cannot resolve '<ref>'` on sync/import | Bad ref/branch on the binding, or a shallow worktree missing the object — re-sync. |
 | Coordinator `/api/v1/workers` → `503` | Coordinator's `--coordinator.advertise` address isn't bound/reachable — advertise an interface address, not a hostname that resolves elsewhere. |
 | Remote run fails staging the workdir | Verify the target's configured workspace root exists and is writable for the worker account — `Test SSH Connection`/`Test runner` reports the failing stage. |
-| Execution `failed` with `Activation failed` in the run log | KRE licence/API key missing on the worker — environment problem, fix on the worker. |
+| Execution `failed` with `Activation failed` in the run log | KRE licence/API key missing on the worker — environment problem, fix on the worker. Full licensing checklist + diagnosis order: §6.9. |
 | `rl_status=failed`, log shows `No module named 'reporting_labs'` | The vendored package is missing from the installed payload — reinstall the package (the installer copies `3rdparty/reporting_labs` and aborts loudly if any required payload file is absent), then **Regenerate**; original artifacts are untouched. |
 | Import says `staging checkout expired` | Staging was cleaned — rerun the preview; pending candidates were not committed. |
 
