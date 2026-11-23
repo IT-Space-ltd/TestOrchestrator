@@ -24,7 +24,13 @@
           {% if u.must_change_password %}<span class="badge warn">must change</span>{% endif %}
         </td>
         <td>
-          <form method="post" class="inline"
+          <input type="checkbox" class="tz-toggle" id="tzt-{{ u.id }}"
+                 aria-label="Edit time zone for {{ u.username }}">
+          <div class="tz-view">
+            <code>{{ u.timezone or "UTC" }}</code>
+            <label for="tzt-{{ u.id }}" class="button ghost sm">Edit</label>
+          </div>
+          <form method="post" class="tz-edit"
                 action="{{ url_for('system.save_user_timezone', user_id=u.id) }}">
             {{ tz_row_form.csrf_token }}
             <input type="hidden" name="next" value="users">
@@ -33,6 +39,7 @@
             {% set compact = true %}
             {% include "_tz_select.html" %}
             <button type="submit" class="button secondary sm">Save</button>
+            <label for="tzt-{{ u.id }}" class="button ghost sm">Cancel</label>
           </form>
         </td>
         <td>
