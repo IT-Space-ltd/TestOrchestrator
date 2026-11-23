@@ -330,7 +330,13 @@ untouched, same reruns-are-safe contract).
   Start Menu shortcut + `start-tray.cmd` relaunch the icon after
   Quit. Uninstall kills only
   the tray process (targeted `stop-tray.cmd` — never a blanket
-  `taskkill` on `pythonw.exe`).
+  `taskkill` on `pythonw.exe`). The icon now shows a small status
+  dot at the bottom-right corner — green when the worker's
+  Scheduled Task is running (process alive), red when it is not,
+  and red with a "status check failed" note when the status query
+  itself fails. Tooltip and the top menu line state "Running" /
+  "Not running" as text (colour is never the only cue); the
+  indicator refreshes every two seconds while the tray is open.
 - **Windows controller firewall**: SYSTEM Scheduled Tasks never
   trigger the interactive "allow access" prompt, so inbound
   connections were silently dropped — remote workers could never

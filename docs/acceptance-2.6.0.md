@@ -1450,3 +1450,89 @@ rows; proposal recorded in `packaged-acceptance.md`); Linux-only
 matrix rows + §5 packaged sweep (need the installed running stack —
 same `.run`/service boundary); Windows W1–W16; issuer key; Group B
 review.
+
+## 2026-xx follow-up: corrections, tray indicator, remaining boundaries
+
+### Installer-mode reconciliation (was: ".run blocked")
+
+`install.py` accepts `--payload` (default `/opt/testorchestrator`),
+`--data`, `--config`, `--https-port`, `--http-port`,
+`--no-service-start`. Two real modes:
+
+| Mode | Requirement | Rows |
+|---|---|---|
+| Non-root scratch prefix (`--payload /tmp/… --no-service-start`) | none — verified: `.run` installed to `/tmp/to26-final-inst` non-root, provisioned Buildbot, generated `web.env`, migrated DB | clean-install→restore→login (app-level rows runnable non-root) |
+| `/opt` + systemd units | root + a service manager | `/opt` install, unit lifecycle, journal, service-user file modes — **blocked on systemd-capable environment** |
+
+"Blocked" now only marks the root/service-manager/Windows-host
+boundary. The earlier claim that the whole `.run` path was blocked
+was too broad — corrected.
+
+### Run labeling
+
+- **911 / 1 / 1** — source-tree suite at `22fee4c5`.
+- **912 / 1 / 1** — extracted-package `PYTHONPATH` run at
+  `22fee4c5` application code (NOT an installed-app run). The +1 is
+  `test_api_403_stays_json_envelope` — test code, no application-
+  code gap. The 1 failure in both runs is the blocked
+  production-issuer-key test — not a pass. Tallies kept separate.
+
+### PYSEC-2026-2858 triage
+
+Package `paramiko==3.5.1` (vendored wheel). Advisory: SHA-1
+`ssh-rsa` signature support remains reachable (upstream has no
+fixed release as of this record). Classification: **accepted
+risk**, bounded by: (a) agentless SSH authenticates with pinned
+host keys and publickey-only auth — no `ssh-rsa` user-key path is
+exercised by `to_ssh_exec.py`; (b) exposure requires a target
+that insists on `ssh-rsa` host signatures, which `ssh_check.py`
+does not prefer. Re-check on next paramiko release. NOT a clean
+dependency-scan result.
+
+### License test-keypair finding — trust route absent
+
+`licensing.py` trusts keys only via `_load_production_key()`
+(reads `release/licence_pubkey.pem` beside the package) and
+`register_key(key_id, pem)` — an **in-process** test hook used by
+`tests/test_licence_enforcement.py`. No configuration or
+environment route exists to make a *running packaged install*
+trust a test issuer key without editing the shipped key file.
+
+Per the instruction ("do not add a bypass; ask first"), the
+packaged-install license cases are **blocked on a decision**:
+either a documented test-only trust route is approved and added,
+or the packaged rows stay blocked and only in-process coverage
+(the existing 40+ license tests) stands. In-process cases already
+covered by the suite: valid/expired/not-yet-valid, tampered char /
+payload / signature, wrong `key_id`, malformed, missing fields —
+all with `key_id="test"`.
+
+Production-issuer test stays blocked on the legitimate external
+key; OrchGenerator (external) not invoked.
+
+### Disposable systemd environment — blocked on tooling
+
+Approved environment cannot be created on this host: **no
+systemd-capable runtime exists** — `systemd-nspawn`, `debootstrap`,
+`qemu-system`, `lxc`, `podman`, `docker`, `machinectl` all absent.
+Installing any of them is itself a host-level change outside the
+approved scope. The plan is written in
+`docs/packaged-acceptance.md` and ready to execute the moment a
+VM/container tool is provided (or an external disposable host).
+
+### Worker tray status indicator — implemented
+
+`5611dc8a`: `packaging/windows/bb-worker-payload-src/worker-tray.py`
+(pystray + PIL, Windows-only — no Linux tray exists). Design note:
+"running" = the `TestOrchestratorBuildbotWorker` scheduled task
+reports Running (process alive; explicitly not master-connectivity).
+Unknown/error → red + "status check failed" tooltip, never green,
+never crashes. Daemon thread polls `schtasks` every 2 s, updates
+icon/title/menu only on change. Dot ≈¼ icon width, bottom-right,
+thin white outline; base artwork untouched; no new dependencies.
+
+Tests: `tests/test_worker_tray.py` — 20 display-free cases,
+16/20/24/32/48 px, both states, transitions, unknown/error, dot
+bounds + outline + untouched corners — all pass. Real-host rows
+added: **W17** (tray states/themes/DPI + screenshots), **W18**
+(licensing on Windows). Docs: Admin-Manual §6.1 + CHANGELOG.

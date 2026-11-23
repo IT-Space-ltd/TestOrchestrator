@@ -741,7 +741,14 @@ running work to another target — pinned runs fail visibly.
    adds a Startup-folder shortcut that shows a notification-area
    (tray) icon at user logon — right-click offers **Start** /
    **Stop** / **Quit** (Quit only closes the icon; the worker keeps
-   running under its Scheduled Task).
+   running under its Scheduled Task). The icon carries a small
+   status dot at its bottom-right corner: **green** when the
+   worker's Scheduled Task is running (the process is alive — this
+   says nothing about master connectivity), **red** when it is not,
+   and red with a "status check failed" note when the status query
+   itself fails. The tooltip and the first menu line spell out
+   "Running" / "Not running", so colour is never the only cue. The
+   indicator refreshes every two seconds while the tray is open.
 4. The target shows `Awaiting registration` until the worker connects
    over PB :9989, then lists discovered runners/runtimes. Install
    output is logged to
