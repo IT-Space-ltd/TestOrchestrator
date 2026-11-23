@@ -2697,7 +2697,6 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                                 b"***REDACTED***")
         return data
 
-    import shutil as _sh
     # Attempt-stamped uploads: a buildrequest retried after worker
     # loss uploads per-build — the newest attempt dir is the terminal
     # one; earlier attempts stay preserved beside it.
