@@ -45,12 +45,6 @@ class SuiteForm(FlaskForm):
     case_refs = SelectMultipleField("Test cases", validators=[Optional()])
 
 
-class PlanForm(FlaskForm):
-    name = StringField("Plan name", validators=[DataRequired(), Length(max=128)])
-    description = TextAreaField("Description", validators=[Optional()])
-    parallelism = IntegerField("Max parallel executions", default=1)
-
-
 class ScheduleForm(FlaskForm):
     name = StringField("Schedule name",
                        validators=[DataRequired(), Length(max=128)])

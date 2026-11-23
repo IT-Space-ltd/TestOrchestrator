@@ -250,11 +250,6 @@ def ready() -> bool:
                for c in components() if c["key"] != "security")
 
 
-def blockers() -> list:
-    return [c for c in components()
-            if c["key"] != "security" and c["status"] != "verified"]
-
-
 def operational_check() -> "str | None":
     """Submission revalidation — names the first missing blocking
     component, or None. Uses CURRENT evidence only."""
