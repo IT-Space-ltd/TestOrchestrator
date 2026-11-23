@@ -284,7 +284,6 @@ def purge_expired() -> None:
     ``.part`` fragment from a crashed writer, or a file whose job row
     vanished — so restart alone is enough to reclaim the directory."""
     now = _now()
-    live_names = set()
     stale = LogExportJob.query.filter(
         LogExportJob.expires_at < now,
         LogExportJob.status.in_(("queued", "running", "done"))).all()
