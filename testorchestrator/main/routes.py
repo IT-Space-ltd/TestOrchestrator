@@ -429,6 +429,7 @@ def audit_export():
                     mimetype="text/csv; charset=utf-8",
                     headers={"Content-Disposition":
                              f"attachment; filename={fname}"})
+@main_bp.app_errorhandler(403)
 def forbidden(_error):
     return render_template("error.html", code=403,
                            message="You do not have access to this page."), 403

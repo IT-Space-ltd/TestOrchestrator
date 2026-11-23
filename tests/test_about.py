@@ -130,6 +130,15 @@ def test_ab05_no_admin_data_for_non_admin_roles(client, login_as, role):
     assert client.get("/system/audit").status_code == 403
 
 
+@pytest.mark.parametrize("role", NON_ADMIN_ROLES)
+def test_ab05_403_renders_error_template(client, login_as, role):
+    login_as(role)
+    r = client.get("/system/audit")
+    assert r.status_code == 403
+    body = r.data.decode()
+    assert "You do not have access to this page." in body
+
+
 def test_ab05_admin_sees_changelog_shortcut(client, login_as):
     login_as("admin")
     html = client.get("/about").data.decode()
