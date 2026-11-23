@@ -211,3 +211,39 @@ package SHA-256 and `deployed_rev` like every other acceptance row.
   execution/build ids, deployed_rev.
 - `docs/acceptance-2.6.0.md` updated; PR remains **draft** until
   human sign-off. Passing this procedure does not authorize merge.
+
+## Appendix — proposed environment for the service-level rows
+
+The service-level file-mode and journal rows need real
+`systemd`-installed services. Proposal (needs approval before any
+of it happens):
+
+**Target:** a disposable VM (or a systemd-enabled container such
+as `jrei/systemd-ubuntu`) on this host — never the host itself.
+
+**Install:** the `testorchestrator-…-linux-x86_64.run` installer
+with `--service-user testorchestrator`, which creates:
+`to-web` (Cheroot HTTPS), `to-waitress` (internal WSGI), the
+buildbot master/worker units, plus the instance/data directories
+with installer-set ownership and modes.
+
+**Checks the rows would then run:**
+- unit files exist under `/etc/systemd/system/` with `0644 root:root`,
+  `WantedBy`/`After` ordering correct, `ExecStart` paths exist;
+- data/instance dirs are `0750`/`0700` owned by the service user,
+  `secret.key` `0600`, no world-readable secret-bearing file;
+- `systemctl start` order brings the stack up green; `journalctl -u`
+  shows the expected startup lines and **no secret material** in
+  the journal;
+- `systemctl stop`/`restart` leaves no orphan processes; a
+  reboot-equivalent (`systemd` restart of the container) re-arms
+  services cleanly.
+
+**Cleanup:** the VM/container is destroyed afterward; nothing is
+installed on the host. Verification = `systemctl list-units | grep
+to-` returns empty on the host, and `/opt/testorchestrator`
+does not exist there.
+
+**What this does NOT cover:** the `.run` installer on the real
+host `/opt` path (same reason — needs root) and Windows service
+behavior (W-rows stay blocked on the Windows host).

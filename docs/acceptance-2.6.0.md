@@ -1378,3 +1378,59 @@ now `shlex.quote`'d (B601 pattern still reported, sanitization
 verified manually — Bandit cannot see it); pip-audit — **Terrapin
 cleared by paramiko 3.5.1**; residuals = 2× 2009-Buildbot FPs +
 PYSEC-2026-2858 (no upstream fix, accepted).
+
+### Clarifications on the post-scan candidate
+
+**Revision gap — none.** `22fee4c5..bcd98319` contains zero
+application-code changes (`git diff --name-only`: only
+`paramiko-3.5.1` wheel, `build-scripts/vulture_whitelist.py`,
+`docs/acceptance-2.6.0.md`). The 911/1/1 suite and the tarball
+cover head `bcd98319`'s application code exactly. Scan re-runs
+covered the working tree at that application code.
+
+**Scan re-runs at final head — full set:** Bandit 1.8.3 re-run:
+104 issues, sole High remains B202 tarfile (documented FP —
+`data_filter` delegation verified); the two ssh_check B601 remain
+pattern-reported (Bandit cannot see `shlex.quote` sanitization —
+verified manually). jscpd re-run: app Python unchanged — 11 clones,
+104 lines / 1403 tokens (1.02%). Vulture whitelist =
+`build-scripts/vulture_whitelist.py`, 88 lines / 58 entries, each
+group commented with its consumer; "clean" = every remaining
+finding maps to a whitelist group or a deferred row in the table.
+
+**`shlex.quote` POSIX scope — correct as-is.** The agentless SSH
+code path serves **Linux targets only** (`to_ssh_exec.py` runs a
+POSIX `run.sh`; `ssh_workdir` is `/`-separated; the 8-combination
+matrix has a "Linux SSH target" column and **no Windows-SSH cell** —
+Windows targets are PB workers only, whose `npx.cmd`/`npm.cmd`
+selection lives on the non-SSH `node_exec_spec` path). Quoting
+verified on real `/bin/sh`: 11 hostile workdir strings (spaces,
+`'`, `"`, both-quote mix, `$HOME`, backticks, `$(…)`, `;`, newline,
+`*`, `&`) — every one materialized as the exact literal directory,
+no expansion/splitting.
+
+**403 handler — recorded as a user-visible fix.** Behavior change:
+requests that previously got Flask's default HTML 403 page now get
+`error.html` (same status code). API clients unaffected —
+`api_bp.errorhandler(HTTPException)` takes blueprint precedence and
+returns the JSON error envelope (new test
+`test_api_403_stays_json_envelope` proves status+JSON body+no HTML).
+No route relied on the old default page — `abort(403)` sites only
+assert status codes in existing tests; error.html is a static
+generic template (code + generic message, no internals, no
+Traceback).
+
+**Real SSH transport check (packaged paramiko 3.5.1).** Real TCP
+session: `Transport` → `start_client` → host-key verify against the
+server's pinned key → `auth_publickey` → `exec_command` → SFTP
+write/read — repeated for OpenSSH-format **rsa-2048, ed25519 and
+ecdsa-256** client keys; all pass. Server side is paramiko (test
+fixture) — **an OpenSSH-server interop check needs a real sshd;
+none is installed on this host and no docker daemon exists** —
+recorded as the residual gap. SHA-1 RSA acceptance recorded with
+its exact condition: paramiko 3.5.1 still negotiates `ssh-rsa`
+(SHA-1) signatures; in this codebase exposure is bounded because
+the client only authenticates to hosts whose **pinned** fingerprint
+is pre-verified (`ssh_host_key_fingerprint`) and auth is
+publickey-only — but the SHA-1 capability itself is upstream and
+unfixed (PYSEC-2026-2858, no fix version).
