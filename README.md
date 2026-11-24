@@ -10,6 +10,12 @@ a pure-Python backend with no bundled Node.js.
 
 **Status: 2.6.0 released** ([CHANGELOG](CHANGELOG.md) ·
 [release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.6.0)).
+A **2.7.0 draft** is in progress on PR #5 — repository discovery,
+execution-level runtime readiness, durable artifact stores
+(local/mounted/S3-compatible), and separate artifact/metadata
+retention. See `docs/requirements-ledger-2.7.0.md` for the
+per-requirement implementation/acceptance status — the draft is not
+released and nothing below marked "2.7.0" is final.
 2.6.0 adds **Playwright Test, Cypress, Robot Framework, and pytest**
 as first-class runtime kinds alongside KRE — all on the same
 Buildbot/SSH execution paths, with per-framework readiness probes
@@ -17,6 +23,90 @@ and reporting-labs generated reports. Execution orchestration is
 **Buildbot 4.3.0** — local workers, remote Buildbot workers, and
 agentless SSH targets, all managed from Admin → Execution Targets —
 and the public frontend is the in-process **Cheroot** HTTPS tier.
+
+## Supported runtimes
+
+- **KRE** (Katalon Runtime Engine) — the original workflow:
+  registration, readiness, invocation, credentials, and lifecycle
+  are **unchanged** and do not migrate into the runtime-profile flow.
+- **pytest / Robot Framework** — explicit interpreter per runtime
+  (`executable_path` = the target's `bin/python`); runs via
+  `python -m pytest` / `python -m robot` with JUnit + native report
+  output collected as evidence.
+- **Playwright Test / Cypress** — Node toolchains on the target
+  (`npx`); JUnit reports into `Reports/`; browser selection is a
+  validated allowlist, never free text.
+- **jest / gtest / behave / pytest-bdd / postman (Newman and
+  Postman CLI) / bruno** — adapter-supported with per-framework
+  contracts in `docs/integration-contracts.md` and
+  `docs/requirements-ledger-2.7.0.md`. Not every protocol, plugin,
+  browser, or execution mode is supported — unsupported
+  combinations are refused server-side with an explanation.
+
+## Runtime profiles and readiness (2.7.0 draft)
+
+Execution **targets** (where jobs run: local worker, remote
+Buildbot worker over PB, or agentless SSH) are separate from
+**runtime profiles** (which toolchain + configuration to use).
+Register a runtime under Admin → Infrastructure with a kind,
+executable path, workspace root, and optional project association;
+the contextual fields and examples adapt to the kind.
+
+Readiness is staged and honest:
+
+- `ready-discovery` — the toolchain answered a probe on the target
+  (interpreter/CLI resolvable, workspace writable, app reachable).
+- `ready-execution` — additionally validated for a specific project:
+  association, framework compatibility, validated discovery,
+  engine, permissions, and a supported result-ingestion path.
+- `project-validation-required`, `missing-dependency`,
+  `unsupported-version`, `target-unavailable`, `stale` — each state
+  explains itself in the UI and offers the matching action
+  (Check runner readiness / Validate for project).
+
+A version probe alone never marks a runtime execution-ready, and
+dispatch never silently substitutes engines, interpreters, or
+targets. Static preview never executes repository code; native
+collection runs only on the approved isolated target; dependencies
+are never installed automatically.
+
+## Durable storage (2.7.0 draft)
+
+Under a project's storage tab, destinations keep result files
+available after workers are removed:
+
+- **Local folder** — a path inside the administrator-approved roots.
+- **Mounted network folder** — an existing mount on the storage
+  host (the app never mounts shares itself; a missing mount fails
+  cleanly and share I/O is bounded so an outage cannot park request
+  handling).
+- **S3-compatible** — endpoint + bucket + credential reference from
+  the secrets store (never inline credentials), optional custom CA
+  bundle within approved roots. Verified against SeaweedFS 4.55;
+  not universal-provider proof.
+
+**Capture policies** control which artifact categories are kept
+(immutable per-execution snapshot), **retention** gives artifact
+files and execution metadata separate keep-for periods — globally
+and per project, with preview + explicit confirmation before any
+destructive cleanup, full audit records, and clear "expired under
+the retention policy" presentation for historical executions.
+**Git publication** is an optional, independent write-back of
+eligible reports — publication outcomes never change execution or
+storage results.
+
+## Troubleshooting pointers
+
+- Runtime stuck at `not-checked`/`stale` → run **Check runner
+  readiness**, then **Validate for project**.
+- `project-validation-required` → the pair failed a check; the
+  flash message names which (association, framework project,
+  discovery validation, engine, permissions, ingestion).
+- Mounted store unreachable → the app's prompt error is expected
+  behavior; restore the mount — nothing was silently written
+  elsewhere.
+- Full readiness/selection/connection/storage guidance: Admin
+  manual and `docs/integration-contracts.md`.
 
 ## Manuals
 

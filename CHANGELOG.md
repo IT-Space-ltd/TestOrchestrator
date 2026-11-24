@@ -1,5 +1,89 @@
 # Changelog
 
+## [Unreleased] — 2.7.0 draft (PR #5)
+
+Work in progress on branch `feature/2.7.0-repository-discovery`.
+Not tagged, not published — this section records what the draft
+delivers so far. Schema changes so far: `projects.retention_json`
+(project-level retention overrides); earlier 2.7.0 migrations add
+`framework_projects`, `discovered_items` framework/selector/
+provenance columns, `artifact_stores`, and discovery fingerprints.
+
+### Added
+
+- **Repository discovery + framework projects.** A Git binding can
+  carry named framework projects (`pytest`, `robot`, `playwright`,
+  `cypress`, `jest`, `gtest`, `behave`, `pytest-bdd`, `postman`,
+  `bruno`, `katalon`). Each project selects its discovery adapter;
+  items carry framework, selector (`node_id`), granularity, and
+  provenance (`static` preview vs `native` worker collection).
+  Candidate items are never executable until validated.
+
+- **Execution-level runtime readiness.** Toolchain probing
+  (ready-discovery) is now distinct from execution readiness
+  (ready-execution): the (runtime, project) pair must validate —
+  association, framework compatibility, validated discovery, engine,
+  workspace permissions, browser/plugin evidence, and a result
+  ingestion path. Dispatch refuses non-KRE runtimes without current
+  per-project evidence; `native_collect` discovery keeps the
+  toolchain-only gate. Invalidation on probe results, runtime edits,
+  and project-association changes. UI explains every state and offers
+  the Validate-for-project action. KRE's existing flow is unchanged.
+
+- **Artifact stores (durable results/artifact storage).** Per-project
+  destinations of kind `local` / `mounted` / `s3` with display name,
+  per-kind config, active/retire lifecycle, and connection testing.
+  S3-compatible stores support endpoint, bucket, prefix, credential
+  reference (secrets store only — never inline), and a custom CA
+  bundle constrained to administrator-approved roots. Historical
+  artifacts keep their original store reference and stay retrievable
+  after destination changes.
+
+- **Separate retention policies.** Artifact files and execution
+  metadata/parsed summaries now have independent retention (global
+  defaults + per-project overrides; operational logs keep their
+  existing separate setting). Preview-affected-records before
+  enabling destructive policy, explicit confirmation for sweeps,
+  audit records on every cleanup. Active executions, in-flight
+  transfers, and unverified staged files are never deleted. Expired
+  artifacts render as `expired` state — never unexplained
+  missing-file errors; the execution summary remains available.
+
+### Fixed
+
+- **S3 artifact retrieval** after staging removal — objects now stream
+  via `open()` to a bounded staging file with sha256 verification and
+  deterministic cleanup (concurrency cap, size ceiling, ENOSPC
+  handling, abandoned-temp sweep on startup).
+- **Mounted-share blocking** — share I/O runs on a bounded executor
+  (2 workers, 20 s cap): an NFS `hard`-mount outage returns a prompt
+  `StoreError` instead of parking request threads; recovery is clean.
+- **Buildbot KRE failure classification** — license/config/
+  infrastructure kinds are now derived from the run log instead of
+  the generic "no result data" verdict.
+- **Offline packaged install** — the vendored wheel set now includes
+  the pinned boto3 dependencies (boto3/botocore/jmespath/
+  python-dateutil/s3transfer) so S3 support resolves without network.
+
+### Dependencies
+
+- Added runtime deps (pinned): `boto3==1.44.10`, `botocore`,
+  `jmespath`, `python-dateutil`, `s3transfer`, `six` — vendored in
+  `3rdparty/python-wheels/` with license texts + notices.
+
+### Known limitations (2.7.0 draft)
+
+- S3 verified against SeaweedFS 4.55 only; not universal-provider
+  evidence. Insecure endpoints are a test-only flag.
+- Playwright/Cypress packaged cells used orchestration-proof fake
+  toolchains; real engine binaries remain product-owner acceptance.
+- Two production-issuer-key tests remain blocked (documented
+  boundary in `docs/licensing.md`).
+- Packaged-acceptance topology collapsed server+worker into one
+  disposable VM — not independent-host partition evidence.
+- jest/gtest/behave/pytest-bdd/postman/bruno adapters have unit
+  coverage but no live packaged acceptance yet.
+
 ## [2.6.0] — 2026-11-24
 
 Feature release — Playwright Test, headless Cypress E2E, Robot
