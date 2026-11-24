@@ -508,6 +508,94 @@ def discover_project(binding, sha: str = "") -> dict:
         return out
 
 
+def sync_framework_project(fp, binding, sha: str = "") -> dict:
+    """Run the framework adapter for one FrameworkProject and
+    persist its inventory atomically. Item rows are keyed on
+    (framework_project_id, kind, path, name, granularity) — unchanged
+    rows KEEP their id so saved selections/references survive a
+    refresh; removed rows are deleted and reported so stale
+    selections can be flagged. A failed run keeps the last good
+    inventory and marks the project 'failed' (stale, not destroyed).
+    Static inspection only — repository code never executes."""
+    from .execution import DiscoveredItem
+    from .discovery import discover, fingerprint
+    out = {"items": 0, "warnings": [], "added": 0, "removed": 0,
+           "kept": 0}
+    sha = sha or binding.last_synced_sha or ""
+    try:
+        res = discover(fp, binding)
+        out["warnings"] = list(res.warnings)
+        fp.discovery_fingerprint = fingerprint(fp)
+        if res.warnings and not res.items:
+            fp.discovery_status = "failed"
+            fp.discovery_error = "; ".join(res.warnings)[:512]
+            fp.discovery_warnings_json = json.dumps(
+                res.warnings)[:4096]
+            db.session.commit()
+            out["error"] = fp.discovery_error
+            return out
+
+        existing = {(_i.kind, _i.path, _i.name,
+                     _i.granularity): _i for _i in
+                    DiscoveredItem.query.filter_by(
+                        framework_project_id=fp.id)}
+        seen = set()
+        rows = []
+        for it in res.items:
+            key = (it.kind, it.path, it.name, it.granularity)
+            seen.add(key)
+            row = existing.get(key)
+            if row is None:
+                row = DiscoveredItem(
+                    binding_id=binding.id, project_id=fp.project_id,
+                    framework_project_id=fp.id, sha=sha,
+                    kind=it.kind)
+                db.session.add(row)
+                out["added"] += 1
+            else:
+                out["kept"] += 1
+            row.path, row.name = it.path, it.name
+            row.parent = it.parent
+            row.node_id = it.node_id
+            row.granularity = it.granularity
+            row.selectable = it.selectable
+            row.dynamic = it.dynamic
+            row.warnings = it.warnings[:512]
+            row.tags = it.tags
+            row.members_json = json.dumps(it.members)
+            row.framework = fp.framework
+            row.fingerprint = fp.discovery_fingerprint
+            row.sha = sha
+            rows.append(row)
+        removed = [r for k, r in existing.items() if k not in seen]
+        for r in removed:
+            db.session.delete(r)
+        out["removed"] = len(removed)
+        if removed:
+            out["warnings"].append(
+                f"{len(removed)} previously discovered item(s) no "
+                "longer exist — saved selections referencing them "
+                "are stale")
+        fp.discovery_status = "ok" if rows else "none"
+        fp.discovery_error = ""
+        fp.discovery_warnings_json = json.dumps(res.warnings)[:4096]
+        fp.discovery_at = utcnow()
+        fp.discovered_sha = sha
+        db.session.commit()
+        out["items"] = len(rows)
+        out["method"] = res.method
+        out["needs_native"] = res.needs_native
+        out["effective"] = res.effective
+        return out
+    except Exception as exc:
+        fp.discovery_status = "failed"
+        fp.discovery_error = str(exc)[:512]
+        fp.discovery_warnings_json = json.dumps([str(exc)])[:4096]
+        db.session.commit()
+        out["error"] = str(exc)[:512]
+        return out
+
+
 # ---------- report publication + synchronized deletion ----------
 
 REPORT_ROOT = "TestOrchestrator/Reports"

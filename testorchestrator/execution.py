@@ -750,6 +750,21 @@ class DiscoveredItem(db.Model):
     dynamic = db.Column(db.Boolean, nullable=False, default=False)
     warnings = db.Column(db.Text, nullable=False, default="")
     members_json = db.Column(db.Text, nullable=False, default="[]")
+    # Framework-aware inventory (2.7.0): which framework project and
+    # adapter produced this item, plus the executable selector when
+    # the adapter supports sub-file granularity.
+    framework_project_id = db.Column(
+        db.String(32), db.ForeignKey("framework_projects.id"),
+        nullable=True)
+    framework = db.Column(db.String(20), nullable=False, default="")
+    node_id = db.Column(db.String(512), nullable=False, default="")
+    granularity = db.Column(db.String(16), nullable=False,
+                            default="file")  # file|test|scenario|case
+    selectable = db.Column(db.Boolean, nullable=False, default=True)
+    tags = db.Column(db.Text, nullable=False, default="")
+    # Config fingerprint at discovery time — staleness is config+
+    # adapter-version aware, not just git-SHA aware.
+    fingerprint = db.Column(db.String(80), nullable=False, default="")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
     def members(self) -> list:
@@ -758,6 +773,93 @@ class DiscoveredItem(db.Model):
             return _j.loads(self.members_json or "[]")
         except Exception:
             return []
+
+
+# Framework kinds a FrameworkProject can declare. The user's explicit
+# choice picks the discovery adapter — detection is only a hint.
+FRAMEWORK_KINDS = ("katalon", "pytest", "pytest-bdd", "behave",
+                   "robot", "cypress", "playwright", "playwright-pytest")
+
+
+class FrameworkProject(db.Model):
+    """A named framework area inside a GitBinding — one binding can
+    carry several independently configured projects (mixed-framework
+    monorepos; intentionally overlapping roots allowed). The chosen
+    `framework` selects the discovery adapter and the interpretation
+    of files — a `.feature` is Behave/pytest-bdd only because the
+    user said so, never by filename inference."""
+    __tablename__ = "framework_projects"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
+                           nullable=False)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    framework = db.Column(db.String(20), nullable=False)
+    # All paths are relative to the binding checkout root; the
+    # effective base is worktree/subdirectory + project_root.
+    project_root = db.Column(db.String(512), nullable=False, default="")
+    workdir = db.Column(db.String(512), nullable=False, default="")
+    config_file = db.Column(db.String(512), nullable=False, default="")
+    test_roots_json = db.Column(db.Text, nullable=False, default="[]")
+    include_json = db.Column(db.Text, nullable=False, default="[]")
+    exclude_json = db.Column(db.Text, nullable=False, default="[]")
+    # BDD layouts may split features from step bindings.
+    feature_roots_json = db.Column(db.Text, nullable=False, default="[]")
+    stepdef_roots_json = db.Column(db.Text, nullable=False,
+                                  default="[]")
+    # Fixtures/resources/support — scanned for context, never
+    # presented as tests.
+    support_roots_json = db.Column(db.Text, nullable=False,
+                                  default="[]")
+    settings_json = db.Column(db.Text, nullable=False, default="{}")
+    adapter_version = db.Column(db.String(16), nullable=False,
+                                default="")
+    # Discovery state — strictly separated from "configuration saved".
+    # draft   = saved, never validated (no worker/sync needed)
+    # pending = sync/discovery requested, not finished
+    # ok      = discovery validated for `discovered_sha`
+    # stale   = config intact but inventory needs refresh
+    # failed  = last discovery attempt errored (see discovery_error)
+    discovered_sha = db.Column(db.String(64), nullable=False,
+                              default="")
+    discovery_status = db.Column(db.String(16), nullable=False,
+                                 default="draft")
+    discovery_error = db.Column(db.String(512), nullable=False,
+                                default="")
+    discovery_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Full warning set (JSON list) + config fingerprint that the
+    # validated inventory was produced under.
+    discovery_warnings_json = db.Column(db.Text, nullable=False,
+                                        default="[]")
+    discovery_fingerprint = db.Column(db.String(80), nullable=False,
+                                      default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    binding = db.relationship(
+        "GitBinding", backref=db.backref("framework_projects",
+                                         cascade="all,delete"))
+
+    def _list(self, col: str) -> list:
+        import json as _j
+        try:
+            return _j.loads(getattr(self, col) or "[]")
+        except Exception:
+            return []
+
+    def test_roots(self) -> list: return self._list("test_roots_json")
+    def include(self) -> list: return self._list("include_json")
+    def exclude(self) -> list: return self._list("exclude_json")
+    def feature_roots(self) -> list: return self._list("feature_roots_json")
+    def stepdef_roots(self) -> list: return self._list("stepdef_roots_json")
+    def support_roots(self) -> list: return self._list("support_roots_json")
+    def discovery_warnings(self) -> list:
+        return self._list("discovery_warnings_json")
+
+    def settings(self) -> dict:
+        try:
+            return json.loads(self.settings_json or "{}")
+        except Exception:
+            return {}
 
 
 class ImportSession(db.Model):
