@@ -524,3 +524,156 @@ def test_backfill_derives_effective_behavior(tmp_path):
             "framework_projects")).one()
         assert fp[0] == ""                    # not 'X'
         assert fp[1] == "X/P.prj"             # informational only
+
+
+# ---------- gtest / jest adapters ----------
+
+GTREE = {
+    "CMakeLists.txt": "project(t)",
+    "tests/math_test.cc": (
+        "#include <gtest/gtest.h>\n"
+        "TEST(MathSuite, Adds) {}\n"
+        "TEST(MathSuite, DISABLED_Skipped) {}\n"
+        "TEST_P(ParamSuite, Cases) {}\n"
+        "INSTANTIATE_TEST_SUITE_P(MyInst, ParamSuite, ::testing::Values(1));\n"),
+}
+
+JTREE = {
+    "package.json": '{"name":"t","jest":{"testMatch":["**/*.test.js"]}}',
+    "src/a.test.js": "test('adds',()=>{}); describe('grp',()=>{"
+                     "it('works',()=>{})});\n",
+    "src/b.test.js": "test('adds',()=>{}); test.todo('later');\n",
+}
+
+
+def test_gtest_static_candidates(tmp_path):
+    """gtest static discovery: executables → file-level selectable;
+    TEST() names → candidates (identity needs --gtest_list_tests)."""
+    wt = _write(tmp_path, GTREE)
+    (wt / "build").mkdir()
+    (wt / "build/tests").write_text("bin")
+    (wt / "build/tests").chmod(0o755)
+    fp = _fp("gtest", test_roots=["tests"])
+    fp.settings_json = json.dumps(
+        {"build_dir": "build", "executables": ["build/tests"]})
+    res = discover(fp, _B(wt))
+    exes = [i for i in res.items if i.tags == "executable"]
+    assert exes and exes[0].selectable
+    tests = {i.name: i for i in res.items if i.kind == "test"}
+    assert tests["MathSuite.Adds"].node_id == "MathSuite.Adds"
+    assert not tests["MathSuite.Adds"].selectable    # candidate
+    assert tests["MathSuite.DISABLED_Skipped"].tags == "disabled"
+    assert tests["ParamSuite.Cases"].tags == "typed/param"
+    assert tests["MyInst/*"].node_id == ""           # instantiation
+    assert res.needs_native
+
+
+def test_jest_file_level_and_candidates(tmp_path):
+    wt = _write(tmp_path, JTREE)
+    fp = _fp("jest", config_file="package.json")
+    res = discover(fp, _B(wt))
+    files = [i for i in res.items if i.granularity == "file"]
+    assert len(files) == 2
+    assert all(i.selectable for i in files)
+    # test names are candidates — duplicate 'adds' across files
+    # proves why file identity is required for selection
+    names = [i.name for i in res.items if i.kind == "test"]
+    assert names.count("adds") == 2
+    assert all(not i.selectable for i in res.items
+               if i.kind == "test")
+    assert res.needs_native
+    assert res.effective["testMatch"]["source"] == "config"
+
+
+def test_gtestfw_driver_script():
+    """POSIX driver: missing binary → exit 4, single-quoted argv,
+    provenance manifest written."""
+    from testorchestrator.adapters import gtestfw
+    s = gtestfw.build_script(
+        [("b/t's", "S.*", "x1")], build="cmake --build b",
+        list_tests=True, timeout_s=60)
+    assert "sh -c 'cmake --build b'" in s
+    assert "'b/t'\\''s'" in s                     # quote escape
+    assert "exit 4" in s and "--gtest_filter=S.*" in s
+    assert "--gtest_list_tests" in s
+    assert "sha256sum" in s
+    kinds = dict((rc, kind) for rc, (kind, _) in
+                 ((0, gtestfw.classify_exit(0)),
+                  (2, gtestfw.classify_exit(2)),
+                  (3, gtestfw.classify_exit(3)),
+                  (4, gtestfw.classify_exit(4))))
+    assert kinds == {0: "ok", 2: "config", 3: "config",
+                     4: "infrastructure"}
+
+
+def test_collectors_cover_native_frameworks():
+    """Every framework with native collection has a staged script;
+    node-kind frameworks get .js (no python on the target)."""
+    from testorchestrator import collectors
+    assert set(collectors.COLLECT_SCRIPTS) >= {
+        "pytest", "pytest-bdd", "playwright-pytest", "robot",
+        "behave", "gtest", "jest", "playwright", "cypress"}
+    for f in collectors.NODE_SCRIPTS:
+        assert "(function" in collectors.COLLECT_SCRIPTS[f] or \
+            "require(" in collectors.COLLECT_SCRIPTS[f]
+
+
+# ---------- native collection reconcile ----------
+
+def _ex_for(fp, b, sha="sha1"):
+    return dispatch.create_execution(
+        "u", binding=b, source_sha=sha,
+        run_config={"native_collect": True, "fp_id": fp.id})
+
+
+def test_apply_native_inventory_reconciles(app, tmp_path):
+    """collect.json upgrades static candidates to validated
+    identities and adds native-only items — static preview rows not
+    seen natively are kept (never destroyed)."""
+    with app.app_context():
+        wt = _write(tmp_path, PYTREE)
+        p, b, fp = _mk(app, wt, test_roots=["tests"])
+        gitsync.sync_framework_project(fp, b)
+        cand = DiscoveredItem.query.filter_by(
+            framework_project_id=fp.id,
+            name="test_param").one()
+        assert not cand.selectable
+        ex = _ex_for(fp, b)
+        cj = tmp_path / "collect.json"
+        cj.write_text(json.dumps({"items": [
+            {"kind": "test", "path": "tests/test_math.py",
+             "name": "test_param", "parent": "",
+             "node_id": "tests/test_math.py::test_param[1]",
+             "granularity": "test", "tags": []},
+            {"kind": "test", "path": "tests/test_math.py",
+             "name": "test_param[2]", "parent": "",
+             "node_id": "tests/test_math.py::test_param[2]",
+             "granularity": "test", "tags": []}]}))
+        out = gitsync.apply_native_inventory(ex, cj)
+        assert not out.get("error")
+        cand = db.session.get(DiscoveredItem, cand.id)
+        assert cand.selectable
+        assert cand.node_id == "tests/test_math.py::test_param[1]"
+        assert cand.item_type == "native"
+        new = DiscoveredItem.query.filter_by(
+            framework_project_id=fp.id,
+            name="test_param[2]").one()
+        assert new.item_type == "native" and new.selectable
+        assert fp.discovery_status == "ok"
+        assert fp.discovered_sha == "sha1"
+
+
+def test_native_collect_runtime_gate(app, tmp_path):
+    """request_native_collection rejects a runtime whose kind can't
+    host the framework's collector (server-side gate)."""
+    with app.app_context():
+        wt = _write(tmp_path, PYTREE)
+        p, b, fp = _mk(app, wt, test_roots=["tests"])
+        rt = _runtime(app, "kre")
+        with pytest.raises(ValueError, match="pytest"):
+            gitsync.request_native_collection(fp, b, rt, "u")
+        rt2 = _runtime(app, "pytest")
+        ex = gitsync.request_native_collection(fp, b, rt2, "u")
+        rc = ex.snapshot()["run_config"]
+        assert rc["native_collect"] and rc["fp_id"] == fp.id
+        assert rc["requested_runtime"] == rt2.id

@@ -299,9 +299,13 @@ def sync() -> dict:
 
 # ---------- staging & specs ----------
 
-def stage_source(ex, source_dir: Path) -> Path:
+def stage_source(ex, source_dir: Path,
+                 scripts: dict = None) -> Path:
     """Tar the resolved source for a buildrequest — FileDownload pushes
-    it to the worker; nothing on the remote needs git."""
+    it to the worker; nothing on the remote needs git. ``scripts``
+    injects extra files (e.g. the native collector) into the tar at
+    src/<name> WITHOUT writing into the live worktree."""
+    import io
     staging_dir().mkdir(parents=True, exist_ok=True)
     dest = staging_dir() / f"{ex.id}.tar"
     tmp = dest.with_suffix(".tar.tmp")
@@ -316,6 +320,12 @@ def stage_source(ex, source_dir: Path) -> Path:
         source_dir = empty / "src"
     with tarfile.open(tmp, "w") as tar:
         tar.add(source_dir, arcname="src")
+        for name, content in (scripts or {}).items():
+            data = content.encode()
+            info = tarfile.TarInfo(name=f"src/{name}")
+            info.size = len(data)
+            info.mode = 0o644
+            tar.addfile(info, io.BytesIO(data))
     tmp.replace(dest)
     return dest
 

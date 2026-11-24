@@ -765,6 +765,10 @@ class DiscoveredItem(db.Model):
     # Config fingerprint at discovery time — staleness is config+
     # adapter-version aware, not just git-SHA aware.
     fingerprint = db.Column(db.String(80), nullable=False, default="")
+    # Provenance: "static" (in-process parse) or "native" (worker
+    # collection — authoritative executable identities).
+    item_type = db.Column(db.String(16), nullable=False,
+                          default="static")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
     def members(self) -> list:
@@ -778,7 +782,8 @@ class DiscoveredItem(db.Model):
 # Framework kinds a FrameworkProject can declare. The user's explicit
 # choice picks the discovery adapter — detection is only a hint.
 FRAMEWORK_KINDS = ("katalon", "pytest", "pytest-bdd", "behave",
-                   "robot", "cypress", "playwright", "playwright-pytest")
+                   "robot", "cypress", "playwright", "playwright-pytest",
+                   "gtest", "jest")
 
 
 class FrameworkProject(db.Model):

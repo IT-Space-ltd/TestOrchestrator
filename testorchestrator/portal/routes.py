@@ -932,6 +932,68 @@ def fp_discover(fp_id):
     return redirect(url_for("portal.fp_detail", fp_id=fp.id))
 
 
+@portal_bp.route("/framework-projects/<fp_id>/collect",
+                 methods=["GET", "POST"])
+@role_required(*EDIT_ROLES)
+def fp_collect(fp_id):
+    """Discover-on-worker: queues a native collection run. GET shows
+    the code-execution notice + compatible target list; POST requires
+    the `ack` checkbox (repository code may execute) and creates an
+    Execution whose collector writes Reports/collect.json — the
+    standard collect pipeline then reconciles validated identities
+    into the inventory. A still-valid inventory (same sha + config
+    fingerprint) needs no new approval — reading it is not a rerun."""
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    runtimes = _native_collect_targets(fp)
+    if request.method == "POST":
+        PlainForm().validate_on_submit()
+        runtime = next(
+            (r for r in runtimes
+             if r.id == (request.form.get("runtime_id") or "")),
+            None)
+        if not request.form.get("ack"):
+            flash("Native collection needs the approval checkbox — "
+                  "repository code may execute on the target.",
+                  "error")
+        elif runtime is None:
+            flash("Select a compatible worker/SSH target.", "error")
+        else:
+            try:
+                from ..gitsync import request_native_collection
+                ex = request_native_collection(
+                    fp, binding, runtime, current_user.username)
+            except Exception as exc:
+                flash(f"Collection queue failed: {exc}", "error")
+            else:
+                record_audit(
+                    current_user.username,
+                    "framework_project.native_collect",
+                    f"{fp.id} on {runtime.name} -> {ex.id}")
+                flash(
+                    f"Native collection queued (execution {ex.id}) — "
+                    "inventory reconciles when collect.json returns.",
+                    "info")
+                return redirect(url_for(
+                    "portal.execution_detail", execution_id=ex.id))
+    return render_template(
+        "portal/fp_collect.html", fp=fp, binding=binding,
+        runtimes=runtimes, plain_form=PlainForm())
+
+
+def _native_collect_targets(fp) -> list:
+    """Enabled runtimes whose kind can host this framework's native
+    collector (server-side gate — the UI list is a convenience)."""
+    from ..dispatch import FRAMEWORK_RUNTIME
+    from ..models import RunnerInstance
+    want = FRAMEWORK_RUNTIME.get(fp.framework, "")
+    return [r for r in RunnerInstance.query.filter_by(
+        enabled=True).order_by(RunnerInstance.name).all()
+        if getattr(r, "runtime_kind", "") == want]
+
+
 @portal_bp.route("/framework-projects/<fp_id>/delete",
                  methods=["POST"])
 @role_required(*EDIT_ROLES)

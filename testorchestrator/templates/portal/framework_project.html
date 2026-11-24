@@ -91,6 +91,9 @@
     {{ plain_form.csrf_token }}
     <button class="button primary">Run discovery (validate)</button>
   </form>
+  <a class="button secondary"
+     href="{{ url_for('portal.fp_collect', fp_id=fp.id) }}">
+    Discover on worker…</a>
   {% if can_edit %}
   <form method="post" class="inline"
         action="{{ url_for('portal.fp_delete', fp_id=fp.id) }}"
@@ -149,20 +152,22 @@
   <h2>Saved inventory ({{ items | length }})</h2>
   <table class="data-table">
     <thead><tr><th>Kind</th><th>Granularity</th><th>Path</th>
-      <th>Name</th><th>Selector</th><th>Selectable</th><th></th></tr></thead>
+      <th>Name</th><th>Selector</th><th>Selectable</th><th>Source</th>
+      <th></th></tr></thead>
     <tbody>
       {% for i in items %}
       <tr><td>{{ i.kind }}</td><td>{{ i.granularity }}</td>
         <td><code>{{ i.path }}</code></td><td>{{ i.name }}</td>
         <td><code>{{ i.node_id or "—" }}</code></td>
         <td>{{ "✓" if i.selectable else "candidate" }}</td>
+        <td><span class="badge">{{ i.item_type or "static" }}</span></td>
         <td>
           {% if i.selectable and fp.discovery_status == "ok" %}
           <a class="button sm"
              href="{{ url_for('portal.discovered_detail', item_id=i.id)
              }}">Run</a>
           {% endif %}</td></tr>
-      {% else %}<tr><td colspan="7" class="muted">No saved inventory —
+      {% else %}<tr><td colspan="8" class="muted">No saved inventory —
         run discovery.</td></tr>{% endfor %}
     </tbody></table>
 </section>

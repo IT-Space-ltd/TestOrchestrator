@@ -17,13 +17,14 @@ this module is what verifies them on the selected target under the
 same account the run will use.
 """
 
-KINDS = ("playwright", "cypress")
+KINDS = ("playwright", "cypress", "jest")
 
 # Browser names each framework's CLI understands. Anything else is
 # rejected before dispatch — never silently substitute (spec §1).
 _BROWSERS = {
     "playwright": ("chromium", "firefox", "webkit", "msedge"),
     "cypress": ("chrome", "chromium", "edge", "electron", "firefox"),
+    "jest": (),
 }
 
 
@@ -43,7 +44,8 @@ def validate_browser(kind: str, browser: str) -> tuple:
 
 def build_args(kind: str, browser: str = "", spec: str = "",
                headed: bool = False, workers: int = 0,
-               shard: str = "") -> list:
+               shard: str = "", projects=(), test_pattern: str = "",
+               list_tests: bool = False) -> list:
     """argv after the npx executable — every output path inside
     Reports/ so collection finds junit + evidence untouched.
 
@@ -86,6 +88,21 @@ def build_args(kind: str, browser: str = "", spec: str = "",
             args += ["--browser", browser]
         if spec:
             args += ["--spec", spec]
+    elif kind == "jest":
+        # --ci: non-interactive, never writes/updates snapshots.
+        # --json outputFile is the structured-results contract.
+        args += ["jest", "--ci",
+                 "--json", "--outputFile=Reports/jest.json"]
+        if list_tests:
+            args += ["--listTests"]
+        for proj in projects:
+            args += ["--selectProjects", proj]
+        if test_pattern:
+            # emitted ONLY for natively validated exact selections —
+            # -t is a regex over the full name path.
+            args += ["-t", test_pattern]
+        if spec:
+            args += ["--runTestsByPath", spec]
     else:
         raise ValueError(f"unknown node runner kind {kind!r}")
     return args
@@ -148,6 +165,14 @@ case "%KIND%" in
       && p "cypress_binary=ok" \\
       || p "cypress_binary=unavailable to this account"
     ;;
+  jest)
+    v=$(npx --no-install jest --version 2>/dev/null | head -1)
+    [ -n "$v" ] && p "jest=$v" \\
+      || p "jest=missing (npx --no-install jest --version failed)"
+    npx --no-install jest --listTests --json 2>/dev/null | head -c1 \\
+      | grep -q '\\[' && p "jest_listtests=ok" \\
+      || p "jest_listtests=unsupported-or-failed"
+    ;;
 esac
 for b in google-chrome chromium chromium-browser microsoft-edge firefox; do
   command -v $b >/dev/null 2>&1 && p "browser_$b=present"
@@ -184,6 +209,9 @@ if "%KIND%"=="playwright" (
 if "%KIND%"=="cypress" (
   npx --no-install cypress version >nul 2>&1 && call :p cypress=installed || call :p cypress=missing
   npx --no-install cypress verify >nul 2>&1 && call :p cypress_binary=ok || call :p cypress_binary=unavailable to this account
+)
+if "%KIND%"=="jest" (
+  npx --no-install jest --version >nul 2>&1 && (for /f "delims=" %%v in ('npx --no-install jest --version 2^>nul') do call :p jest=%%v) || call :p jest=missing
 )
 for %%b in (chrome.exe msedge.exe firefox.exe) do (
   where %%b >nul 2>&1 && call :p browser_%%b=present

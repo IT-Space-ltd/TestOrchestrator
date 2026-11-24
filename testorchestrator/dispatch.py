@@ -23,7 +23,7 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
-from .adapters import behavefw, nodefw, pytestfw, robotfw
+from .adapters import behavefw, gtestfw, nodefw, pytestfw, robotfw
 
 
 def _tag_list(raw) -> list:
@@ -69,6 +69,8 @@ FRAMEWORK_RUNTIME = {
     "robot": "robot",
     "cypress": "cypress",
     "playwright": "playwright",
+    "gtest": "gtest",
+    "jest": "jest",
 }
 
 
@@ -231,12 +233,17 @@ def create_execution(username: str, suite: Suite = None,
     target: a TO suite OR a repository DiscoveredItem — never both,
     never neither. Repo-def runs snapshot their durable identity
     (binding+kind+path+sha) so history survives inventory replacement."""
-    if bool(suite) == bool(source_item):
+    if (run_config or {}).get("native_collect"):
+        pass                    # collection op — no test target
+    elif bool(suite) == bool(source_item):
         raise DispatchError(
             "exactly one execution target required: suite or "
             "source item")
 
-    project_id = (suite.project_id if suite else source_item.project_id)
+    project_id = (binding.project_id
+                  if (run_config or {}).get("native_collect")
+                  else suite.project_id if suite
+                  else source_item.project_id)
     if release_id:
         rel = db.session.get(Release, release_id)
         if rel is None or rel.project_id != project_id:
@@ -281,7 +288,8 @@ def create_execution(username: str, suite: Suite = None,
         } if source_item is not None else None),
         "suite_id": suite.id if suite else "",
         "suite_name": (source_item.name if source_item is not None
-                       else suite.name),
+                       else suite.name if suite is not None
+                       else "native-collection"),
         "suite_version": suite.version if suite else 0,
         "suite_hash": suite.content_hash if suite else "",
         "entries": ([
@@ -333,6 +341,25 @@ def create_execution(username: str, suite: Suite = None,
                                for x in list(rc.get("behave_targets")
                                              or [])[:256]],
             "spec": str(rc.get("spec") or "")[:512],
+            # jest: multi-project selection + natively-validated
+            # -t pattern; gtest: configured build/drive settings.
+            "projects": [str(x)[:64]
+                         for x in list(rc.get("projects") or [])
+                         [:16]],
+            "test_pattern": str(rc.get("test_pattern") or "")[:512],
+            "gtest_filter":
+                str(rc.get("gtest_filter") or "")[:512],
+            "gtest": {str(k)[:32]: v for k, v in
+                      dict(rc.get("gtest") or {}).items()},
+            # Native-collection operation (M6): the worker runs the
+            # framework's own collector and returns structured JSON
+            # instead of executing tests. fp_id ties the result to
+            # the originating framework project.
+            "native_collect": bool(rc.get("native_collect")),
+            "fp_id": str(rc.get("fp_id") or "")[:32],
+            "collect_roots": [str(x)[:256]
+                              for x in list(rc.get("collect_roots")
+                                            or [])[:32]],
             # Running-time limit in seconds (process-launch clock,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
@@ -1519,6 +1546,19 @@ def _fail(ex: Execution, kind: str, text: str) -> None:
     db.session.commit()
 
 
+def _collect_framework(ex: Execution) -> str:
+    """Framework for a native-collect run — from the referenced
+    FrameworkProject, or the source item's framework."""
+    fp_id = (ex.snapshot().get("run_config") or {}).get("fp_id", "")
+    if fp_id:
+        from .execution import FrameworkProject
+        fp = db.session.get(FrameworkProject, fp_id)
+        if fp:
+            return fp.framework
+    st = (ex.snapshot().get("source_target") or {})
+    return st.get("framework", "")
+
+
 def _resolve_source(ex: Execution) -> Path:
     """Source contents for the isolated workspace: the binding's synced
     worktree (recorded SHA), never project code executed at index time."""
@@ -1557,6 +1597,19 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             (logs_in / log_path.name).write_bytes(log_path.read_bytes())
     except OSError:
         pass  # log mirroring is best-effort; producers keep log_dir
+    # Native-collection runs return collect.json instead of junit —
+    # reconcile it into the framework project's inventory.
+    if (ex.snapshot().get("run_config") or {}).get("native_collect"):
+        cj = report_dir / "collect.json"
+        if cj.exists():
+            from .gitsync import apply_native_inventory
+            out = apply_native_inventory(ex, cj)
+            if out.get("error"):
+                ex.error_message = (
+                    "collection ingest failed: " + out["error"])[:512]
+        else:
+            ex.error_message = (
+                "native collection produced no collect.json")[:512]
     junit_files = set(kre_adapter.discover_reports(report_dir))
     manifest = results_mod.build_evidence_manifest(report_dir, junit_files)
     for item in manifest:
@@ -1789,10 +1842,20 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                          f"{ex.id}: brid {ex.dispatch_id}")
             return
     source = _resolve_source(ex)
-    buildbot_cfg.stage_source(ex, source)
     _snap = ex.snapshot()
     rc = _snap.get("run_config") or {}
     _unit = _snap.get("unit") or {}
+    _cfw = _collect_framework(ex) if rc.get("native_collect") \
+        else ""
+    _cscripts = None
+    if _cfw:
+        from . import collectors
+        _script = collectors.COLLECT_SCRIPTS.get(_cfw)
+        if _script:
+            _fn = (".to_collect.js" if _cfw in
+                   collectors.NODE_SCRIPTS else ".to_collect.py")
+            _cscripts = {_fn: _script}
+    buildbot_cfg.stage_source(ex, source, scripts=_cscripts)
     # Slot-builders: a (builder, worker) pair runs one build at a time,
     # so the runner's admitted slots map to distinct builders. Pick a
     # free slot; bb_slot is persisted with the dispatch identity.
@@ -1829,23 +1892,36 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                   or (f"{int(rc['shard_index'])}/{int(rc['shard_total'])}"
                       if rc.get("shard_index") else ""))
         _specs = _unit.get("specs") or []
-        node_args = nodefw.build_args(
-            node_kind, browser_val,
-            spec=(",".join(_specs) if _specs
-                  else str(rc.get("spec") or "")),
-            workers=_pw_workers,
-            shard=_shard)
+        if rc.get("native_collect"):
+            # node collectors are .js scripts — run under `node`,
+            # not npx.
+            node_args = [".to_collect.js"]
+            npx_path = "node"        # collector interpreter
+            npx_forced = True
+        else:
+            node_args = nodefw.build_args(
+                node_kind, browser_val,
+                spec=(",".join(_specs) if _specs
+                      else str(rc.get("spec") or "")),
+                workers=_pw_workers,
+                shard=_shard,
+                projects=rc.get("projects") or (),
+                test_pattern=rc.get("test_pattern") or "")
+            npx_forced = False
         node_env = nodefw.junit_env(node_kind)
         win = (runner.os_arch or "").lower().startswith("win")
         # npm sits next to npx — an explicit executable_path resolves
-        # the sibling, otherwise PATH does.
-        npx_path = runtime.executable_path or (
-            "npx.cmd" if win else "npx")
+        # the sibling, otherwise PATH does. Native collection runs
+        # the .js collector under `node` directly.
+        npx_path = ("node" if rc.get("native_collect")
+                    else runtime.executable_path or (
+                        "npx.cmd" if win else "npx"))
         npm = str(Path(npx_path).with_name("npm.cmd" if win
                                            else "npm")) \
             if Path(npx_path).parent != Path(".") else (
                 "npm.cmd" if win else "npm")
-        deps_argv = [npm, "ci", "--no-audit", "--no-fund"]
+        deps_argv = ([] if rc.get("native_collect")
+                     else [npm, "ci", "--no-audit", "--no-fund"])
         if runner.target_type == "ssh":
             buildbot_cfg.materialize_ssh_key(runner)
             extra = {"exec_subdir": "src", "env": node_env,
@@ -1886,14 +1962,18 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         # python -m robot under the runtime's configured interpreter —
         # no browser concept (browsers belong to the project and its
         # libraries), no deps step (deps live in the configured env).
-        robot_args = robotfw.build_args(
-            suite_path=(rc.get("suite_path") or "").strip(),
-            test=(rc.get("robot_test") or "").strip(),
-            suite=(rc.get("robot_suite") or "").strip(),
-            include=_tag_list(rc.get("robot_include")),
-            exclude=_tag_list(rc.get("robot_exclude")),
-            pabot_processes=(
-                _gated_pabot(runtime, rc)))
+        if rc.get("native_collect"):
+            robot_args = [".to_collect.py"] + list(
+                rc.get("collect_roots") or ["."])
+        else:
+            robot_args = robotfw.build_args(
+                suite_path=(rc.get("suite_path") or "").strip(),
+                test=(rc.get("robot_test") or "").strip(),
+                suite=(rc.get("robot_suite") or "").strip(),
+                include=_tag_list(rc.get("robot_include")),
+                exclude=_tag_list(rc.get("robot_exclude")),
+                pabot_processes=(
+                    _gated_pabot(runtime, rc)))
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")
@@ -1953,12 +2033,16 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             except Exception:
                 _m = {}
             _serial = _m.get("opt_xdist") == "ok"
-        pytest_args = pytestfw.build_args(
-            suite_path=(rc.get("suite_path") or "").strip(),
-            keyword=(rc.get("pytest_keyword") or "").strip(),
-            markers=(rc.get("pytest_markers") or "").strip(),
-            node_ids=rc.get("node_ids") or (),
-            numprocesses=_pprocs, force_serial=_serial)
+        if rc.get("native_collect"):
+            pytest_args = [".to_collect.py"] + list(
+                rc.get("collect_roots") or ["."])
+        else:
+            pytest_args = pytestfw.build_args(
+                suite_path=(rc.get("suite_path") or "").strip(),
+                keyword=(rc.get("pytest_keyword") or "").strip(),
+                markers=(rc.get("pytest_markers") or "").strip(),
+                node_ids=rc.get("node_ids") or (),
+                numprocesses=_pprocs, force_serial=_serial)
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")
@@ -2005,7 +2089,10 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         sp = (rc.get("suite_path") or "").strip()
         if not targets and sp:
             targets = [sp]
-        behave_args = behavefw.build_args(targets=targets)
+        if rc.get("native_collect"):
+            behave_args = [".to_collect.py"] + targets
+        else:
+            behave_args = behavefw.build_args(targets=targets)
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")
@@ -2043,6 +2130,99 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         db.session.commit()
         record_audit("system", "execution.buildbot_dispatched",
                      f"{ex.id}: {builder} (behave) brid {brid}")
+        return
+    if node_kind == "gtest":
+        # Driver script: optional configured prepare/configure/build
+        # + per-binary --gtest_list_tests/--gtest_filter +
+        # --gtest_output=xml:Reports/junit + build-manifest.json
+        # (binary sha256). All under the staged checkout on the
+        # target — never in the server process.
+        g = dict(rc.get("gtest") or {})
+        exe = (rc.get("spec") or "").strip()
+        filt = (rc.get("gtest_filter") or "").strip()
+        sp = (rc.get("suite_path") or "").strip()
+        runs = []
+        if exe:
+            runs.append((exe, filt,
+                         Path(exe).name or "run"))
+        elif sp:
+            runs.append((sp, filt, Path(sp).name or "run"))
+        if not runs and not rc.get("native_collect"):
+            _fail(ex, "config",
+                  "no test executable selected — discovery lists "
+                  "binaries from build_dir + executables patterns")
+            return
+        if win := (runner.os_arch or "").lower().startswith("win"):
+            _fail(ex, "config",
+                  "GoogleTest runs require a POSIX worker in 2.7.0 "
+                  "(Windows gtest workers are a follow-up)")
+            return
+        if rc.get("native_collect"):
+            # The gtest collector lists each configured/discovered
+            # binary via --gtest_list_tests; its interpreter is the
+            # runtime's configured python3.
+            gexes = list(g.get("executables") or [])
+            exe_items = (rc.get("collect_roots") or []) + \
+                [e for e in gexes if e]
+            py = (runtime.executable_path or "").strip() or "python3"
+            spec = buildbot_cfg.node_exec_spec(
+                ex, py, [".to_collect.py"] + exe_items, posix=True)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+            builder = buildbot_cfg.builder_for(runner, slot)
+            brid = adapter.submit(
+                builder, ex.id,
+                {"exec_spec": BuildbotAdapter.encode_props(spec),
+                 "exec_timeout": str(timeout_s)})
+            ex.dispatch_id = "bb:" + str(brid)
+            ex.bb_slot = slot
+            db.session.commit()
+            record_audit("system", "execution.buildbot_dispatched",
+                         f"{ex.id}: {builder} (gtest-collect) "
+                         f"brid {brid}")
+            return
+        script = gtestfw.build_script(
+            runs,
+            prepare=str(g.get("prepare_cmd") or ""),
+            configure=str(g.get("configure_cmd") or ""),
+            build=str(g.get("build_cmd") or ""),
+            extra_args=list(g.get("gtest_args") or []),
+            timeout_s=int(rc.get("timeout_seconds") or 0))
+        # Driver runs inline as `sh -c <script>` — no file staged
+        # into the checkout; the spec argv carries the whole driver.
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, ["-c", script],
+                executable="sh", extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, "sh", ["-c", script], posix=True)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (gtest) brid {brid}")
         return
     flags, dropped = kre_adapter.gated_flags(
         runtime.detected_version, rc.get("kre_options") or {})

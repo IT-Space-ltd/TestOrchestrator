@@ -40,7 +40,9 @@ def submit(runtime, app_url: str = "",
     """Stage + submit the probe. Returns (ok, message)."""
     kind = runtime.runtime_kind or "kre"
     pyfw = kind in (robotfw.KIND, pytestfw.KIND, "behave")
-    kind = kind if pyfw or kind in nodefw.KINDS else "playwright"
+    gtw = kind == "gtest"
+    kind = kind if pyfw or gtw or kind in nodefw.KINDS \
+        else "playwright"
     runner = runtime.runner
     rid = _rid(runtime)
     if kind == pytestfw.KIND:
@@ -48,6 +50,9 @@ def submit(runtime, app_url: str = "",
     elif kind == "behave":
         from .adapters import behavefw
         scripts = behavefw.probe_scripts(app_url.strip())
+    elif gtw:
+        from .adapters import gtestfw
+        scripts = gtestfw.probe_scripts(app_url.strip())
     elif kind == robotfw.KIND:
         scripts = robotfw.probe_scripts(app_url.strip())
     else:
@@ -92,6 +97,7 @@ def submit(runtime, app_url: str = "",
                 spec_file=str(spec_file))
         else:
             argv = (robotfw.probe_argv(runner.os_arch) if pyfw
+                    else gtestfw.probe_argv(runner.os_arch) if gtw
                     else nodefw.probe_argv(runner.os_arch))
             spec = {"executable": argv[0], "args": argv[1:],
                     "exec_workdir": "build/src",
@@ -156,6 +162,18 @@ def _summarize(probe: dict, kind: str) -> str:
             f"{k}={v}" for k, v in probe.items()
             if k in ("python", kind)
             and not v.startswith("missing"))
+    elif kind == "gtest":
+        problems = []
+        if not any(probe.get(f"tool_{t}") == "present"
+                   for t in ("c++", "g++", "clang++")):
+            problems.append("no C++ toolchain on this target "
+                            "(g++/clang++ absent)")
+        if probe.get("workspace_write") not in (None, "ok"):
+            problems.append("workspace not writable for the run "
+                            "account")
+        versions = ", ".join(
+            f"{k[5:]}={v}" for k, v in probe.items()
+            if k.startswith("tool_") and v == "present")
     else:
         versions = ", ".join(
             f"{k}={v}" for k, v in probe.items()

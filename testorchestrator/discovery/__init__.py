@@ -5,8 +5,8 @@ code execution); native collection is a separate worker stage."""
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import (behave, cypress, katalon, playwright, pytestbdd,
-               pytestdisc, robot)
+from . import (behave, cypress, gtest, jest, katalon, playwright,
+               pytestbdd, pytestdisc, robot)
 from .base import (ADAPTER_VERSION, ContainmentError, Item, Result,
                    fingerprint, safe_under, setting)
 
@@ -19,6 +19,8 @@ FRAMEWORKS = {
     "cypress": cypress,
     "playwright": playwright,
     "playwright-pytest": pytestdisc,   # same pytest discovery path
+    "gtest": gtest,
+    "jest": jest,
 }
 FRAMEWORK_CHOICES = [
     ("katalon", "Katalon Studio"),
@@ -29,6 +31,8 @@ FRAMEWORK_CHOICES = [
     ("cypress", "Cypress"),
     ("playwright", "Playwright Test (JS/TS)"),
     ("playwright-pytest", "Playwright via pytest"),
+    ("gtest", "GoogleTest (C/C++)"),
+    ("jest", "Jest (Node.js)"),
 ]
 
 

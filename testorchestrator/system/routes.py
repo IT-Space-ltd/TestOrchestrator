@@ -1869,7 +1869,7 @@ def create_runtime():
         db.session.add(_runner); db.session.flush()
     _kind = (request.form.get("runtime_kind") or "kre").strip()[:16]
     if _kind not in ("kre", "playwright", "cypress", "robot",
-                     "pytest", "behave"):
+                     "pytest", "behave", "gtest", "jest"):
         _kind = "kre"
     kre_missing_path = (
         _kind in ("kre", "robot", "pytest", "behave")
