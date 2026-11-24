@@ -1,7 +1,13 @@
-# Screenshot Index — TestOrchestrator 2.5.x
+# Screenshot Index — TestOrchestrator 2.6.0
 
-- **Provenance:** all frames were captured from the **released 2.5.0
-  codebase** during documentation work — no pre-release frames remain.
+- **Provenance (2.6.0 recapture):** `admin/infrastructure.png`,
+  `admin/runner-new*.png`, `admin/runtime-new*.png`,
+  `user/project-inventory.png`, `user/discovered-suite-run.png`
+  were captured from the **2.6.0
+  codebase** (head `faf4d822`) on a seeded documentation instance —
+  framework runtime kinds, both transports, and the externalized-JS
+  SSH-fields reveal are visible. Remaining frames retain the 2.5.x
+  provenance below.
 - **Captured:** Chromium headless at 1440×900 against two live
   instances: a **fresh install** (bootstrap state, `install-*` frames)
   and a **populated instance** carrying real project/execution history.
@@ -42,7 +48,8 @@
 | `project-dashboard.png` | Project overview (tabs: Dashboard, Releases, Test, Schedules-Executions, Inventory, Git bindings) |
 | `import-new.png` | Historical-result import form (binding, revision, result directory) |
 | `import-preview-duplicates.png` | Import preview: resolved commit, `duplicate` decisions with matched executions, collection-grouping warning |
-| `discovered-suite-run.png` | Suite item: member cases + Run form (profile, release, worker, runtime, timeout); authoring-disabled notice |
+| `discovered-suite-run.png` | Suite item (`smoke.robot`): Run form — profile, release, worker, runtime picker, browser, Robot/pytest option fields (2.6.0) |
+| `project-inventory.png` | Project Inventory tab: discovered suite items across frameworks (2.6.0) |
 | `discovered-collection.png` | Test-suite collection item |
 | `execution-history.png` | Executions list with full filter bar (imported + live origins, outcomes) |
 | `execution-detail-imported.png` | Imported execution: provenance (importer, repo, commit, source path, parser), 4 results incl. supplemented suite |
@@ -71,8 +78,10 @@
 | `logs.png` | Operational logs |
 | `audit.png` | Audit events |
 | `changelog.png` | Changelog view |
-| `runner-new.png` | Add worker form: name, description, OS/arch, connection mode, workspace, slots, allowed projects |
-| `runtime-new.png` | Register-KRE form: execution location, remote runner, worker label, executable/workspace paths, credentials, concurrency |
+| `runner-new.png` | Add execution target form: name, type radios (This host / Buildbot worker / Agentless Linux SSH), OS/arch (2.6.0) |
+| `runner-new-ssh.png` | Add-target form with *Agentless Linux SSH* selected — SSH host/port/user/workdir/secret fields revealed (2.6.0; previously dead under CSP) |
+| `runtime-new.png` | Register-a-test-runtime form: Runner type dropdown (KRE / Playwright / Cypress / Robot / pytest), name, execution location (2.6.0) |
+| `runtime-new-remote.png` | Same form with *On another machine* — remote-runner picker, executable/workspace paths, credential fields (2.6.0) |
 | `user-new.png` | Create user form: username, display name, role radios, temporary password |
 | `licence.png` | Licence administration: status, activated-licence table, add-code field — informational status display; demonstration licence only |
 | `login-unsupported.png` | Login page with no valid application licence — exact notice *"This version is not supported"*, form fully usable |

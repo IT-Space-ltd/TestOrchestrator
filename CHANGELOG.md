@@ -6,9 +6,9 @@ Feature release — Playwright Test, headless Cypress E2E and Robot
 Framework as first-class runners on the existing Buildbot/SSH
 execution paths.
 Schema changes: `runtime_connections.runtime_kind`
-(`kre`|`playwright`|`cypress`|`robot`, default `kre` — existing
-connections upgrade unchanged) and `users.timezone` (IANA name,
-default `UTC` — existing users keep identical display).
+(`kre`|`playwright`|`cypress`|`robot`|`pytest`, default `kre` —
+existing connections upgrade unchanged) and `users.timezone` (IANA
+name, default `UTC` — existing users keep identical display).
 
 ### Added
 
@@ -37,8 +37,23 @@ default `UTC` — existing users keep identical display).
   usage/data/config, 253 interrupted, 255 internal) classify
   explicitly so invalid invocations never read as test results.
   No browser selector applies — browsers belong to the Robot
-  project's libraries. Out of scope for 2.6.0: parallel execution
-  (pabot), custom listeners, keyword-level portal browsing.
+  project's libraries. Suite-level parallelism uses
+  Pabot (`--processes=N`) when the optional dependency probed
+  `opt_pabot=ok` on the target — without it parallel dispatch is
+  refused, never silently sequential. Out of scope for 2.6.0:
+  custom listeners, keyword-level portal browsing.
+
+- **pytest runner.** Register a runtime with kind `pytest` and
+  configure the target's Python interpreter explicitly — the same
+  `executable_path` contract as `robot` (venv `bin/python`/
+  `Scripts\python.exe`, pure argv, no shell/PATH dependency). Runs
+  invoke `python -m pytest --junitxml Reports/junit.xml -q` inside
+  the staged project; the JUnit report feeds the shared normalizer
+  and console logs plus project evidence upload as artifacts on
+  pass *and* fail. The run form's pytest options map to `-k`
+  (keyword expression) and `-m` (marker expression); parallel mode
+  adds `-n=N` via `pytest-xdist` when the optional dependency probed
+  ok on the target.
 
 - **Node.js browser runners.** Register a runtime with kind
   `playwright` or `cypress` on any Buildbot worker (Windows/Linux)
@@ -282,6 +297,35 @@ default `UTC` — existing users keep identical display).
   analytics page — the section element was never closed (masked
   by the outer card wrapper); closing it also fixed dashboard
   content leaking onto sibling tabs once embedded as a tab.
+- **Content-Security-Policy blocked all inline JavaScript** —
+  `script-src 'self'` (no `unsafe-inline`) made every inline
+  `<script>` block and `on*=` handler dead: the Agentless-SSH field
+  reveal on the Add-target form (SSH targets could not be
+  configured through the UI), the select-all/clear buttons on the
+  project-access and user-access pickers, the project-row filter,
+  the timezone "Use detected" suggestion, the "View all releases"
+  link, and all nine `confirm()` gates on destructive forms
+  (delete user/credential/target/execution, restore, restart,
+  bulk cancel, prune, run-now) silently never fired. All inline
+  code is externalized into `static/js/ui-inline.js` (delegated
+  `data-confirm` submit/click handling, `data-check-group`
+  select-all, the SSH-fields toggle, timezone detection); a
+  regression test now fails if any template reintroduces inline
+  scripts or handlers.
+- **Retry-blocked runs misclassified as UNKNOWN-able echo** —
+  `_retry_blocked_line` matched the literal `TO_RETRY_BLOCKED`
+  marker *inside* the prep step's script command echo (the script
+  text contains `echo "TO_RETRY_BLOCKED …"` lines), so any
+  remote-run failure that produced no JUnit landed UNKNOWN instead
+  of FAILED. The marker must now start an output line after the
+  Buildbot channel prefix is stripped — the echoed script source
+  can never match; a regression test covers the echo case.
+- **Executions list row clicks blocked by a delegated confirm** —
+  the bulk-cancel form's `data-confirm` wraps the executions table;
+  the delegated click handler intercepted link clicks inside it,
+  fired a confirm, and blocked row navigation. Click-confirms now
+  apply only to `data-confirm` on buttons/links — form containers
+  use submit-time confirmation.
 
 ### Notes
 
@@ -294,7 +338,9 @@ default `UTC` — existing users keep identical display).
 - In scope for 2.6.0: Playwright Test (Node.js), headless Cypress
   E2E and standard Robot Framework only — Playwright-Python,
   Cypress component testing, remote-browser grids, Cypress Cloud
-  and Robot parallel/listener extensions are out of scope.
+  and Robot custom listeners are out of scope (Robot suite-level
+  parallelism via Pabot IS in scope, gated on the optional
+  dependency probing `opt_pabot=ok` on the target).
 
 ## [2.5.1] — 2026-11-19
 
