@@ -348,7 +348,25 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
     if result.timed_out:
         return "infrastructure"
     text = stdout_tail.lower()
-    if any(s in text for s in ("license", "licence", "activation")):
+    # Fatal license failures — specific markers only. KRE logs a
+    # benign "Failed to activate with TestCloud license" fallback in
+    # every run before acquiring the KRE license; matching on the bare
+    # word "license" misclassifies unrelated failures that follow it.
+    if any(s in text for s in (
+            "failed to activate with katalon runtime engine",
+            "license quota exceeded", "cannot find a license",
+            "license has expired", "trial license has expired",
+            "cannot execute the activation request",
+            "invalid api key", "incorrect api key",
+            "no license available", "insufficient license")):
+        return "license"
+    # Generic license text only counts when the KRE license was never
+    # acquired — a successful activation proves licensing was not the
+    # failure.
+    if ("activated successfully with katalon runtime engine license"
+            not in text and any(
+                s in text for s in ("license", "licence",
+                                    "activation"))):
         return "license"
     if any(s in text for s in ("projectpath", "no such file", "cannot find project")):
         return "config"

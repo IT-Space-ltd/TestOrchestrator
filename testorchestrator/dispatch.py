@@ -299,7 +299,7 @@ def create_execution(username: str, suite: Suite = None,
         elif source_item.node_id and \
                 source_item.granularity == "file":
             fw = source_item.framework or ""
-            if fw in ("cypress", "playwright"):
+            if fw in ("cypress", "playwright", "jest"):
                 rc.setdefault("spec", source_item.node_id)
             elif fw == "postman":
                 rc.setdefault("postman_collection",

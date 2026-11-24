@@ -341,6 +341,32 @@ def test_kre_buildbot_failure_classifies_license(
         assert "license" in ex.error_text.lower()
 
 
+def test_kre_classify_ignores_benign_testcloud_fallback():
+    """KRE logs "Failed to activate with TestCloud license" in every
+    run before acquiring the KRE license. A run that activates fine
+    and then fails for another reason must not classify 'license'."""
+    from testorchestrator.adapters import kre
+    from testorchestrator.adapters.kre import InvocationResult
+
+    res = InvocationResult(exit_status=2)
+    tail = (
+        "Failed to activate with TestCloud license. "
+        "Activated successfully with Katalon Runtime Engine license. "
+        "Execution failed with error: "
+        "com.katalon.execution.exception.ExecutionException: "
+        "Found no test suite to execute in the test suite collection.")
+    assert kre.classify_error(res, tail) != "license"
+
+    fatal = InvocationResult(exit_status=2)
+    assert kre.classify_error(
+        fatal, "Failed to activate with Katalon Runtime Engine "
+        "license.") == "license"
+
+    noact = InvocationResult(exit_status=2)
+    assert kre.classify_error(noact, "License is not activated") \
+        == "license"
+
+
 def test_prep_script_echo_is_not_a_retry_block(
         app, monkeypatch, tmp_path):
     """The prep step's stdio echoes the whole prep script in its

@@ -199,6 +199,7 @@ def _prepare(client, spec) -> None:
             f"mkdir -p {remote(wd)}/proj && "
             f"tar -xf {remote(wd)}/source.tar -C {remote(wd)}/proj\n"
             f"cd {cd_target} || exit 125\n"
+            "mkdir -p Reports/junit\n"
             f"{env_exports}"
             f"{deps_line}"
             f"{wrapper}{exe} {args} "
