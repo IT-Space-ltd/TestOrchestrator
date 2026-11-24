@@ -45,12 +45,14 @@ def test_unknown_reconciliation_releases_capacity(admin_page):
     page = admin_page
     page.goto("/executions")
     for _ in range(6):
-        row = page.locator("tr", has_text=re.compile(
-            r"unknown", re.I)).first
+        # state badge specifically — 'unknown' also appears in runner
+        # health columns on unrelated rows
+        row = page.locator("tr:has(span.badge.unknown)").first
         if row.count() == 0:
             break
         row.locator("a[href*='/executions/']").first.click()
-        if "unknown" not in page.inner_text("body").lower():
+        page.wait_for_load_state("load")
+        if page.locator("span.badge.unknown").count() == 0:
             break
         page.locator("input[name=reason], textarea[name=reason]"
                      ).fill("ui-acceptance: verified process stopped")

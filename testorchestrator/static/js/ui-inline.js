@@ -14,8 +14,13 @@
     }
   }, true);
   document.addEventListener("click", function (e) {
+    // data-confirm on a BUTTON/LINK (replaces onclick="return confirm")
+    // — forms are handled by the submit listener above; skipping
+    // FORM here is essential since a confirm-form may wrap links
+    // that must stay navigable.
     var el = e.target.closest && e.target.closest("[data-confirm]");
-    if (el && !window.confirm(el.getAttribute("data-confirm"))) {
+    if (el && el.tagName !== "FORM" &&
+        !window.confirm(el.getAttribute("data-confirm"))) {
       e.preventDefault();
       e.stopPropagation();
     }
