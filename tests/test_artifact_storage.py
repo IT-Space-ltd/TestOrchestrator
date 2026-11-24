@@ -3,6 +3,7 @@ staging→stored lifecycle, retrieval fallback (boto3 absent → s3
 gated honestly)."""
 
 import json
+import sys
 import pytest
 from pathlib import Path
 
@@ -77,7 +78,11 @@ def test_root_containment_enforced(app, tmp_path):
             storage.backend_for(outside)
 
 
-def test_s3_gated_without_boto3(app):
+def test_s3_gated_without_boto3(app, monkeypatch):
+    """Simulate a deployment where the (approved, server-side) boto3
+    set is absent — e.g. an older/incomplete install: the capability
+    gate must still produce the actionable readiness failure."""
+    monkeypatch.setitem(sys.modules, "boto3", None)
     with app.app_context():
         st = ArtifactStore(project_id="p1", name="S", kind="s3",
                            config_json=json.dumps({"bucket": "b"}))
@@ -439,8 +444,9 @@ def test_s3_non_tls_endpoint_refused(tmp_path):
                                 "endpoint_url": "http://minio:9000"}))
         with pytest.raises(storage.StoreError, match="non-TLS"):
             storage.backend_for(st)
-        # test-only override passes the endpoint check (then fails
-        # on the boto3 gate, which is pending approval)
+        # test-only override passes the endpoint check; with the
+        # approved boto3 set installed the backend now constructs
+        # (client construction performs no network I/O)
         app.config["TO_S3_ALLOW_INSECURE_ENDPOINTS"] = True
-        with pytest.raises(storage.StoreError, match="boto3"):
-            storage.backend_for(st)
+        backend = storage.backend_for(st)
+        assert backend.bucket == "b"

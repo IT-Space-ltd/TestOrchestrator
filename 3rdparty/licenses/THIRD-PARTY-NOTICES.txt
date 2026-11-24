@@ -14,6 +14,12 @@ Python runtime components (see requirements.txt for pinned versions):
   tzdata — public-domain data / Apache-2.0 notices (see tzdata-LICENSE*)
   waitress — ZPL-2.1-derived (see waitress-*-LICENSE.txt)
 
+S3-compatible durable artifact storage (server-side storage layer):
+  boto3, botocore, s3transfer — Apache-2.0 (see *-LICENSE.txt / *-NOTICE.txt)
+  jmespath — MIT
+  python-dateutil — BSD-3-Clause / Apache-2.0 (dual; see file)
+  six — MIT
+
 Public HTTPS/redirect frontend (in-process WSGI server):
   cheroot — BSD-3-Clause
   cryptography — Apache-2.0 OR BSD-3-Clause (dual-licensed, see files)
