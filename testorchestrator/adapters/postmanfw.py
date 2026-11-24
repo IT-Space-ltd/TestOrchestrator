@@ -130,6 +130,8 @@ p() { echo "TO-PROBE $1"; echo "TO-PROBE $1" >> "$L"; }
 p "connectivity=ok"
 node --version >/dev/null 2>&1 \\
   && p "node=$(node --version)" || p "node=missing"
+npx --version >/dev/null 2>&1 \\
+  && p "npx=$(npx --version)" || p "npx=missing"
 command -v newman >/dev/null 2>&1 \\
   && p "newman=$(newman --version 2>/dev/null | head -1)" \\
   || (npx --no-install newman --version >/dev/null 2>&1 \\
@@ -138,6 +140,9 @@ command -v newman >/dev/null 2>&1 \\
 command -v postman >/dev/null 2>&1 \\
   && p "postman_cli=$(postman --version 2>/dev/null | head -1)" \\
   || p "postman_cli=missing"
+(command -v newman >/dev/null 2>&1 || command -v postman >/dev/null 2>&1) \\
+  && p "postman=engine-present" \\
+  || p "postman=missing (no newman/postman CLI on PATH)"
 postman collection run --help 2>/dev/null | grep -q junit \\
   && p "postman_junit=supported" \\
   || p "postman_junit=unverified (check installed version docs)"

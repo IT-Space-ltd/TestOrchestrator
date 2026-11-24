@@ -84,6 +84,36 @@ def test_glob_doublestar_and_braces():
     assert glob_match("a/b/c.py", ["a/**/*.py"])
 
 
+def test_glob_minimatch_extglobs():
+    # playwright's default testMatch — previously never matched
+    pat = ["**/*.@(spec|test).?(c|m)[jt]s?(x)"]
+    assert glob_match("pw.spec.js", pat)
+    assert glob_match("tests/pw.spec.ts", pat)
+    assert glob_match("x.test.mjs", pat)
+    assert glob_match("x.spec.cts", pat)
+    assert not glob_match("x.spec.py", pat)
+    assert not glob_match("x.other.js", pat)
+    # jest's default testMatch
+    jp = ["**/__tests__/**/*.[jt]s?(x)",
+          "**/?(*.)+(spec|test).[jt]s?(x)"]
+    assert glob_match("smoke.test.js", jp)
+    assert glob_match("src/x.test.tsx", jp)
+    assert glob_match("__tests__/unit/a.js", jp)
+    assert not glob_match("src/helper.js", jp)
+
+
+def test_probe_scripts_emit_summarize_markers():
+    """_summarize reads node/npx/<kind> markers — the per-adapter
+    probe scripts must emit all three or readiness can never turn
+    ready (regression: postman/bruno emitted engine markers under
+    other names and could never pass)."""
+    from testorchestrator.adapters import brunofw, postmanfw
+    pm = postmanfw.probe_scripts()["probe.sh"]
+    assert 'p "npx=' in pm and 'p "postman=' in pm and 'p "node=' in pm
+    br = brunofw.probe_scripts()["probe.sh"]
+    assert 'p "npx=' in br and 'p "bruno=' in br and 'p "node=' in br
+
+
 # ---------- pytest adapter ----------
 
 def test_pytest_ast_discovery(tmp_path):

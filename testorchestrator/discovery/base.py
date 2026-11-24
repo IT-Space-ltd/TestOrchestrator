@@ -187,11 +187,65 @@ def _expand_braces(pat: str) -> list:
     return out
 
 
+def _seg_re(seg: str) -> str:
+    """One path segment → regex. Supports the minimatch extglobs
+    config files actually carry (playwright/jest `testMatch` values
+    use `@(a|b)`, `?(a|b)`, `+(a|b)`, `*(a|b)`, `!(a|b)`) on top of
+    fnmatch's `*`, `?` and `[...]` classes."""
+    import re
+    out, i, n = [], 0, len(seg)
+    depth = []  # stack of extglob opener offsets
+    while i < n:
+        c = seg[i]
+        if c in "?*+@!" and i + 1 < n and seg[i + 1] == "(":
+            depth.append(c)
+            out.append("(?:" if c != "!" else "(?:(?!")
+            i += 2
+            continue
+        if c == "(" and depth:
+            out.append("(")
+            i += 1
+            continue
+        if c == ")" and depth:
+            op = depth.pop()
+            if op == "?":
+                out.append(")?")
+            elif op == "+":
+                out.append(")+")
+            elif op == "*":
+                out.append(")*")
+            elif op == "@":
+                out.append(")")
+            else:  # "!": negate — match any segment not in the set
+                out.append(")[^/]*)")
+            i += 1
+            continue
+        if c == "|" and depth:
+            out.append("|")
+            i += 1
+            continue
+        if c == "*":
+            out.append("[^/]*")
+        elif c == "?":
+            out.append("[^/]")
+        elif c == "[":
+            j = seg.find("]", i + 1)
+            if j > i:
+                out.append(seg[i:j + 1])
+                i = j
+            else:
+                out.append(re.escape(c))
+        else:
+            out.append(re.escape(c))
+        i += 1
+    return "^" + "".join(out) + "$"
+
+
 def _match_parts(rp: list, pp: list) -> bool:
     """Segment-wise match where `**` consumes zero or more path
     segments and `*` never crosses `/` (real glob semantics, unlike
     fnmatch-on-the-whole-string)."""
-    from fnmatch import fnmatchcase
+    import re
     if not pp:
         return not rp
     if pp[0] == "**":
@@ -199,8 +253,11 @@ def _match_parts(rp: list, pp: list) -> bool:
             (bool(rp) and _match_parts(rp[1:], pp))
     if not rp:
         return False
-    return fnmatchcase(rp[0], pp[0]) and \
-        _match_parts(rp[1:], pp[1:])
+    try:
+        return re.match(_seg_re(pp[0]), rp[0]) is not None and \
+            _match_parts(rp[1:], pp[1:])
+    except re.error:
+        return False
 
 
 def glob_match(rel: str, patterns) -> bool:

@@ -114,9 +114,13 @@ mkdir -p "$R"
 L="$R/probe.txt"; : > "$L"
 p() { echo "TO-PROBE $1"; echo "TO-PROBE $1" >> "$L"; }
 p "connectivity=ok"
+node --version >/dev/null 2>&1 \\
+  && p "node=$(node --version)" || p "node=missing"
+npx --version >/dev/null 2>&1 \\
+  && p "npx=$(npx --version)" || p "npx=missing"
 command -v bru >/dev/null 2>&1 \\
-  && p "bru=$(bru --version 2>/dev/null | head -1)" \\
-  || p "bru=missing (installed/pinned CLI required — never auto-installed)"
+  && p "bruno=$(bru --version 2>/dev/null | head -1)" \\
+  || p "bruno=missing (installed/pinned CLI required — never auto-installed)"
 bru run --help 2>/dev/null | grep -q -- '--sandbox' \\
   && p "sandbox_flag=supported" || p "sandbox_flag=unverified"
 bru run --help 2>/dev/null | grep -q -- '--global-env' \\
