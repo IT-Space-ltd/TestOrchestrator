@@ -758,6 +758,11 @@ running work to another target — pinned runs fail visibly.
    duplicate target); uninstall removes the Scheduled Task, the tray
    autostart shortcut, and does not touch KRE or unrelated files.
 
+   ![Remote worker installers — Windows .exe and Linux bundle rows with SHA-256](Screenshot-Doc/admin/worker-installers.png)
+
+   *The bundled offline installers under **Remote worker installers**
+   on the Infrastructure page — every row ships its SHA-256.*
+
 ### 6.2 Native Linux Buildbot worker
 
 1. Fetch `TestOrchestrator-Buildbot-Worker-<ver>-linux-x86_64.tar.gz`
@@ -782,8 +787,24 @@ running work to another target — pinned runs fail visibly.
    unit, and delete `$HOME`/`$DATA` explicitly — workspaces are never
    removed implicitly.
 5. Registration, credentials, runner discovery, and capacity are then
-   managed from the Admin UI (rotate the secret with **Issue secret**;
-   drain before maintenance).
+   managed from the Admin UI (rotate the secret with **Issue
+   password**; drain before maintenance).
+
+   ![Add execution target — Buildbot worker type selected](Screenshot-Doc/admin/runner-new-worker.png)
+
+   *The **Add execution target** form with **Buildbot worker**
+   selected — name, target type, OS/arch, workspace root, slot count.*
+
+   ![One-time worker password — shown once in the flash banner](Screenshot-Doc/admin/worker-issue-password.png)
+
+   *The generated per-worker password appears **once** in the flash
+   banner after **Manage ▾ → Issue password** — copy it into the
+   installer immediately; it is stored only encrypted.*
+
+   ![install_linux_worker.sh --help output](Screenshot-Doc/admin/worker-install-help.png)
+
+   *The offline installer is self-documenting — `--help` prints the
+   usage, every flag, and the uninstall steps.*
 
 ### 6.3 Agentless Linux SSH target
 
@@ -1362,7 +1383,8 @@ card):
    Buildbot worker*, or *Agentless Linux SSH* — only the relevant
    fields render.
 2. For remote workers: record the generated **worker name + one-time
-   password** shown once; it is stored only as an encrypted SecretRef.
+   password** shown once in the flash banner (screenshots in §6.2);
+   it is stored only as an encrypted SecretRef.
 3. For SSH: enter host/port/user/credential/workdir, save, then
    **Approve host key** and **Test SSH Connection** until all staged
    checks pass.

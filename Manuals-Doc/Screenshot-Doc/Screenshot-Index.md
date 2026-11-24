@@ -90,6 +90,10 @@
 | `changelog.png` | Changelog view |
 | `runner-new.png` | Add execution target form: name, type radios (This host / Buildbot worker / Agentless Linux SSH), OS/arch (2.6.0) |
 | `runner-new-ssh.png` | Add-target form with *Agentless Linux SSH* selected — SSH host/port/user/workdir/secret fields revealed (2.6.0; previously dead under CSP) |
+| `runner-new-worker.png` | Add-target form with *Buildbot worker* selected — name, OS/arch, workspace, slots, allowed projects (2.6.0) |
+| `worker-installers.png` | Remote worker installers card — Windows .exe + Linux bundle rows with SHA-256 + corresponding source (2.6.0) |
+| `worker-issue-password.png` | Flash banner showing the generated one-time Buildbot worker password after Manage ▾ → Issue password (2.6.0) |
+| `worker-install-help.png` | Terminal render — real `install_linux_worker.sh --help` output: usage, flags, uninstall |
 | `runtime-new.png` | Register-a-test-runtime form: Runner type dropdown (KRE / Playwright / Cypress / Robot / pytest), name, execution location (2.6.0) |
 | `runtime-new-remote.png` | Same form with *On another machine* — remote-runner picker, executable/workspace paths, credential fields (2.6.0) |
 | `user-new.png` | Create user form: username, display name, role radios, temporary password |
