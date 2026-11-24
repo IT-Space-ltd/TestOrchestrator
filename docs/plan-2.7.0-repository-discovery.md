@@ -1,9 +1,15 @@
 # 2.7.0 Plan — framework-aware repository onboarding & discovery
 
-Status: **proposal — no implementation started**. Baseline
+Status: **implementation in progress**. Baseline
 `main@3855e29d` (post-merge head containing all accepted 2.6.0 work;
 identical content to released tag `2.6.0` plus the merge commit).
 Branch `feature/2.7.0-repository-discovery` created from it.
+
+**Authorization status**: the §8 read-only stop is superseded —
+product code, regression tests, disposable-database migrations, and
+creating/updating a draft PR are approved. Still requiring explicit
+approval: live-data migrations, new privileged host changes,
+separately gated dependencies, merge/tag/publish, VM provisioning.
 
 ## 1. Branch / PR inventory and closure record
 
@@ -116,10 +122,14 @@ framework_projects
 (`file|test|scenario|case`), `selectable` (bool — only what the
 adapter can execute reliably).
 
-`GitBinding` unchanged except `prj_path` repurposed: migration maps
-`subdirectory`+`prj_path` into an implicit `katalon`
-`FrameworkProject` per existing binding (preserves behavior; old
-column kept for read-compat one release, then dropped).
+`GitBinding` unchanged — `subdirectory` stays the checkout-level
+scope; each binding gets an implicit `katalon` `FrameworkProject`
+with `project_root=""` (binding-scope root). **Review correction:**
+the backfill derives from *effective* behavior — discovery ran
+under `worktree+subdirectory` and rglobbed for exactly one `.prj`;
+`prj_path` was stored-but-ignored, so it is recorded only as
+informational `config_file` text and does NOT re-root discovery.
+Legacy columns are retained (no drop in 2.7.0).
 
 `Execution.framework` stamping fixed: stamped from the dispatching
 runtime/framework-project, not default `"katalon"`.
@@ -310,20 +320,20 @@ reliable (Cypress), only file-level is offered and labeled as such
 
 | Rev | Change |
 |---|---|
-| `a2b3c4d5e6f7` | `framework_projects` table + indexes |
-| `b3c4d5e6f7a8` | `discovered_items`: +`framework_project_id` (nullable→backfill→FK), +`framework`, +`node_id`, +`granularity`, +`selectable` |
-| `c4d5e6f7a8b9` | backfill: one `katalon` FrameworkProject per existing GitBinding (`project_root := coalesce(prj_path, subdirectory)`) |
-| `d5e6f7a8b9c0` | `git_bindings.discovery_status` → per-framework-project state kept on the new table |
+| `b7c8d9e0f1a2` | `framework_projects` table + `discovered_items` columns (`framework_project_id` FK via named-constraint batch mode, `framework`, `node_id`, `granularity`, `selectable`) |
+| `c8d9e0f1a2b3` | backfill: one `katalon` FrameworkProject per existing GitBinding — `project_root=""` (binding scope already includes `subdirectory`); `prj_path` kept informational in `config_file`, NOT re-rooted (review correction) |
+| `d9e0f1a2b3c4` | `discovered_items` +`tags`/`fingerprint`; `framework_projects` +`discovery_warnings_json`/`discovery_fingerprint` (config-fingerprint staleness, not just git SHA) |
 
 **Existing-data guarantee:** existing bindings, suites, releases,
 schedules and stored executions keep **bit-identical behavior** —
 the migration creates exactly one `katalon` FrameworkProject per
-existing binding, taking over the previous paths (`subdirectory`,
-`prj_path` root) and the previous discovery verbatim. No existing
-object changes framework, paths or selection; `Execution.framework`
-is stamped correctly only for **new** runs (historical rows stay
-untouched). Visible change for existing users: none — the Katalon
-inventory list shows the same items through the same binding.
+existing binding, preserving the effective paths (`subdirectory`
+scope; `prj_path` informational only — it was never read). No
+existing object changes framework, paths or selection;
+`Execution.framework` is stamped correctly only for **new** runs
+(historical rows stay untouched). Visible change for existing
+users: none — the Katalon inventory list shows the same items
+through the same binding.
 
 ## 5. Dependencies & security
 
@@ -449,3 +459,57 @@ discovery, never claiming individual-test selection where only
 file-level selection is supported (see matrix §3.6).
 
 **After delivering this plan: stop and wait for approval.**
+
+## 9. Review corrections applied during implementation
+
+The reviewer's corrections are folded into the implementation:
+
+1. **Katalon backfill derives from effective behavior** — migration
+   `c8d9e0f1a2b3` sets `project_root=""` (binding scope includes
+   `subdirectory`); `prj_path` is informational `config_file` text
+   only. Tested on: subdirectory-only, prj_path-only, both/
+   conflicting, neither-with-nested-.prj, existing inventories.
+   No ignored field was activated; legacy columns retained.
+2. **Candidates vs validated** — static results emit exact
+   executable selectors only where provable: pytest `::nodeid`
+   (unparametrized), behave `path:LINE`, pytest-bdd bound
+   `@scenario`→`nodeid`, robot `--test` name, katalon/cypress/
+   playwright file paths. Parametrized/pytest-bdd-`scenarios()`/
+   template/dynamic-binding items are `selectable=False` candidates
+   with `needs_native` set — a static preview never unlocks
+   individual-test execution where native collection is required.
+   pytest-bdd keeps scenario→test *binding* separate from
+   scenario-step→step-definition *matching*.
+3. **No JS config execution** — Cypress/Playwright adapters read
+   only literal `key: "..."`/`[...]` values via bounded regex;
+   imported/computed keys warn 'unresolved statically' and explicit
+   overrides/roots are used (never silent default substitution).
+   Every effective setting records its source
+   (override|config|default).
+4. **Explicit parser syntax** — gherkin.py documents its supported
+   subset (English keywords, Feature/Background/Scenario/Outline/
+   Examples/tags/doc-strings; localized keywords → partial-
+   discovery warnings, never false validation). robot.py supports
+   `*** Test Cases/Tasks ***` names, `[Tags]`, `[Template]`,
+   native GWT steps; unsupported constructs warn.
+5. **Exact selection is enforced** — node_ids carry file+scope
+   context (duplicate names disambiguated); unproven selectors are
+   not selectable; Cypress exposes file-level only; `--grep`-style
+   approximations are never emitted as selectors. Katalon
+   granularity unchanged.
+6. **Onboarding consistency** — framework-appropriate scope fields
+   (not a generic mandatory `test_roots`; `.` is valid); file-level
+   items selectable incl. Cypress specs; defaults are suggestions
+   with recorded sources; config fingerprint (JSON of all effective
+   settings + adapter version + config-file presence) invalidates
+   discovery, not just git SHA; `adapter_version` revalidation via
+   the same fingerprint.
+7. **Auth/path safety** — URL userinfo rejection (`user:pass@` →
+   actionable error; username-only SSH `git@host:` allowed);
+   `iter_files` enforces containment, symlink-cycle detection,
+   escape skipping, file/dir/item/depth caps; `read_text_bounded`
+   caps file size.
+8. **Draft without checkout** — FrameworkProject saves in `draft`
+   without discovery; gates (validated discovery, selectable,
+   dispatchable kinds) are enforced server-side in dispatch, not
+   just in the UI.
