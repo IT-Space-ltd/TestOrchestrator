@@ -275,9 +275,9 @@ is a **target-side** dep, evaluated then.
   `last_error` leak path, audit §2.10).
 - `cli` git backend must either implement `auth` or refuse to run
   for credentialed bindings (fail loud, not silent).
-- Static parse bounds: `_MAX_FILE` 512 KB precedent; add entity-
-  expansion guard on XML parse (defusedxml already vendored? —
-  verify; else bound + reject DTD).
+- Static parse bounds: `_MAX_FILE` 512 KB precedent; switch XML
+  parsing to `defusedxml.ElementTree` (already vendored, 0.7.1) —
+  closes the internal-entity-expansion hole in stdlib `ET`.
 - Native collection: runs ONLY on worker/SSH target, behind an
   explicit approval + readiness check; timeouts, output caps,
   secret redaction identical to run artifacts; never `npm install`/
