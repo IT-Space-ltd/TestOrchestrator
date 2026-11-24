@@ -1,9 +1,35 @@
-"""Flow 7 — failure paths: license-kind failure, UNKNOWN reconciliation
-releasing capacity, offline worker."""
+"""Flow 7 — failure paths on the VM topology: license-kind failure
+classification, UNKNOWN reconciliation releasing capacity, offline
+worker."""
+import os
 import re
+import subprocess
+import pytest
 from playwright.sync_api import expect
 from conftest import wait_for_text_after_reload
-from test_06_execution import wait_for_table_state
+from test_06_execution import (wait_for_table_state, _dispatch,
+                               _exec_outcome)
+
+VM_HOST = os.environ.get("TO_VM_HOST", "10.97.0.121")
+
+
+def test_failing_case_reports_failure(admin_page):
+    """A deliberately failing case must surface FAILED with the
+    failure detail — never a green run."""
+    eid = _dispatch(admin_page, "fail.robot", "robot-worker")
+    body = _exec_outcome(admin_page, eid, r"failed|completed")
+    assert "failed" in body.lower(), \
+        "failing case did not report a failure outcome"
+
+
+def test_license_failure_kind(admin_page):
+    """The lic-fail KRE runtime exits with a license error — the run
+    must classify and display the license failure kind."""
+    eid = _dispatch(admin_page, "TS1", "kre-licfail")
+    body = _exec_outcome(admin_page, eid, r"failed|completed")
+    assert "failed" in body.lower()
+    assert re.search(r"licen[cs]e", body, re.I), \
+        "license failure kind not surfaced"
 
 
 def test_unknown_reconciliation_releases_capacity(admin_page):
@@ -19,7 +45,6 @@ def test_unknown_reconciliation_releases_capacity(admin_page):
         row.locator("a[href*='/executions/']").first.click()
         if "unknown" not in page.inner_text("body").lower():
             break
-        # confirm_stopped is a hidden "yes" already carried by the form
         page.locator("input[name=reason], textarea[name=reason]"
                      ).fill("ui-acceptance: verified process stopped")
         page.locator("button[type=submit]", has_text=re.compile(
@@ -28,23 +53,8 @@ def test_unknown_reconciliation_releases_capacity(admin_page):
         page.goto("/executions")
 
 
-def test_license_failure_kind(admin_page):
-    """The seeded fake-KRE run must classify as a license failure —
-    the run was queued behind UNKNOWN capacity holds until they were
-    resolved."""
-    page = admin_page
-    page.goto("/executions")
-    assert wait_for_table_state(page, 240, "FAILED"), \
-        "license-fail run never terminated"
-    failed = page.locator("tr", has_text=re.compile("failed", re.I)
-                          ).first
-    failed.locator("a[href*='/executions/']").first.click()
-    expect(page.locator("body")).to_contain_text(
-        re.compile(r"licen[cs]e", re.I))
-
-
 def test_offline_worker_shows_offline(admin_page):
-    """Seeded never-attached worker: Test marks it unreachable — the
+    """Never-installed worker target: Test marks it unreachable — the
     offline signal a new administrator sees."""
     page = admin_page
     page.goto("/system/infrastructure")
