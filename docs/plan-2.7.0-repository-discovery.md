@@ -234,59 +234,58 @@ New files: `templates/portal/framework_project_{new,preview}.html`,
 partial `_framework_fields.html` (per-kind fieldsets toggled by
 existing external-JS `data-` pattern — **no inline JS**, CSP rule).
 
-**Draft-Save:** Ein Framework-Projekt lässt sich jederzeit speichern
-— auch wenn Discovery noch nicht laufen kann (kein Worker, kein
-Sync, Repo noch nicht ausgecheckt). Der Zustand wird strikt
-unterschieden: **„Konfiguration gespeichert"** (draft — bearbeitbar,
-nicht ausführbar) vs. **„Discovery validiert"** (Preview erfolgreich
-→ Ausführung freigegeben). Die Run-Schaltfläche für ein
-Framework-Projekt ist erst nach erfolgreicher Discovery-Validierung
-aktiv; gespeicherte Drafts zeigen ihren Status als Badge.
-Modellseitig: `discovery_status` auf `FrameworkProject` —
+**Draft save:** a framework project can be saved at any time —
+even when discovery cannot run yet (no worker available, repo not
+yet synced, no checkout). The states are strictly separated:
+**"configuration saved"** (draft — editable, not executable) vs.
+**"discovery validated"** (preview succeeded → execution unlocked).
+The Run button for a framework project stays disabled until
+discovery validated; saved drafts show their status as a badge.
+Model side: `discovery_status` on `FrameworkProject` —
 `draft|pending|ok|failed`.
 
-### 3.5 Feld-für-Feld-Onboarding (Required / Optional / Framework-spezifisch)
+### 3.5 Field-by-field onboarding (required / optional / framework-specific)
 
-**Schritt „Repository verbinden"** (bestehendes Binding-Formular, unverändert):
+**Step "Connect repository"** (existing Binding form, unchanged):
 
-| Feld | Status | Bemerkung |
+| Field | Status | Note |
 |---|---|---|
-| Repository-URL | Pflicht | https/ssh/lokal; userinfo (`user:pass@`) wird **abgelehnt** |
-| Credential-Referenz | Optional | SecretRef-Name; nie Wert, nie in URL/Logs |
-| Ref (Branch/Tag/Commit) | Optional | Default `main` |
+| Repository URL | required | https/ssh/local; userinfo (`user:pass@`) is **rejected** |
+| Credential reference | optional | SecretRef name; never a value, never in URL/logs |
+| Ref (branch/tag/commit) | optional | default `main` |
 
-**Schritt „Framework-Projekt"** (neu):
+**Step "Framework project"** (new):
 
-| Feld | Status | Gilt für | Bemerkung |
+| Field | Status | Applies to | Note |
 |---|---|---|---|
-| `name` (Anzeigename) | Pflicht | alle | frei wählbar |
-| `framework` | Pflicht | alle | explizite Wahl; Auto-Erkennung nur als Hinweis |
-| `project_root` | Pflicht | alle | relativ zum Checkout; dir-browser + Freitext |
-| `workdir` | Optional | alle | Default = `project_root` |
-| `config_file` | Optional | alle außer katalon fest auf `.prj`-Root | Framework-Default wird gesucht, Override setzbar |
-| `test_roots[]` | Pflicht (≥1, Default vorbelegt) | alle | Default z. B. `tests`/`src` je Framework |
-| `include`/`exclude` | Optional | alle | Globs, Framework-Defaults vorbelegt |
-| `feature_roots[]` | BDD-Pflicht | behave, pytest-bdd | Default `features/` bzw. `test_roots` |
-| `stepdef_roots[]` | BDD-Optional | behave, pytest-bdd, robot-GWT | Default `step_definitions/` |
-| `support_roots[]` | Optional | alle | Fixtures/resources — nie als Tests gelistet |
-| `settings_json` | Optional | Playwright-Projects, Robot var-files, pytest addopts | je Adapter |
+| `name` (display name) | required | all | free text |
+| `framework` | required | all | explicit choice; auto-detection is a hint only |
+| `project_root` | required | all | relative to checkout; dir browser + free text |
+| `workdir` | optional | all | default = `project_root` |
+| `config_file` | optional | all (katalon fixed to `.prj` root) | framework default is searched; override settable |
+| `test_roots[]` | required (≥1, pre-filled default) | all | default e.g. `tests`/`src` per framework |
+| `include`/`exclude` | optional | all | globs, framework defaults pre-filled |
+| `feature_roots[]` | BDD-required | behave, pytest-bdd | default `features/` or `test_roots` |
+| `stepdef_roots[]` | BDD-optional | behave, pytest-bdd, robot-GWT | default `step_definitions/` |
+| `support_roots[]` | optional | all | fixtures/resources — never listed as tests |
+| `settings_json` | optional | Playwright projects, Robot var-files, pytest addopts | per-adapter |
 
-### 3.6 Framework-Fähigkeitsmatrix (Zielbild)
+### 3.6 Framework capability matrix (target state)
 
-| Framework | Statische Discovery | Auswahl-Granularität | Native Collection | Einschränkungen |
+| Framework | Static discovery | Selection granularity | Native collection | Limitations |
 |---|---|---|---|---|
-| katalon | XML-Parse `.tc`/`.ts`/`.glbl` (heute) | suite/collection (file); case nur via Run-Filter | nicht nötig | unverändert, Parität |
-| pytest | AST-Parse (`test_*.py`, Klassen, Funktionen, parametrize-IDs, Marker) | **file + test** (`::nodeid`) | optional (`--collect-only`, tiefer: fixtures/conftest) | statisch findet keine dynamisch generierten Tests (fixtures, plugins) |
-| pytest-bdd | pytest-AST + Gherkin-Parse | file + scenario | optional | Binding-Matching statisch nicht immer eindeutig |
-| behave | `.feature`-Parse (Scenarios, Outlines/Examples, Tags) | file + scenario | optional | Schritte werden beim Run evaluiert |
-| robot | `.robot`-Parse (Tests, Tags, Templates, GWT-Stil) | file + test (`--test`) | optional (libdoc-ähnlich) | dynamische/Test-Templates nur teilweise statisch |
-| cypress | Glob `specPattern` aus Config | **file only** (`--spec`) | optional (`cypress run --list` nicht standard → bleibt optional/manuell) | kein per-`it()`-Auswahl über UI (nicht zuverlässig) — klar gelabelt |
-| playwright | spec-Glob + `projects` aus Config | file + (`--grep` test, wenn `-list`-Collect) | empfohlen für Projects/Variants (`--list`) | per-Test-Auswahl via grep instabil bei Sonderzeichen → gelabelt |
-| playwright-via-pytest | wie pytest | file + test | optional | braucht `pytest-playwright` auf dem Target (Probe) |
+| katalon | XML parse `.tc`/`.ts`/`.glbl` (current) | suite/collection (file); case via run filters only | not needed | unchanged, parity |
+| pytest | AST parse (`test_*.py`, classes, functions, parametrize IDs, markers) | **file + test** (`::nodeid`) | optional (`--collect-only`, deeper: fixtures/conftest) | static parse cannot see dynamically generated tests (fixtures, plugins) |
+| pytest-bdd | pytest AST + Gherkin parse | file + scenario | optional | binding matching not always unambiguous statically |
+| behave | `.feature` parse (scenarios, outlines/examples, tags) | file + scenario | optional | step matching evaluated at run time |
+| robot | `.robot` parse (tests, tags, templates, GWT style) | file + test (`--test`) | optional (libdoc-like) | dynamic/test templates only partially visible statically |
+| cypress | `specPattern` glob from config | **file only** (`--spec`) | optional (no standard `cypress --list` → stays manual) | no per-`it()` selection in UI (not reliable) — clearly labeled |
+| playwright | spec glob + `projects` from config | file + (`--grep` test if `--list` collect used) | recommended for projects/variants (`--list`) | per-test selection via grep unstable with special chars → labeled |
+| playwright-via-pytest | same as pytest | file + test | optional | needs `pytest-playwright` on the target (probe) |
 
-**Klartext-Regel:** Wo nur file-level zuverlässig ist (Cypress),
-wird nur file-level angeboten und so gelabelt — kein stilles
-Herunterstufen.
+**Plain-language rule:** where only file-level selection is
+reliable (Cypress), only file-level is offered and labeled as such
+— no silent downgrade.
 
 ### 3.7 Dispatch / selection plumbing
 
@@ -313,16 +312,15 @@ Herunterstufen.
 | `c4d5e6f7a8b9` | backfill: one `katalon` FrameworkProject per existing GitBinding (`project_root := coalesce(prj_path, subdirectory)`) |
 | `d5e6f7a8b9c0` | `git_bindings.discovery_status` → per-framework-project state kept on the new table |
 
-**Bestandsschutz:** Existierende Bindings, Suites, Releases,
-Schedules und gespeicherte Ausführungen bleiben **bit-identisch in
-ihrem Verhalten** — die Migration legt pro Binding genau ein
-`katalon`-FrameworkProject an, das exakt die bisherigen Pfade
-(`subdirectory`, `prj_path`-Root) und die bisherige Discovery
-übernimmt. Kein Bestandsobjekt ändert Framework, Pfade oder
-Selektion; `Execution.framework` wird nur für **neue** Runs
-korrekt gestempelt (historische Rows bleiben unverändert).
-Sichtbare Änderung für Bestandsnutzer: nichts — die Katalon-
-Inventory-Liste zeigt dieselben Items über dieselbe Bindung.
+**Existing-data guarantee:** existing bindings, suites, releases,
+schedules and stored executions keep **bit-identical behavior** —
+the migration creates exactly one `katalon` FrameworkProject per
+existing binding, taking over the previous paths (`subdirectory`,
+`prj_path` root) and the previous discovery verbatim. No existing
+object changes framework, paths or selection; `Execution.framework`
+is stamped correctly only for **new** runs (historical rows stay
+untouched). Visible change for existing users: none — the Katalon
+inventory list shows the same items through the same binding.
 
 ## 5. Dependencies & security
 
@@ -387,3 +385,36 @@ conventional layout, nested layout, multi-root, monorepo
 test names, invalid configs.
 
 Live KRE stays subject to the approved-key requirement.
+
+## 8. Approval gate and first response
+
+This plan authorizes **read-only inspection and plan preparation
+only** — no implementation before the plan is approved.
+
+Already done in the release session on explicit instruction (not
+part of this plan): PR #4 merged/closed, the four obsolete branches
+deleted (inventory in §1), and branch
+`feature/2.7.0-repository-discovery` created on the approved
+baseline `main@3855e29d`. Everything beyond that — further PR
+actions, branch archival, product-code changes, migrations,
+dependency installs, VM provisioning — **waits for explicit
+approval per milestone**.
+
+**Draft-save obligation:** the UI must allow saving a
+repository/framework project as a draft even when discovery cannot
+run yet (e.g. no worker available). "Configuration saved" and
+"discovery validated" are strictly separate states; no discovered
+selection may be executed before successful validation (see
+draft-save in §3.4).
+
+**Conflict rule:** where a requirement conflicts with a framework's
+real capabilities (e.g. no reliable per-test selection in Cypress),
+the conflict is **reported** with an explicit alternative — scope is
+never silently reduced, seed data never substituted, and per-test
+selection never claimed where only file-level is possible (see
+matrix §3.6).
+
+**Separate decisions (not part of this plan):**
+- Scheduled/periodic binding re-syncs (manual only today)
+- Robot Gherkin plugin with an external parser (needs dependency review)
+- Windows installer signing
