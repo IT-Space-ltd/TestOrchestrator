@@ -81,6 +81,55 @@ class ScheduleForm(FlaskForm):
         default="late")
 
 
+class FrameworkProjectForm(FlaskForm):
+    """Onboard a framework project inside a binding (2.7.0). The
+    framework selector picks the discovery adapter — it never
+    auto-detects or overrides the user's choice. All paths are
+    binding-scope relative."""
+    name = StringField("Project display name",
+                       validators=[DataRequired(), Length(max=128)])
+    framework = SelectField("Framework / runner",
+                            validators=[DataRequired()])
+    project_root = StringField(
+        "Project root (relative to binding scope, '.' allowed)",
+        validators=[Optional(), Length(max=512)])
+    workdir = StringField("Working directory (default: project root)",
+                          validators=[Optional(), Length(max=512)])
+    config_file = StringField(
+        "Framework config file (pytest.ini / cypress.config.js / "
+        "playwright.config.ts / .prj …)",
+        validators=[Optional(), Length(max=512)])
+    test_roots = TextAreaField(
+        "Test roots (one per line; '.' = scope root)",
+        validators=[Optional()])
+    include = TextAreaField(
+        "Include patterns (one per line, e.g. **/*.spec.ts)",
+        validators=[Optional()])
+    exclude = TextAreaField("Exclude patterns (one per line)",
+                            validators=[Optional()])
+    feature_roots = TextAreaField(
+        "Feature-file roots — BDD only (one per line)",
+        validators=[Optional()])
+    stepdef_roots = TextAreaField(
+        "Step-definition/binding roots — BDD only (one per line)",
+        validators=[Optional()])
+    support_roots = TextAreaField(
+        "Resource/fixture/support roots (informational)",
+        validators=[Optional()])
+
+
+def reject_url_password(url: str) -> str:
+    """Reject credentials embedded in the URL (`user:pass@host`).
+    Username-only SSH forms (`git@host:`, `ssh://user@host`) stay
+    valid. Returns an error string or ''."""
+    import re
+    m = re.match(r"^[a-z][a-z0-9+.-]*://([^@/]*)@", url)
+    if m and ":" in m.group(1):
+        return ("URL must not contain an embedded password "
+                "(user:pass@host) — use a credential reference")
+    return ""
+
+
 class PlainForm(FlaskForm):
     """CSRF-only submit (sync/cancel/release actions)."""
     pass

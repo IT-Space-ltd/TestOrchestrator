@@ -22,6 +22,7 @@ from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
 from ..execution import (DiscoveredItem, Execution, ExecutionState,
+                         FrameworkProject,
                          ReleaseItem, RuntimeConnection,
                        GitBinding, OutboxEvent,
                          Outcome, Project, Release,
@@ -31,8 +32,10 @@ from ..models import Role, User, record_audit
 from ..security import role_required
 from . import portal_bp
 from .. import results as results_mod
-from .forms import (BindingForm, PlainForm, ProjectForm,
-                    ScheduleForm, SuiteForm)
+from ..discovery import FRAMEWORK_CHOICES, discover
+from .forms import (BindingForm, FrameworkProjectForm, PlainForm,
+                    ProjectForm, ScheduleForm, SuiteForm,
+                    reject_url_password)
 
 EDIT_ROLES = (Role.ADMIN, Role.TEST_MANAGER)
 RUN_ROLES = (Role.ADMIN, Role.TEST_MANAGER, Role.TESTER)
@@ -664,6 +667,11 @@ def create_binding(project_id):
     project = _project_or_404(project_id)
     form = BindingForm()
     if form.validate_on_submit():
+        url_err = reject_url_password(form.url.data.strip())
+        if url_err:
+            session["_bind_err"] = url_err
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
         binding = GitBinding(
             authoring_writable=form.authoring_writable.data,
             report_writable=form.report_writable.data,
@@ -701,6 +709,12 @@ def edit_binding(binding_id):
     _project_or_404(binding.project_id)
     form = BindingForm()
     if form.validate_on_submit():
+        url_err = reject_url_password(form.url.data.strip())
+        if url_err:
+            flash(url_err, "error")
+            return redirect(url_for(
+                "portal.project_detail",
+                project_id=binding.project_id))
         binding.name = form.name.data.strip()
         binding.url = form.url.data.strip()
         binding.ref = form.ref.data.strip() or "main"
@@ -731,6 +745,244 @@ def sync_binding(binding_id):
     record_audit(current_user.username, "binding.sync_queued", binding.id)
     return redirect(url_for("portal.project_detail",
                           project_id=binding.project_id))
+
+
+# ---------- framework projects (2.7.0 onboarding) ----------
+
+def _lines(text):
+    return [l.strip() for l in (text or "").splitlines() if l.strip()]
+
+
+def _fp_from_form(form, fp=None):
+    fp = fp or FrameworkProject()
+    fp.name = form.name.data.strip()
+    fp.framework = form.framework.data
+    fp.project_root = (form.project_root.data or "").strip().strip("/")
+    if fp.project_root == ".":
+        fp.project_root = ""
+    fp.workdir = (form.workdir.data or "").strip().strip("/")
+    fp.config_file = (form.config_file.data or "").strip()
+    fp.test_roots_json = json.dumps(_lines(form.test_roots.data))
+    fp.include_json = json.dumps(_lines(form.include.data))
+    fp.exclude_json = json.dumps(_lines(form.exclude.data))
+    fp.feature_roots_json = json.dumps(_lines(form.feature_roots.data))
+    fp.stepdef_roots_json = json.dumps(_lines(form.stepdef_roots.data))
+    fp.support_roots_json = json.dumps(_lines(form.support_roots.data))
+    return fp
+
+
+def _fp_form(fp=None):
+    form = FrameworkProjectForm()
+    form.framework.choices = FRAMEWORK_CHOICES
+    if fp is not None and request.method == "GET":
+        form.name.data = fp.name
+        form.framework.data = fp.framework
+        form.project_root.data = fp.project_root
+        form.workdir.data = fp.workdir
+        form.config_file.data = fp.config_file
+        form.test_roots.data = "\n".join(fp.test_roots())
+        form.include.data = "\n".join(fp.include())
+        form.exclude.data = "\n".join(fp.exclude())
+        form.feature_roots.data = "\n".join(fp.feature_roots())
+        form.stepdef_roots.data = "\n".join(fp.stepdef_roots())
+        form.support_roots.data = "\n".join(fp.support_roots())
+    return form
+
+
+def _binding_or_404(bid):
+    b = db.session.get(GitBinding, bid)
+    if b is None:
+        abort(404)
+    _project_or_404(b.project_id)
+    return b
+
+
+@portal_bp.route("/bindings/<binding_id>/framework-projects/new",
+                 methods=["GET", "POST"])
+@role_required(*EDIT_ROLES)
+def fp_new(binding_id):
+    """Onboard a framework project: select framework → locations →
+    optional preview → save. `action=preview` runs static discovery
+    WITHOUT saving; `action=save` persists as draft."""
+    binding = _binding_or_404(binding_id)
+    form = _fp_form()
+    if form.validate_on_submit():
+        fp = _fp_from_form(form)
+        if request.form.get("action") == "preview":
+            fp.binding_id = binding.id
+            fp.project_id = binding.project_id
+            res = discover(fp, binding)   # static only, not persisted
+            return render_template(
+                "portal/framework_project.html", form=form,
+                binding=binding, fp=fp, preview=res, saved=False,
+                items=None, plain_form=PlainForm(),
+                can_edit=True)
+        fp.binding_id = binding.id
+        fp.project_id = binding.project_id
+        fp.discovery_status = "draft"
+        db.session.add(fp)
+        db.session.commit()
+        record_audit(current_user.username,
+                     "framework_project.created", fp.id)
+        flash(f"Framework project {fp.name!r} saved as draft — "
+              "run discovery to validate before executing.", "info")
+        return redirect(url_for("portal.fp_detail", fp_id=fp.id))
+    for errs in form.errors.values():
+        for e in errs:
+            flash(e, "error")
+    return render_template("portal/framework_project.html",
+                           form=form, binding=binding, fp=None,
+                           preview=None, saved=False, items=None,
+                           plain_form=PlainForm(), can_edit=True)
+
+
+@portal_bp.route("/framework-projects/<fp_id>",
+                 methods=["GET"])
+@login_required
+def fp_detail(fp_id):
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    items = DiscoveredItem.query.filter_by(
+        framework_project_id=fp.id).order_by(
+        DiscoveredItem.kind, DiscoveredItem.path).all()
+    form = _fp_form(fp)
+    return render_template(
+        "portal/framework_project.html", form=form, binding=binding,
+        fp=fp, preview=None, saved=True, items=items,
+        plain_form=PlainForm(),
+        can_edit=current_user.role.value in
+        ("admin", "test_manager"))
+
+
+@portal_bp.route("/framework-projects/<fp_id>/edit",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def fp_edit(fp_id):
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    form = _fp_form()
+    if form.validate_on_submit():
+        fp = _fp_from_form(form, fp)
+        # Config changed → validated inventory is stale until the
+        # new fingerprint is confirmed by a discovery run.
+        from ..discovery import fingerprint
+        if fp.discovery_status == "ok" and \
+                fp.discovery_fingerprint != fingerprint(fp):
+            fp.discovery_status = "stale"
+        db.session.commit()
+        record_audit(current_user.username,
+                     "framework_project.edited", fp.id)
+        flash("Framework project updated "
+              + ("— discovery is stale, re-run to validate."
+                 if fp.discovery_status == "stale" else "."), "info")
+    else:
+        for errs in form.errors.values():
+            for e in errs:
+                flash(e, "error")
+    return redirect(url_for("portal.fp_detail", fp_id=fp.id))
+
+
+@portal_bp.route("/framework-projects/<fp_id>/preview",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def fp_preview(fp_id):
+    """Static discovery preview for a saved project — does not
+    persist the inventory."""
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    PlainForm().validate_on_submit()
+    res = discover(fp, binding)
+    items = DiscoveredItem.query.filter_by(
+        framework_project_id=fp.id).all()
+    return render_template(
+        "portal/framework_project.html", form=_fp_form(fp),
+        binding=binding, fp=fp, preview=res, saved=True,
+        items=items, plain_form=PlainForm(), can_edit=True)
+
+
+@portal_bp.route("/framework-projects/<fp_id>/discover",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def fp_discover(fp_id):
+    """Validate + persist the inventory — sets the project to 'ok'
+    (validated) or 'failed' (last good kept)."""
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    PlainForm().validate_on_submit()
+    out = gitsync.sync_framework_project(fp, binding)
+    record_audit(current_user.username,
+                 "framework_project.discovered", fp.id)
+    if out.get("error"):
+        flash(f"Discovery failed: {out['error']}", "error")
+    else:
+        msg = (f"Discovery validated — {out['items']} items "
+               f"({out['added']} added, {out['removed']} removed).")
+        if out.get("needs_native"):
+            msg += (" Some items need native collection on a worker "
+                    "to become selectable.")
+        flash(msg, "info")
+    return redirect(url_for("portal.fp_detail", fp_id=fp.id))
+
+
+@portal_bp.route("/framework-projects/<fp_id>/delete",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def fp_delete(fp_id):
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    PlainForm().validate_on_submit()
+    DiscoveredItem.query.filter_by(framework_project_id=fp.id).delete()
+    db.session.delete(fp)
+    db.session.commit()
+    record_audit(current_user.username,
+                 "framework_project.deleted", fp_id)
+    return redirect(url_for("portal.project_detail",
+                            project_id=binding.project_id,
+                            tab="bindings"))
+
+
+@portal_bp.route("/bindings/<binding_id>/browse")
+@role_required(*EDIT_ROLES)
+def binding_browse(binding_id):
+    """Directory browser for onboarding — bounded, contained JSON
+    listing inside the checkout. Never executes or installs."""
+    from ..discovery.base import SKIP_DIRS, safe_under
+    binding = _binding_or_404(binding_id)
+    base = (Path(binding.worktree_path or "") /
+            (binding.subdirectory or ""))
+    base = base.resolve()
+    rel = (request.args.get("path") or "").strip().strip("/")
+    target = (base / rel).resolve()
+    out = {"path": rel, "dirs": [], "files": [], "truncated": False}
+    if not binding.worktree_path or not base.is_dir() or \
+            not safe_under(target, base):
+        return out
+    if not target.is_dir():
+        return out
+    try:
+        for e in sorted(target.iterdir())[:500]:
+            if e.name.startswith(".") or e.name in SKIP_DIRS:
+                continue
+            if e.is_dir() and not e.is_symlink():
+                out["dirs"].append(e.name)
+            elif e.is_file():
+                out["files"].append(e.name)
+            if len(out["dirs"]) + len(out["files"]) >= 400:
+                out["truncated"] = True
+                break
+    except OSError:
+        pass
+    return out
 
 
 # ---------- suites ----------

@@ -537,13 +537,26 @@
   {% if project.bindings %}
   <table class="audit-table">
     <thead><tr><th>Name</th><th>URL</th><th>Ref</th><th>Synced SHA</th>
-               <th>Status</th><th></th></tr></thead>
+               <th>Status</th><th>Framework projects</th><th></th></tr></thead>
     <tbody>
       {% for b in project.bindings %}
       <tr>
         <td>{{ b.name }}</td><td><code>{{ b.url }}</code></td>
         <td>{{ b.ref }}</td><td><code>{{ (b.last_synced_sha or "—")[:12] }}</code></td>
         <td>{{ b.status }}{% if b.last_error %} — {{ b.last_error[:80] }}{% endif %}</td>
+        <td>
+          {% for fp in b.framework_projects %}
+            <div><a href="{{ url_for('portal.fp_detail', fp_id=fp.id) }}"
+               >{{ fp.name }}</a>
+              <span class="badge">{{ fp.framework }}</span>
+              <span class="badge">{{ fp.discovery_status }}</span></div>
+          {% else %}<small class="muted">—</small>{% endfor %}
+          {% if can_edit %}
+          <a class="button sm secondary" style="margin-top:4px"
+             href="{{ url_for('portal.fp_new', binding_id=b.id) }}"
+             >Add framework project</a>
+          {% endif %}
+        </td>
         <td>
           {% if can_edit %}
           <div class="cell-actions">
