@@ -21,6 +21,7 @@ from flask import (abort, flash, redirect, render_template, request,
 from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
+from ..capture import CAPTURE_CATEGORIES
 from ..execution import (ArtifactStore, DiscoveredItem, Execution,
                          ExecutionState, FrameworkProject,
                          ReleaseItem, RuntimeConnection,
@@ -401,6 +402,8 @@ def project_detail(project_id):
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
         artifact_stores=ArtifactStore.query.filter_by(
             project_id=project.id).order_by(ArtifactStore.name).all(),
+        capture_categories=CAPTURE_CATEGORIES,
+        capture_policy=project.capture_policy(),
         users=(User.query.order_by(User.username).all()
                if current_user.role.value == "admin" else []),
         executions=Execution.query.filter_by(project_id=project_id)
@@ -1069,6 +1072,30 @@ def store_test(project_id):
            if ok else "Connection test FAILED — fix the destination "
            "or ask an administrator for access, then test again."),
           "info" if ok else "error")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/capture-policy",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def capture_policy_update(project_id):
+    """Save the project's artifact-collection permissions
+    (§storage-5). These are COLLECTION permissions — they do not
+    prevent a framework from generating the files. Snapshotted per
+    execution at dispatch; enforcement is server-side in _collect."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    from ..capture import CAPTURE_CATEGORIES, normalize_policy
+    raw = {k: bool(request.form.get(f"cat_{k}"))
+           for k, _, req, _ in CAPTURE_CATEGORIES if not req}
+    project.capture_policy_json = json.dumps(normalize_policy(raw))
+    db.session.commit()
+    record_audit(current_user.username,
+                 "capture_policy.updated",
+                 f"{project.id}: {project.capture_policy()}")
+    flash("Capture policy saved — applies to NEW executions; "
+          "recorded policy on past runs is unchanged.", "info")
     return redirect(url_for("portal.project_detail",
                             project_id=project.id, tab="storage"))
 
@@ -2754,11 +2781,15 @@ def execution_detail(execution_id):
             1 for u in units if u.state in active)
     parent = (db.session.get(Execution, ex.parent_id)
               if ex.parent_id else None)
+    store_active = ArtifactStore.query.filter_by(
+        project_id=ex.project_id, active=True, retired=False
+    ).first() is not None
     return render_template(
         "portal/execution_detail.html", ex=ex, counts=counts,
         plain_form=PlainForm(), can_edit=can_edit,
         unresolved=unresolved, units=units, parent=parent,
         actual_concurrency=actual_concurrency,
+        store_active=store_active,
         rl_enabled=settings_mod.get("reportinglabs_enabled", True))
 
 
@@ -2778,6 +2809,10 @@ def artifact_retry(artifact_id):
         ex, Path(ex.report_dir or ""))
     record_audit(current_user.username, "artifact.store_retry",
                  f"{a.id} -> {out}")
+    if out["skipped"]:
+        flash(f"{out['skipped']} file(s) are no longer present in "
+              "staging — recovery is unavailable for them; only a "
+              "new run can regenerate them.", "error")
     flash(f"Storage retry: {out['stored']} stored, "
           f"{out['failed']} failed.", "info" if not out["failed"]
           else "error")

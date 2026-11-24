@@ -87,6 +87,16 @@ class _FSStore:
             o.flush()
             os.fsync(o.fileno())
         os.replace(tmp, dst)
+        # Re-resolve AFTER the rename: a swapped parent (symlink
+        # substitution between the key check and the rename) lands
+        # outside the root — detect and refuse rather than trusting
+        # the check-to-use window.
+        if not _under(dst, [self.root]):
+            try:
+                dst.unlink()
+            except OSError:
+                pass
+            raise StoreError("post-rename containment check failed")
         from .results import sha256_file
         if sha256_file(dst) != h.hexdigest() or \
                 dst.stat().st_size != src.stat().st_size:
@@ -153,14 +163,36 @@ class _S3Store:
     dependency is separately approved, so absence is an honest
     readiness failure, not a silent fallback."""
 
-    def __init__(self, cfg: dict, credential: str = ""):
+    def __init__(self, cfg: dict, credential_ref: str = ""):
         self.cfg = cfg
+        # TLS is the default — a non-TLS endpoint is only accepted
+        # behind an explicit test-only config flag (§2); it must
+        # never become a production default. Checked before the
+        # dependency gate so the policy holds regardless of boto3.
+        ep = (cfg.get("endpoint_url") or "")
+        if ep.startswith("http://") and not current_app.config.get(
+                "TO_S3_ALLOW_INSECURE_ENDPOINTS"):
+            raise StoreError(
+                "non-TLS S3 endpoint refused — set TLS or mark the "
+                "endpoint test-only in config")
         try:
             import boto3                               # gated dep
         except ImportError as exc:
             raise StoreError(
                 "S3 storage requires boto3 — pending dependency "
                 "approval; local/mounted stores work now") from exc
+        # The ref is a SecretRef NAME — resolve through the secrets
+        # store; credentials are never stored in config, URLs, or
+        # logs. Expected format 'access_key:secret_key'.
+        credential = ""
+        if credential_ref:
+            from .secrets_store import SecretError, read_secret
+            try:
+                credential = read_secret(
+                    current_app._get_current_object(), credential_ref)
+            except SecretError as exc:
+                raise StoreError(
+                    f"credential {credential_ref!r}: {exc}") from exc
         from botocore.config import Config
         self._client = boto3.client(
             "s3",
@@ -256,6 +288,16 @@ def backend_for(store) -> object:
             raise StoreError(
                 f"root {root} is outside the approved "
                 f"{store.kind} roots")
+        # Share-absence guard (§storage-4): a mounted destination
+        # whose mount is gone must NOT silently write into the
+        # underlying mount-point directory and report network
+        # storage. The configured root must be the mount point
+        # itself — additional layout lives in `subdir`.
+        if store.kind == "mounted" and not os.path.ismount(root):
+            raise StoreError(
+                f"mounted store root {root} is not a mount point — "
+                "the configured share appears absent; refusing to "
+                "write to the underlying directory")
         return _FSStore(root, cfg.get("subdir") or "")
     if store.kind == "s3":
         if not cfg.get("bucket"):
@@ -293,10 +335,21 @@ def store_execution_artifacts(ex, report_dir) -> dict:
     snap = ex.snapshot()
     attempt = len(snap.get("bb_attempts") or []) or 1
     rows = Artifact.query.filter_by(execution_id=ex.id).all()
+    root = Path(report_dir).resolve()
     for a in rows:
-        src = (Path(report_dir) / a.rel_path).resolve()
+        src = (root / a.rel_path).resolve()
+        # Source containment: a rel_path must never reach outside the
+        # report dir — a registered artifact is evidence, not an
+        # arbitrary-read primitive.
+        if src != root and root not in src.parents:
+            a.storage_state = "failed"
+            store.last_error = f"containment: {a.rel_path}"[:512]
+            counts["failed"] += 1
+            continue
         if not src.is_file():
-            a.storage_state = "staged"
+            # Actionable state (§storage-6): the staged source is
+            # gone — retry cannot recover it, only a re-run can.
+            a.storage_state = "missing"
             counts["skipped"] += 1
             continue
         a.storage_state = "uploading"

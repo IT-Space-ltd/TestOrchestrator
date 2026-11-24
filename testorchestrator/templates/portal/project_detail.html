@@ -856,6 +856,40 @@
   </script>
   {% endif %}
 
+  <h3>Artifact capture</h3>
+  <p class="muted">These are <strong>collection</strong>
+  permissions — they control which generated files
+  TestOrchestrator transfers and retains. They do
+  <strong>not</strong> guarantee a framework will produce those
+  files, and they do not prevent a framework from generating them
+  on the worker (generation is a framework setting). The policy is
+  snapshotted into each execution; changing it affects new runs
+  only. Excluded files stay recorded in the evidence manifest.
+  Broad checkout-directory uploads remain prohibited.</p>
+  {% if can_edit %}
+  <form method="post" class="add-form"
+        action="{{ url_for('portal.capture_policy_update',
+                           project_id=project.id) }}">
+    {{ plain_form.csrf_token }}
+    {% for key, label, required, note in capture_categories %}
+    <div class="field">
+      <label><input type="checkbox" name="cat_{{ key }}" value="1"
+        {% if required or capture_policy.get(key, true) %}checked{% endif %}
+        {% if required %}disabled{% endif %}> {{ label }}</label>
+      {% if required %}<small class="muted">always collected —
+        {{ note }}</small>
+      {% elif note %}<small class="muted">⚠ {{ note }}</small>{% endif %}
+    </div>
+    {% endfor %}
+    <div class="btn-row">
+      <button class="button secondary" type="submit">Save capture policy</button></div>
+  </form>
+  {% else %}
+  <ul>{% for key, label, required, note in capture_categories %}
+    <li>{{ label }} — {{ "on" if capture_policy.get(key, true) else "off" }}</li>
+  {% endfor %}</ul>
+  {% endif %}
+
   <h3>Optional — Git publication</h3>
   <p class="muted">Publishing copies <em>explicitly selected</em>
   reports to a Git repository. It is optional, independent of

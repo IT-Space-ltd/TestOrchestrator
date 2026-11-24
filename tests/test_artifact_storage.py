@@ -159,7 +159,7 @@ def test_partial_transfer_states(tmp_path):
         states = {a.rel_path: a.storage_state for a in
                   Artifact.query.filter_by(execution_id=exid)}
         assert states["junit/r.xml"] == "stored"
-        assert states["log.txt"] == "staged"
+        assert states["log.txt"] == "missing"   # actionable state
 
 
 def test_corrupt_durable_copy_refused(tmp_path):
@@ -324,3 +324,123 @@ def test_storage_tab_guided_form(tmp_path):
     assert "Git publication" in body
     assert "disabled" in body            # hidden groups are disabled
     assert "artifact-stores/test" in body
+
+
+def test_mounted_absent_share_refused(tmp_path):
+    """A mounted destination whose share is absent must not write
+    into the underlying mount-point directory (§4)."""
+    roots = tmp_path / "approved"
+    mount = tmp_path / "plaindir"
+    mount.mkdir()
+    app = _app(tmp_path, roots)
+    with app.app_context():
+        app.config["TO_MOUNTED_ROOTS"] = [str(tmp_path)]
+        st = ArtifactStore(project_id="p1", name="S",
+                           kind="mounted",
+                           config_json=json.dumps({"root": str(mount)}))
+        with pytest.raises(storage.StoreError,
+                           match="not a mount point"):
+            storage.backend_for(st)
+
+
+def test_capture_policy_snapshot_and_enforce(tmp_path):
+    """Excluded categories are not registered as artifacts but are
+    recorded in the sealed manifest; policy comes from the
+    execution snapshot, not live project state (§5)."""
+    from testorchestrator import dispatch
+    from testorchestrator.capture import normalize_policy
+    roots = tmp_path / "approved"
+    app = _app(tmp_path, roots)
+    with app.app_context():
+        pid, exid, rd = _ex(app, tmp_path, roots)
+        (rd / "shot.png").write_bytes(b"PNG")
+        (rd / "vid.mp4").write_bytes(b"V")
+        ex = db.session.get(Execution, exid)
+        pol = normalize_policy({"screenshots": False, "videos": False})
+        snap = ex.snapshot()
+        snap.setdefault("run_config", {})["capture_policy"] = pol
+        ex.snapshot_json = json.dumps(snap)
+        db.session.commit()
+        dispatch._collect(ex, rd, rd)
+        kinds = {a.rel_path for a in
+                 Artifact.query.filter_by(execution_id=exid)}
+        assert "shot.png" not in kinds
+        assert "vid.mp4" not in kinds
+        assert "junit/r.xml" in kinds
+        man = json.loads((rd / "manifest.json").read_text())
+        excl = {e["rel_path"] for e in man["excluded"]}
+        assert {"shot.png", "vid.mp4"} <= excl
+
+
+def test_reports_category_cannot_be_disabled():
+    """Machine-readable results are required — a policy that tries
+    to disable them normalizes back to enabled (§5)."""
+    from testorchestrator.capture import normalize_policy
+    pol = normalize_policy({"reports": False, "videos": False})
+    assert pol["reports"] is True
+    assert pol["videos"] is False
+
+
+def test_capture_policy_route(tmp_path):
+    """Route saves normalized policy; reports stays on; audit
+    records it (§5, §9 UI)."""
+    from tests.conftest import login
+    roots = tmp_path / "approved"
+    app = _app(tmp_path, roots)
+    with app.app_context():
+        pid, _, _ = _ex(app, tmp_path, roots)
+    client = app.test_client()
+    login(client, "admin")
+    rv = client.post(f"/projects/{pid}/capture-policy",
+                     data={"cat_videos": "1", "cat_reports": "0"},
+                     follow_redirects=True)
+    assert rv.status_code == 200
+    with app.app_context():
+        p = db.session.get(Project, pid)
+        pol = p.capture_policy()
+        assert pol["reports"] is True     # forced on
+        assert pol["videos"] is True
+        assert pol["screenshots"] is False  # unchecked → off
+
+
+def test_store_routes_require_edit_role(tmp_path):
+    """test/new/probe/toggle/delete all refuse non-edit roles
+    (§7)."""
+    from tests.conftest import login
+    roots = tmp_path / "approved"
+    app = _app(tmp_path, roots)
+    with app.app_context():
+        pid, _, _ = _ex(app, tmp_path, roots)
+        db.session.add(ArtifactStore(
+            project_id=pid, name="S", kind="local",
+            config_json=json.dumps({"root": str(roots)})))
+        db.session.commit()
+        sid = ArtifactStore.query.one().id
+    client = app.test_client()
+    login(client, "po")          # project-owner: read-only role
+    for url in (f"/projects/{pid}/artifact-stores/test",
+                f"/projects/{pid}/artifact-stores/new",
+                f"/artifact-stores/{sid}/probe",
+                f"/artifact-stores/{sid}/toggle",
+                f"/artifact-stores/{sid}/delete",
+                f"/projects/{pid}/capture-policy"):
+        assert client.post(url, data={}).status_code == 403, url
+
+
+def test_s3_non_tls_endpoint_refused(tmp_path):
+    """http:// endpoints are refused by default — TLS is required;
+    a test-only config flag is the only override (§7)."""
+    roots = tmp_path / "approved"
+    app = _app(tmp_path, roots)
+    with app.app_context():
+        st = ArtifactStore(project_id="p1", name="S", kind="s3",
+                           config_json=json.dumps(
+                               {"bucket": "b",
+                                "endpoint_url": "http://minio:9000"}))
+        with pytest.raises(storage.StoreError, match="non-TLS"):
+            storage.backend_for(st)
+        # test-only override passes the endpoint check (then fails
+        # on the boto3 gate, which is pending approval)
+        app.config["TO_S3_ALLOW_INSECURE_ENDPOINTS"] = True
+        with pytest.raises(storage.StoreError, match="boto3"):
+            storage.backend_for(st)

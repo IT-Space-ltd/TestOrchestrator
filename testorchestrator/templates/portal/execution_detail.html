@@ -94,6 +94,10 @@
         <td>{% if not arts %}<span class="badge">no artifacts</span>
           {% elif n_stored == arts|length %}<span class="badge success">verified</span>
           {% elif n_failed %}<span class="badge danger">{{ n_failed }} file(s) failed to store</span>
+          {% elif not store_active %}<span class="badge warn">staged only</span>
+            <small class="muted">Durable storage is not configured —
+            files may become unavailable when staging is
+            removed.</small>
           {% else %}<span class="badge warn">{{ n_pending }} file(s) staged — not yet durable</span>{% endif %}
           {% if n_failed %}<small class="muted">Tests completed, but
             {{ n_failed }} artifact file(s) could not be stored.
@@ -278,8 +282,14 @@
         <td><span class="badge">{{ a.kind }}</span></td>
         <td>{{ a.size }}</td>
         <td><code>{{ a.sha256[:12] }}</code></td>
-        <td><span class="badge">{{ a.storage_state or "staged" }}</span></td>
-        <td class="cell-actions"><a class="button secondary sm" href="{{ url_for('portal.download_artifact', execution_id=ex.id, artifact_id=a.id) }}">download</a>
+        <td><span class="badge">{{ a.storage_state or "staged" }}</span>
+          {% if a.storage_state == "missing" %}<br><small class="muted">
+            staging removed — unrecoverable without a new run</small>
+          {% endif %}</td>
+        <td class="cell-actions">
+          {% if a.storage_state != "missing" %}
+          <a class="button secondary sm" href="{{ url_for('portal.download_artifact', execution_id=ex.id, artifact_id=a.id) }}">download</a>
+          {% endif %}
           {% if a.storage_state == "failed" %}
           <form method="post" class="inline"
                 action="{{ url_for('portal.artifact_retry', artifact_id=a.id) }}">

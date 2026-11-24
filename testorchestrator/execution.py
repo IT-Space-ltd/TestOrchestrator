@@ -27,7 +27,19 @@ class Project(db.Model):
     id = db.Column(db.String(32), primary_key=True, default=new_id)
     name = db.Column(db.String(128), nullable=False)
     description = db.Column(db.Text, nullable=False, default="")
+    # Artifact capture policy (§storage-5): per-category collection
+    # permissions, snapshotted into each execution's run_config.
+    capture_policy_json = db.Column(db.Text, nullable=False,
+                                  default="{}")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    def capture_policy(self) -> dict:
+        from .capture import normalize_policy
+        try:
+            raw = json.loads(self.capture_policy_json or "{}")
+        except ValueError:
+            raw = {}
+        return normalize_policy(raw)
 
 
 class GitBinding(db.Model):

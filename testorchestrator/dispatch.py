@@ -40,7 +40,7 @@ from .adapters.buildbot import BuildbotAdapter
 from . import buildbot_cfg
 from .execution import (ApiToken, Artifact, DiscoveredItem, Execution,
                         ExecutionState, GitBinding,
-                        OutboxEvent, Outcome, Plan, Release,
+                        OutboxEvent, Outcome, Plan, Project, Release,
                         ResourceReservation, Runner,
                         RuntimeConnection, Schedule, Suite, SyncState,
                         TestResult, utcnow)
@@ -444,6 +444,12 @@ def create_execution(username: str, suite: Suite = None,
             "bruno_recurse": bool(rc.get("bruno_recurse")),
             "bruno": {str(k)[:32]: v for k, v in
                       dict(rc.get("bruno") or {}).items()},
+            # Artifact capture permissions (§storage-5): immutable
+            # per-execution snapshot of the project's collection
+            # policy — editing the project policy never rewrites a
+            # past run's recorded permissions.
+            "capture_policy":
+                _project_capture_policy(project_id),
             # Native-collection operation (M6): the worker runs the
             # framework's own collector and returns structured JSON
             # instead of executing tests. fp_id ties the result to
@@ -1677,6 +1683,14 @@ def _snapshot_suite_path(ex: Execution) -> str:
     return first or "Test Suites/suite"
 
 
+def _project_capture_policy(project_id: str) -> dict:
+    """Resolve the project's capture policy for snapshotting —
+    missing projects default to collect-everything (historical)."""
+    from .capture import normalize_policy
+    p = db.session.get(Project, project_id) if project_id else None
+    return p.capture_policy() if p else normalize_policy({})
+
+
 def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
     """Evidence collection: JUnit discovery + manifest with checksums;
     every file is registered, unmapped files stay at run level (§9).
@@ -1705,11 +1719,29 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
                 "native collection produced no collect.json")[:512]
     junit_files = set(kre_adapter.discover_reports(report_dir))
     manifest = results_mod.build_evidence_manifest(report_dir, junit_files)
+    # Capture policy (§storage-5): the immutable run_config snapshot
+    # controls which categories are COLLECTED. Excluded files are
+    # still generated on the worker — toggles never imply
+    # generation-time suppression — and are recorded in the sealed
+    # manifest so the evidence index stays honest about what the run
+    # produced vs. what was transferred.
+    from .capture import normalize_policy, policy_allows
+    policy = normalize_policy(
+        (ex.snapshot().get("run_config") or {}).get("capture_policy"))
+    excluded = []
     for item in manifest:
         if item["rel_path"] == "manifest.json":
             continue  # sealed index — rewritten+registered separately
         if item["rel_path"].startswith("logs/"):
             item["kind"] = "log"
+        allowed, cat = policy_allows(policy, item["rel_path"],
+                                     item["kind"])
+        if not allowed:
+            excluded.append({
+                "rel_path": item["rel_path"], "category": cat,
+                "sha256": item["sha256"], "size": item["size"],
+            })
+            continue
         db.session.add(Artifact(
             execution_id=ex.id,
             kind=item["kind"], rel_path=item["rel_path"],
@@ -1717,7 +1749,11 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             mapped=item["kind"] == "junit",
         ))
     db.session.commit()
-    _write_evidence_manifest(ex, report_dir)
+    if excluded:
+        record_audit("system", "artifacts.capture_excluded",
+                     f"{ex.id}: {len(excluded)} generated file(s) "
+                     "excluded by capture policy")
+    _write_evidence_manifest(ex, report_dir, excluded)
     # Durable storage (M9): stage → store → verify; staging is kept
     # — workspace cleanup may only drop confirmed `stored` copies.
     try:
@@ -1745,7 +1781,8 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             pass  # reporting must never break the execution pipeline
 
 
-def _write_evidence_manifest(ex: Execution, report_dir: Path) -> None:
+def _write_evidence_manifest(ex: Execution, report_dir: Path,
+                             excluded: list = None) -> None:
     """Sealed evidence index: manifest.json lands INSIDE the report
     dir listing every registered artifact (path/kind/sha256/size) plus
     execution identity + deployed source state — then it is registered
@@ -1770,6 +1807,11 @@ def _write_evidence_manifest(ex: Execution, report_dir: Path) -> None:
                 "sha256": a.sha256, "size": a.size, "mime": a.mime,
                 "mapped": a.mapped,
             } for a in sorted(rows, key=lambda r: r.rel_path)],
+            # Files the worker generated but the capture policy
+            # excluded — recorded (not collected) so generation is
+            # never silently conflated with collection.
+            "excluded": sorted(excluded or [],
+                               key=lambda e: e["rel_path"]),
         }
         path = report_dir / "manifest.json"
         path.write_text(json.dumps(doc, indent=2, sort_keys=True),
