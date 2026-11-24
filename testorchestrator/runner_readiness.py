@@ -39,12 +39,15 @@ def submit(runtime, app_url: str = "",
            required_libs: str = "") -> tuple:
     """Stage + submit the probe. Returns (ok, message)."""
     kind = runtime.runtime_kind or "kre"
-    pyfw = kind in (robotfw.KIND, pytestfw.KIND)
+    pyfw = kind in (robotfw.KIND, pytestfw.KIND, "behave")
     kind = kind if pyfw or kind in nodefw.KINDS else "playwright"
     runner = runtime.runner
     rid = _rid(runtime)
     if kind == pytestfw.KIND:
         scripts = pytestfw.probe_scripts(app_url.strip())
+    elif kind == "behave":
+        from .adapters import behavefw
+        scripts = behavefw.probe_scripts(app_url.strip())
     elif kind == robotfw.KIND:
         scripts = robotfw.probe_scripts(app_url.strip())
     else:
@@ -128,13 +131,13 @@ def _summarize(probe: dict, kind: str) -> str:
     if probe.get("app_url", "").startswith("UNREACHABLE"):
         problems.append("target/browser cannot reach the application "
                         "URL")
-    if kind in (robotfw.KIND, pytestfw.KIND):
+    if kind in (robotfw.KIND, pytestfw.KIND, "behave"):
         problems = []
         if probe.get("python", "missing").startswith("missing"):
             problems.append("configured Python interpreter not "
                             "runnable by this account")
         pkg = {"robot": "robotframework",
-               "pytest": "pytest"}[kind]
+               "pytest": "pytest", "behave": "behave"}[kind]
         if probe.get(kind, "missing").startswith("missing"):
             problems.append(f"{kind} not importable — install "
                             f"{pkg} in the configured "

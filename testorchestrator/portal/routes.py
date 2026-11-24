@@ -1280,7 +1280,16 @@ def discovered_detail(item_id):
 def run_discovered(item_id):
     from ..execution import DiscoveredItem
     item = db.session.get(DiscoveredItem, item_id)
-    if item is None or item.kind not in ("suite", "collection"):
+    if item is None:
+        abort(404)
+    # Dispatch gate: legacy suite/collection items, plus any
+    # framework-project item the adapter marked selectable
+    # (file/test/scenario). Candidate items (selectable=False) and
+    # invalidated configs are rejected server-side in
+    # create_execution via _fp_item_gate.
+    _dispatchable = (item.kind in ("suite", "collection") or
+                     (item.framework_project_id and item.selectable))
+    if not _dispatchable:
         abort(404)
     _project_or_404(item.project_id)
     PlainForm().validate_on_submit()

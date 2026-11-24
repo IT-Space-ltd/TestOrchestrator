@@ -23,7 +23,7 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
-from .adapters import nodefw, pytestfw, robotfw
+from .adapters import behavefw, nodefw, pytestfw, robotfw
 
 
 def _tag_list(raw) -> list:
@@ -55,6 +55,60 @@ LEASE_SECONDS = 60
 
 class DispatchError(RuntimeError):
     pass
+
+
+# Framework (discovery adapter) → required runtime kind. A
+# framework-project item may only dispatch through a matching
+# runtime — enforced server-side at creation AND at dispatch.
+FRAMEWORK_RUNTIME = {
+    "katalon": "kre",
+    "pytest": "pytest",
+    "pytest-bdd": "pytest",
+    "playwright-pytest": "pytest",
+    "behave": "behave",
+    "robot": "robot",
+    "cypress": "cypress",
+    "playwright": "playwright",
+}
+
+
+def _fp_item_gate(source_item, rc=None):
+    """Server-side enforcement for framework-project items: the
+    parent project must have VALIDATED discovery for the bound
+    revision, the item must be individually selectable, and the
+    chosen runtime kind must match the framework's runtime."""
+    if not getattr(source_item, "framework_project_id", None):
+        return                                    # legacy item
+    from .execution import FrameworkProject
+    fp = db.session.get(FrameworkProject,
+                        source_item.framework_project_id)
+    if fp is None:
+        raise DispatchError("framework project is gone — refresh "
+                            "the binding")
+    if fp.discovery_status != "ok":
+        raise DispatchError(
+            f"discovery is {fp.discovery_status} — run discovery "
+            "to validate this configuration before executing")
+    binding = db.session.get(GitBinding, fp.binding_id)
+    if binding and fp.discovered_sha and binding.last_synced_sha \
+            and fp.discovered_sha != binding.last_synced_sha:
+        raise DispatchError(
+            "discovery was validated for a different repository "
+            "revision — refresh the binding and re-run discovery")
+    if not source_item.selectable:
+        raise DispatchError(
+            f"{source_item.name!r} is a discovery candidate — it "
+            "needs native collection before it can execute")
+    if rc:
+        rid = str(rc.get("runtime_id") or "").strip()
+        if rid:
+            rt = db.session.get(RuntimeConnection, rid)
+            want = FRAMEWORK_RUNTIME.get(fp.framework, "")
+            got = getattr(rt, "runtime_kind", "") if rt else ""
+            if want and got != want:
+                raise DispatchError(
+                    f"{fp.framework} items require a {want!r} "
+                    f"runtime (selected is {got or 'unknown'!r})")
 
 
 # ---------- creation / snapshot ----------
@@ -192,8 +246,24 @@ def create_execution(username: str, suite: Suite = None,
 
     rc = dict(run_config or {})
     if source_item is not None:
+        _fp_item_gate(source_item, rc)
         rc.setdefault("suite_path", source_item.path)
         rc.setdefault("collection", source_item.kind == "collection")
+        if source_item.node_id and \
+                source_item.granularity in ("test", "scenario"):
+            fw = source_item.framework or ""
+            if fw in ("pytest", "pytest-bdd", "playwright-pytest"):
+                rc.setdefault("node_ids", [source_item.node_id])
+            elif fw == "behave":
+                rc.setdefault("behave_targets",
+                              [source_item.node_id])
+            elif fw == "robot":
+                rc.setdefault("robot_test", source_item.node_id)
+        elif source_item.node_id and \
+                source_item.granularity == "file":
+            fw = source_item.framework or ""
+            if fw in ("cypress", "playwright"):
+                rc.setdefault("spec", source_item.node_id)
     _validate_parallel(rc, _snapshot_runtime_kind(rc))
     snapshot = {
         "plan_id": plan_id,
@@ -205,6 +275,9 @@ def create_execution(username: str, suite: Suite = None,
             "path": source_item.path,
             "name": source_item.name,
             "sha": source_item.sha,
+            "framework": source_item.framework,
+            "node_id": source_item.node_id,
+            "granularity": source_item.granularity,
         } if source_item is not None else None),
         "suite_id": suite.id if suite else "",
         "suite_name": (source_item.name if source_item is not None
@@ -248,6 +321,18 @@ def create_execution(username: str, suite: Suite = None,
             # pytest selection knobs (kind=pytest only).
             "pytest_keyword": str(rc.get("pytest_keyword") or "")[:256],
             "pytest_markers": str(rc.get("pytest_markers") or "")[:256],
+            # Framework-discovery selectors (2.7.0): exact node IDs
+            # for pytest-family items, behave path:LINE targets, and
+            # a single spec path for cypress/playwright file-level
+            # items. Server-side validated — only `selectable` items
+            # produce these.
+            "node_ids": [str(x)[:512]
+                         for x in list(rc.get("node_ids") or [])
+                         [:256]],
+            "behave_targets": [str(x)[:512]
+                               for x in list(rc.get("behave_targets")
+                                             or [])[:256]],
+            "spec": str(rc.get("spec") or "")[:512],
             # Running-time limit in seconds (process-launch clock,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
@@ -1714,6 +1799,18 @@ def _submit_buildbot(ex: Execution, runner: Runner,
     slot = _pick_slot(ex, runner)
     timeout_s = int(rc.get("timeout_seconds") or 3600)
     node_kind = getattr(runtime, "runtime_kind", "") or "kre"
+    # Framework-project items dispatch only through their matching
+    # runtime kind — a mismatched pool pick is a config failure,
+    # never a silent re-interpretation.
+    st = (ex.snapshot_json and
+          (json.loads(ex.snapshot_json).get("source_target") or {}))
+    if st.get("framework"):
+        want = FRAMEWORK_RUNTIME.get(st["framework"], "")
+        if want and node_kind != want:
+            _fail(ex, "config",
+                  f"{st['framework']} item requires a {want!r} "
+                  f"runtime — dispatched to {node_kind!r}")
+            return
     if node_kind in nodefw.KINDS:
         ok_b, browser_val = nodefw.validate_browser(
             node_kind, rc.get("browser", ""))
@@ -1734,7 +1831,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         _specs = _unit.get("specs") or []
         node_args = nodefw.build_args(
             node_kind, browser_val,
-            spec=(",".join(_specs) if _specs else ""),
+            spec=(",".join(_specs) if _specs
+                  else str(rc.get("spec") or "")),
             workers=_pw_workers,
             shard=_shard)
         node_env = nodefw.junit_env(node_kind)
@@ -1859,6 +1957,7 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             suite_path=(rc.get("suite_path") or "").strip(),
             keyword=(rc.get("pytest_keyword") or "").strip(),
             markers=(rc.get("pytest_markers") or "").strip(),
+            node_ids=rc.get("node_ids") or (),
             numprocesses=_pprocs, force_serial=_serial)
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
@@ -1897,6 +1996,53 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         db.session.commit()
         record_audit("system", "execution.buildbot_dispatched",
                      f"{ex.id}: {builder} (pytest) brid {brid}")
+        return
+    if node_kind == "behave":
+        # python -m behave — junit under Reports/junit/, same
+        # spec/collect pipeline; targets are feature paths or
+        # path:LINE scenario selectors.
+        targets = list(rc.get("behave_targets") or [])
+        sp = (rc.get("suite_path") or "").strip()
+        if not targets and sp:
+            targets = [sp]
+        behave_args = behavefw.build_args(targets=targets)
+        win = (runner.os_arch or "").lower().startswith("win")
+        py = (runtime.executable_path or "").strip() \
+            or ("python.exe" if win else "python3")
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            py_dir = str(Path(py).parent)
+            if Path(py).is_absolute() and py_dir != ".":
+                extra["path_prefix"] = py_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, behave_args, executable=py,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, py, behave_args, posix=not win)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (behave) brid {brid}")
         return
     flags, dropped = kre_adapter.gated_flags(
         runtime.detected_version, rc.get("kre_options") or {})
