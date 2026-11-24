@@ -27,14 +27,11 @@
   <form method="post" action="{{ url_for('system.save_user_access', user_id=u.id) }}">
     {{ apply_form.csrf_token }}
     <div class="field">
-      <input type="search" id="proj-filter" placeholder="filter projects…"
-             oninput="document.querySelectorAll('.proj-row').forEach(
-               r => r.style.display = r.dataset.name.includes(
-                 this.value.toLowerCase()) ? '' : 'none')">
+      <input type="search" id="proj-filter" placeholder="filter projects…">
       <button type="button" class="button secondary sm"
-        onclick="document.querySelectorAll('.proj-cb').forEach(c => c.checked = true)">Select all</button>
+        data-check-group=".proj-cb" data-check-on="1">Select all</button>
       <button type="button" class="button secondary sm"
-        onclick="document.querySelectorAll('.proj-cb').forEach(c => c.checked = false)">Clear</button>
+        data-check-group=".proj-cb" data-check-on="0">Clear</button>
     </div>
     <table class="audit-table">
       <thead><tr><th>Assigned</th><th>Project</th></tr></thead>

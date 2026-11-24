@@ -90,7 +90,7 @@
 
 {% if executions %}
 <form method="post" action="{{ url_for('portal.bulk_cancel_executions') }}"
-      onsubmit="return confirm('Request cancellation for the selected executions?');">
+      data-confirm="Request cancellation for the selected executions?">
   {{ plain_form.csrf_token }}
   <input type="hidden" name="ret" value='{{ page_args|tojson|safe }}'>
 <table class="data-table">

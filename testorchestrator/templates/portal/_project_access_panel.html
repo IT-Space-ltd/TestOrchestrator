@@ -6,9 +6,9 @@
   {{ plain_form.csrf_token }}
   <div class="field">
     <button type="button" class="button secondary sm"
-      onclick="document.querySelectorAll('.u-cb').forEach(c => c.checked = true)">Select all</button>
+      data-check-group=".u-cb" data-check-on="1">Select all</button>
     <button type="button" class="button secondary sm"
-      onclick="document.querySelectorAll('.u-cb').forEach(c => c.checked = false)">Clear</button>
+      data-check-group=".u-cb" data-check-on="0">Clear</button>
   </div>
   <table class="audit-table">
     <thead><tr><th>Assigned</th><th>User</th><th>Role</th><th>Status</th></tr></thead>

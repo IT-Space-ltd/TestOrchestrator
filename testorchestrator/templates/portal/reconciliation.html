@@ -74,7 +74,7 @@ audited operator action.
   </table>
   <form method="post" class="btn-row"
         action="{{ url_for('portal.prune_orphan_evidence') }}"
-        onsubmit="return confirm('Remove {{ orphan_dirs|length }} orphaned evidence dir(s)? Only unreferenced application-owned dirs are deleted.')">
+        data-confirm="Remove {{ orphan_dirs|length }} orphaned evidence dir(s)? Only unreferenced application-owned dirs are deleted.">
     {{ plain_form.hidden_tag() }}
     <button type="submit" class="button danger">Prune orphans
       ({{ orphan_dirs|length }})</button>

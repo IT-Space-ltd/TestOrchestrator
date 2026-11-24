@@ -89,7 +89,7 @@
       · {{ discovered.binding.discovery_status }}{% endif %}</p>
   <div class="card release-overview">
     <div class="card-head"><h3>Releases</h3>
-      <a class="muted" href="#" onclick="document.getElementById('tab-releases').checked=true;return false">View all releases</a></div>
+      <a class="muted" href="#" data-check-radio="tab-releases">View all releases</a></div>
     <p class="muted">Current release state — not date-filtered.
       {{ active_releases|length }} active · {{ overdue_active|length }} overdue · {{ undated_active|length }} undated</p>
     {% if dated_active %}
@@ -278,7 +278,7 @@
         <td>
           {% if can_run and s.enabled %}
           <form method="post" action="{{ url_for('portal.run_schedule_now', schedule_id=s.id) }}" class="inline"
-                onsubmit="return confirm('Trigger this schedule now?');">
+                data-confirm="Trigger this schedule now?">
             {{ plain_form.csrf_token }}
             <input type="hidden" name="submit_token"
                    value="{{ s.id }}-{{ range(10**9,10**10)|random }}">

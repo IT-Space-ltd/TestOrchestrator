@@ -60,7 +60,7 @@
       {{ apply_form.credential(required=true, autocomplete="off") }}</div>
     <div class="btn-row">
       <button type="submit" class="button primary"
-              onclick="return confirm('Apply this restore? All restored sessions and API tokens will be revoked.')">
+              data-confirm="Apply this restore? All restored sessions and API tokens will be revoked.">
         Apply restore</button>
     </div>
   </form>

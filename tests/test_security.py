@@ -45,3 +45,22 @@ def test_open_redirect_rejected(client):
     )
     assert response.status_code == 302
     assert "evil.example" not in response.headers["Location"]
+
+
+def test_templates_have_no_inline_javascript():
+    """CSP script-src 'self' blocks inline JS — templates must not
+    reintroduce <script> blocks without src or on* event attributes,
+    since those silently break UI behavior (e.g. the SSH-target reveal)."""
+    import re
+    from pathlib import Path
+
+    templates = Path(__file__).resolve().parents[1] / \
+        "testorchestrator" / "templates"
+    bad = []
+    for tpl in templates.rglob("*.html"):
+        text = tpl.read_text(encoding="utf-8")
+        for m in re.finditer(r"<script(?!\s+src\b)[^>]*>", text):
+            bad.append((tpl.name, "bare <script>", text[:m.start()].count("\n") + 1))
+        for m in re.finditer(r"\son(click|submit|input|change|load|error|focus|blur|keyup|keydown)\s*=", text):
+            bad.append((tpl.name, m.group(0), text[:m.start()].count("\n") + 1))
+    assert bad == [], f"inline JS reintroduced: {bad}"

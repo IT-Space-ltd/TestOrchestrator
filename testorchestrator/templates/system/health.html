@@ -37,7 +37,7 @@
     disconnects briefly — reconnect and check this page for the result.
     Remote workers and their KRE executions are not touched.</p>
   <form method="post" action="{{ url_for('system.restart_services') }}"
-        onsubmit="return confirm('Restart TestOrchestrator services? The browser will disconnect briefly.');">
+        data-confirm="Restart TestOrchestrator services? The browser will disconnect briefly.">
     {{ restart_form.csrf_token }}
     <button class="button primary" type="submit"
       {{ "disabled" if not status.managed }}>Restart services</button>

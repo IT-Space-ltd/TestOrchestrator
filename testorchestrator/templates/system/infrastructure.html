@@ -130,7 +130,7 @@ or license KRE.</p>
               {{ "Enable" if not r.enabled else "Disable" }}</button>
           </form>
           <form method="post" action="{{ url_for('system.remove_runner', runner_id=r.id) }}" class="inline"
-            onsubmit="return confirm('Remove target {{ r.name }}? Queued/running work bound to it is never retargeted.');">
+            data-confirm="Remove target {{ r.name }}? Queued/running work bound to it is never retargeted.">
             {{ runner_form.csrf_token }}
             <button type="submit" class="button danger sm">Remove</button>
           </form>
@@ -241,20 +241,6 @@ or license KRE.</p>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </div>
   </form></details>
-<script>
-(function () {
-  var box = document.getElementById('ssh-fields');
-  var radios = document.querySelectorAll(
-    '#target-type-field input[name="target_type"]');
-  function sync() {
-    var sel = document.querySelector(
-      '#target-type-field input[name="target_type"]:checked');
-    box.style.display = (sel && sel.value === 'ssh') ? '' : 'none';
-  }
-  radios.forEach(function (r) { r.addEventListener('change', sync); });
-  sync();
-})();
-</script>
 </div>
 
 <section class="card">

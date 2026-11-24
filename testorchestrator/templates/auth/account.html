@@ -36,27 +36,4 @@
     <button type="submit" class="button">Save preferences</button>
   </form>
 </section>
-<script>
-(function () {
-  // Suggestion only — never overrides the saved preference or
-  // auto-submits. The user must press the button explicitly.
-  try {
-    var detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    var input = document.getElementById("timezone");
-    if (detected && input && detected !== input.value) {
-      document.getElementById("tz-detected").textContent = detected;
-      document.getElementById("tz-detect-note").hidden = false;
-      document.getElementById("tz-use-detected").addEventListener(
-        "click", function () {
-          if (!input.querySelector('option[value="' + detected + '"]')) {
-            var o = document.createElement("option");
-            o.value = o.textContent = detected;
-            input.appendChild(o);
-          }
-          input.value = detected;
-        });
-    }
-  } catch (e) { /* detection unavailable — page works without it */ }
-})();
-</script>
 {% endblock %}

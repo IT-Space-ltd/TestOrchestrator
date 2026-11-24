@@ -274,7 +274,7 @@
       {{ plain_form.csrf_token }}
       <button class="button secondary" type="submit">Publish / retry</button></form>
     <form method="post" action="{{ url_for('portal.delete_execution', execution_id=ex.id) }}" class="inline"
-          onsubmit="return confirm('Delete this execution AND its report from the repository branch? Git history is preserved — this is branch-removal only.');">
+          data-confirm="Delete this execution AND its report from the repository branch? Git history is preserved — this is branch-removal only.">
       {{ plain_form.csrf_token }}
       <button class="button danger" type="submit">Delete</button></form>
   </div>
