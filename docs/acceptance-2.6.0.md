@@ -2322,3 +2322,198 @@ data preserved across reinstall (projects/runners/items/secrets).
 - Host fixtures removed: `/tmp/to-preview-data`, `/tmp/pw-venv`, `/tmp/to-ssh`, `/tmp/node-v*`; preview waitress killed.
 - Sudoers grant `/etc/sudoers.d/devin-to-stage` removed — sudo re-prompts.
 - Repo state: head `7ea90634`, clean tree. Branch `feature/2.6.0-node-runners`, PR #4 — no merge/tag/publish per boundary.
+
+## Final reconciliation — ledger closeout (recorded at head `be3a7089`)
+
+### 1. Completion status — precise wording
+
+**Devin's assigned acceptance execution is complete**, with documented
+blocked and skipped rows listed in §4 below. This record does **not**
+constitute unconditional release approval. **Windows W1–W18 and the
+Group B acceptance review remain with the product owner.** PR #4 stays
+draft — no merge, no tag, no publication was performed.
+
+### 2. Revisions and deliverables
+
+**Delivered artifacts (internal-test build, `TO_BUILDBOT_INTERNAL_BUILD=1`):**
+
+| Artifact | SHA-256 (full) | Build revision |
+|---|---|---|
+| `dist/testorchestrator-2.6.0-linux-x86_64.run` | `49b9537a160a60c16d99e0a59c65e7ba0b12c6c1f84751fe2d8393b70b432560` | `711cb317` |
+| `dist/testorchestrator-2.6.0-linux-x86_64.tar.gz` | `d421a8fbed487c760625e65e77d2296f0e03eeec64f8356d7ed3a024ce014ebb` | `711cb317` |
+| `dist/release/windows/testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` | `f9d520e813d2eb183e893225277e21c44b9a0f9a100aa19af574748369212755` | `faf4d822` (dirty tree: ledger+inventory uncommitted — docs only) |
+| `dist/release/windows/TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `550447b3c0018724bd5ff91db48e702fdea159d19b0ff4889cd176ebb379a37b` | `faf4d822` |
+
+**Revision roles — distinct, not interchangeable:**
+
+| Role | Revision | Content |
+|---|---|---|
+| Final repository head | `be3a7089` | ledger + reconciliation docs only |
+| Linux product/build revision | `711cb317` | last product-code change (delegated data-confirm fix); packaged into `.run`/`tar.gz` |
+| Windows build revision | `faf4d822` | product code identical to `711cb317` (see diff below) |
+| UI-suite (e2e-ui test) revision | `faf4d822` | last test-code change; ran against installed `49b9537a` payload |
+| Ledger revision | `be3a7089` | this document |
+
+**File-level differences between tested revisions and delivered artifacts:**
+
+- `711cb317..faf4d822` (Linux build → Windows build / UI-suite rev):
+  `docs/acceptance-2.6.0.md`, `tests/e2e-ui/test_06_execution.py` —
+  **docs + test file only; zero product-code delta.** Product code in
+  all four artifacts is identical.
+- `faf4d822..be3a7089` (Windows build → repo head):
+  `docs/acceptance-2.6.0.md`, `docs/ui-controls-inventory-2.6.0.md` —
+  **docs only; zero product-code delta.**
+
+**Windows payload staleness check: NOT stale.** Every commit after
+`faf4d822` is documentation-only (`7ea90634`, `be3a7089`); no product
+change post-`faf4d822` is missing from the Windows payload.
+
+### 3. Evidence traceability
+
+**Unit-gate derivation (composite, NOT one clean full-suite run):**
+- Original batch (`.venv/bin/python -m pytest tests/ -x`-style full
+  run, 464.6 s, raw log `/tmp/unit-gate2.log`): **937 passed / 13 failed
+  / 1 skipped**. The 13 failures: `test_production_key_auto_loaded`,
+  `test_payload_fields_signed` (issuer-key class), 7×
+  `test_modal_dup_and_recovery`, 3× `test_modal_interactions`, 1×
+  `test_oplogs_livetail` (all require live preview :39995).
+- Separate rerun after recreating the disposable preview
+  (`TO_INSTANCE_DIR=/tmp/to-preview-data`, waitress :39995, seeded per
+  the recipe recorded earlier in this ledger): **16 passed** — the 11
+  preview-dependent batch failures plus the 5 `test_infra_controls_browser`
+  tests that run against the same fixture.
+- Derived tally: **937 + 11 = 948 passed / 2 external-blocked / 1
+  skipped**, reported as a composite of the two runs above — not a
+  single-suite pass.
+
+**Skipped UI flow — named:** `tests/e2e-ui/test_01_login.py::
+test_login_and_forced_password_change` skipped in all six final browser
+runs ("bootstrap password already replaced on this install — flow
+covered at first run"). Coverage boundary: the forced-bootstrap-change
+flow PASSED once for real at first install; on an already-provisioned
+install the bootstrap credential no longer exists, so the six repeat
+runs cannot re-exercise it. Untested residual: a second consecutive
+forced change on the same install — by design unreachable.
+
+**UI control inventory:** `docs/ui-controls-inventory-2.6.0.md` — every
+template's forms/buttons/links enumerated per control group, each with
+expected outcome and disposition (PASS exercised / BOUND bounded / N/A
+not reachable), evidence-mapped to suite tests; two defects found via
+this inventory (CSP `d93e51c7`, delegated-confirm `711cb317`).
+
+**Eight framework executions** — `tests/e2e-ui/test_06_execution.py::
+test_framework_cell` parametrized cells, all PASSED:
+
+| Cell (item@runtime) | Transport |
+|---|---|
+| `pytest-pass@pytest-worker` | buildbot-worker (PB :9989) |
+| `pytest-pass@pytest-ssh` | agentless SSH :22 |
+| `smoke.robot@robot-worker` | buildbot-worker |
+| `smoke.robot@robot-ssh` | agentless SSH |
+| `pw.spec.js@pw-worker` | buildbot-worker |
+| `pw.spec.js@pw-ssh` | agentless SSH |
+| `cy.cy.js@cy-worker` | buildbot-worker |
+| `cy.cy.js@cy-ssh` | agentless SSH |
+
+Topology confirmed: TestOrchestrator server ran on the **host OS**
+(installed `/opt` package, :443); all test execution occurred on the
+disposable **VM `to-worker` (10.97.0.121)** — buildbot-worker cells via
+PB attach, SSH cells via host→VM pubkey. pytest 9.2.0 and Robot 7.5.1
+were real installations on the VM; pw/cy cells used the recorded
+fake-npx fixture producing junit. **Missing-evidence note:** per-cell
+execution UUIDs were displayed in the UI at run time but are not in
+durable evidence — the portal DB was removed at teardown and the six
+run logs retained only summary tails (pytest `-q`). Durable evidence
+is the parametrized test results plus the ledger cell table.
+
+**2.5.1→2.6.0 upgrade evidence** — section "Representative 2.5.1→2.6.0
+upgrade — verified (13:09–13:11)": real 2.5.x instance (alembic
+`s9t0u1v2w3x4`) migrated to `z8a9b0c1d2e3`, 7 migrations, all data
+preserved, `notified_at` commit bug found+fixed+re-verified; packaged
+row V6 on package `53bea796`. **Distinct evidence:** this stage's
+stop-units→reinstall exercised **same-version** reinstall/upgrade on
+`262fead1`→`49b9537a` — data+secrets preserved, but that is not a
+cross-version upgrade and does not substitute for V6.
+
+**Original acceptance ID → completed entry map:**
+
+| Request ID | Completed at |
+|---|---|
+| V1–V4 (install, units, identity/modes, journal) | packaged-acceptance rows; re-verified this stage on `49b9537a` (host install, 5 units `testorchestrator` UID, modes 600/640/644/700) |
+| V5 (uninstall/reinstall preserve) | `53bea796` package row + this stage's same-version reinstall evidence (separate, above) |
+| V6 (2.5.1→2.6.0 upgrade) | "Representative 2.5.1→2.6.0 upgrade" section + `53bea796` packaged row |
+| V7 (SSH key interop) | "V7 SSH key interop" section — ed25519/ECDSA/RSA, password rejected |
+| V8 (§5 sweep + Linux matrix) | "V8" section at `02ee37b2`/`5b8a12c6` |
+| V9 (suite from installed package) | this stage — e2e-ui 6×43/1 + unit gate on `49b9537a` install |
+| §2 eight Linux cells | 8 framework cells above (this stage) |
+| §5 / §5b | V8 sweep + tzdata row |
+| F1–F6 (frozen candidate `8c14b9d0`) | superseded by later candidates; this final table is the successor gate record |
+| DEP-1 | fixed `22fee4c5` (paramiko 3.5.1) |
+| DEP-2 | accepted risk, deferred to upstream |
+| DEP-3/4 | false positives (OSV range mislabel) |
+| DEFER-1/2/3 | deferred — DEFER-3 = `verified_capabilities`, see §6 |
+| B104/B105/B202/B310/B314/B601 | bandit triage — consistent at final head |
+| W1–W18 | **owner execution pending** — kit `docs/windows-acceptance-kit.md` + payload above |
+| Group A | closed (section "Group A closeout") |
+| Group B | **owner review pending** — implemented, evidence at `c955c79`/`f2142c81` |
+
+### 4. Preserved exceptions — required status
+
+| Gate | Required status |
+|---|---|
+| Live KRE using a real API key | **blocked** — no key supplied; product injects only `-apiKey=` (dispatch.py + kre_cred_exec.py); invalid-key handling is separate |
+| `test_production_key_auto_loaded` | **blocked** — legitimate issuer key unavailable (never provisioned on this host) |
+| `test_payload_fields_signed` | **blocked** — legitimate issuer key unavailable |
+| Current `pip-audit` | **blocked** — tool crash (below); prior triage is historical evidence, NOT a current PASS |
+| Skipped UI flow | `test_login_and_forced_password_change` — covered at first install only; see boundary in §3 |
+| Windows W1–W18 | **product-owner execution pending** |
+| Group B review | **product-owner review pending** |
+| Expired-license policy | **product-owner decision pending** — spec-vs-code difference recorded (ledger: expired key accepted-then-classified, informational licence §12.4) |
+
+**pip-audit retained detail:**
+- Tool: `pip-audit 2.9.0` (repo `.venv`).
+- PyPI backend verbatim: `pip_audit._service.interface.ServiceError:
+  Received malformed version from PyPI: ['0.7.11p3']` — raised parsing
+  an advisory `fixed_in` field via `packaging.version`.
+- OSV backend verbatim (`--vulnerability-service osv`):
+  `packaging.version.InvalidVersion: Invalid version: '0.7.11p3'` —
+  same malformed advisory version.
+- Advisory reference: the offending `fixed_in` value `0.7.11p3`
+  (upstream data, not a project pin).
+- "Dependencies frozen" comparison: `requirements.txt` last changed
+  `22fee4c5` (paramiko 2.12.0→3.5.1); `git log` shows no dependency
+  edits since — the DEP-1..4 triage table remains accurate for the
+  pinned set, but no *current* scan completed, so this row is blocked,
+  not passed.
+
+### 5. Credentials and cleanup record
+
+- The Katalon account password is **not reproduced anywhere** in the
+  repo or this ledger; the local copy (`~/vm-e2e-tmp/kre-cred`) was
+  shredded at teardown. **Password rotation is a product-owner action**
+  — deleting the local copy does not establish that rotation occurred;
+  the password transited this conversation.
+- The production issuer private key (`/tmp/to-license-issuer/
+  private.pem`) was **never provisioned on this host** — both dependent
+  tests stay blocked, by design.
+- **Cleanup record — three classes:**
+  - *Retained release artifacts*: `dist/testorchestrator-2.6.0-linux-x86_64.{run,tar.gz}`, `dist/release/windows/` (setup exe, bb sources, manifest, SHA256SUMS), `docs/windows-acceptance-kit.md`.
+  - *Redacted acceptance evidence (retained)*: this ledger, `docs/ui-controls-inventory-2.6.0.md`, test sources — contain no secrets.
+  - *Temporary artifacts removed*: host install (`/opt`, `/var/lib`, `/etc`, units, system user), VM `to-worker` (purged — in-VM cred file destroyed), `~/.ssh/id_to_worker*`, `~/vm-e2e-tmp/` (incl. shredded kre-cred + to_key), `/tmp/to-preview-data`, `/tmp/pw-venv`, `/tmp/node*`, preview waitress, `/etc/sudoers.d/devin-to-stage`.
+
+### 6. Deferred without migration
+
+`verified_capabilities` (`execution.py:306`, DEFER-3): ORM column
+declared, zero readers/writers — left deferred **without a migration**;
+schema-stability decision for the owner.
+
+### Missing/contradictory evidence — reported, not marked complete
+
+1. Per-cell execution UUIDs not durable (see §3) — cell-level PASS
+   stands on parametrized test evidence.
+2. pip-audit current scan blocked (see §4) — dependency triage is
+   historical, valid only for the frozen pin set.
+3. Six UI-run logs retained summary tails only; pass/fail counts are
+   durable, per-test timing detail is not.
+4. Live-KRE, W1–W18, Group B, expired-license policy: owner-side
+   actions pending — listed, not closed.
