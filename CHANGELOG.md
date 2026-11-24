@@ -51,6 +51,32 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
 
 ### Fixed
 
+- **Real-framework matrix defects** (found during Linux worker +
+  SSH-only acceptance against real toolchains):
+  - Discovery glob engine could not evaluate minimatch extglobs
+    (`@(...)` `?(...)` `+(...)` `*(...)` `!(...)`) — playwright/jest
+    `testMatch` defaults never matched spec files.
+  - postman/bruno probe scripts emitted `newman=`/`bru=` markers the
+    readiness summarizer never consumed — probe verdicts could not
+    reach `ready` and dispatch stayed gated.
+  - `Reports/`/`Reports/junit` not pre-created in the exec workdir —
+    jest `--outputFile`, newman junit export and bru
+    `--reporter-junit` failed ENOENT (POSIX exec wrapper, Windows
+    prep, SSH run.sh all covered).
+  - jest file-granularity items were not mapped to `spec` — a
+    suite-file selection ran the whole jest suite.
+  - `kre.classify_error` matched the bare word "license" — KRE logs a
+    benign "Failed to activate with TestCloud license" fallback in
+    every run, so unrelated failures misclassified as license.
+  - jest's `Reports/jest.json` contract was collected but never
+    parsed into TestResult rows — failing runs verdicted "no result
+    data" and clean passes surfaced `incomplete`. `parse_jest` now
+    feeds the canonical ingest (framework-gated, sha-deduped).
+  - gtest driver passed `--gtest_fail_if_no_test_selected`
+    unconditionally; gtest versions that don't know the flag (e.g.
+    libgtest 1.14) print help and exit 0 having run nothing — a
+    silent vacuous pass. The driver now probes `--gtest_help` per
+    binary and fails when no result XML was produced.
 - **S3 artifact retrieval** after staging removal — objects now stream
   via `open()` to a bounded staging file with sha256 verification and
   deterministic cleanup (concurrency cap, size ceiling, ENOSPC

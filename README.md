@@ -700,6 +700,41 @@ reconciled ledger `docs/acceptance-2.6.0.md`:
   JavaScript (SSH-target fields, confirm gates), and a retry-block
   marker false-positive that misclassified real build failures.
 
+## Validation (2.7.0 draft — PR #5, in progress)
+
+Real-framework matrix on a disposable Linux VM
+(`to-accept-linux`, Ubuntu 24.04) against the packaged build at
+`a3ebeeed` (sha256 `e5b31c97…`, `install.sh`, 5 units active). Fixture =
+controlled local `file://` git repo with real content per framework
+(committed gtest binaries; Groovy-backed Katalon cases; local HTTP
+stub for postman/bruno — no external services or repositories):
+
+- **13 frameworks × {registered-worker, agentless-SSH} pass cells all
+  green** — pytest 9.2.0, pytest-bdd, behave 1.3.3, robot 7.5.1,
+  jest 30.5.2, gtest (libgtest 1.14), playwright 1.65.1,
+  playwright-pytest, cypress 13.15.0, newman 6.2.1, postman-cli
+  1.94.0, bru 2.14.1, KRE 11.7.0 (suite + suite-collection, licensed
+  via the supplied API key — `apiKey` stays `********` in all evidence).
+  Each cell: discover → select → dispatch → real toolchain exec →
+  report ingest → artifact collection.
+- **26 assertion-failure cells honest** — every framework on both
+  transports completes exit≠0 with `failed` outcome and parsed failed
+  TestResult rows (no false passes).
+- **Failure-path cells**: timeout kill at the configured bound,
+  mid-run `request_cancel` → `canceled`, empty `-k` selection,
+  import/collection error, missing executable (127), KRE missing
+  credential → clean `config` classification.
+- **SSH-only proven independent of the registered worker**: cells ran
+  green with `testorchestrator-buildbot-local` stopped.
+- **7 product defects found and fixed** during the matrix — see
+  CHANGELOG (extglob matching, probe markers, Reports dir, jest spec
+  mapping + ingest, KRE license classification, gtest flag guard).
+- Open rows recorded honestly: crafted malformed-report cells,
+  adversarial executed-identity fixtures, local-vs-SSH classification
+  asymmetry for exit-5/127, and the **Windows worker matrix (Phase B,
+  pending)** — full ledger:
+  `~/to-acceptance-evidence/matrix/ACCEPTANCE-REPORT-3.md`.
+
 ## Deferred checks & limitations
 
 Explicitly deferred — **not** passed:
@@ -707,8 +742,9 @@ Explicitly deferred — **not** passed:
 - Windows interactive checklist W1–W18 and the independent Group B
   review — product-owner items, tracked in
   `docs/acceptance-2.6.0.md`.
-- Real licensed-KRE suite execution — not demonstrated (no API key
-  was supplied; the adapter only injects `-apiKey=`).
+- Real licensed-KRE suite execution — demonstrated on Linux in the
+  2.7.0 matrix stage (suite + collection, both transports; see
+  Validation 2.7.0 above); Windows KRE still pending Phase B.
 - Azure DevOps repo interoperability — gated on an authorized
   repository.
 - Import duplicate matching scans per-project history at classify

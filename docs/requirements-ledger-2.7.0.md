@@ -67,11 +67,18 @@ Per-adapter contract depth is partially delivered. Honest per-framework state:
 | Framework | Depth delivered | Status | Not yet covered |
 |---|---|---|---|
 | pytest | native collection via `-m pytest`, junit ingest, PYBIN probe, xdist opt gate, plugin REQUIRED_LIBS | implemented→accepted (packaged cell) | argument-file mechanism for large selections; per-node-id dispatch granularity exercised in unit tests only |
-| robot | real robot 7.5.1 packaged run; `--xunit`, exit-code classification | accepted | template rows, listeners, remote library — unsupported |
-| playwright (JS) | fake-npx orchestration cell; junit via PLAYWRIGHT_JUNIT_OUTPUT_FILE | accepted (fixture) | real-browser run never executed — real engine remains owner scope; --test-list, project/repeat identities not verified end-to-end |
-| cypress | fake-npx orchestration cell; mochaFile junit; binary-verify probe gate | accepted (fixture) | @cypress/grep integration, per-test selection — gated/unverified |
-| jest/gtest/behave/pytest-bdd/postman/bruno | adapters + unit tests | implemented | no packaged/live acceptance this stage — **not-yet-run** |
-| KRE | unchanged | accepted (fixture + prior real-KRE stage) | — |
+| robot | real robot 7.5.1 packaged run; real-framework matrix cell (pass+fail, worker+SSH) | accepted | template rows, listeners, remote library — unsupported |
+| playwright (JS) | real playwright 1.65.1 browsers; matrix cell pass+fail both transports | accepted | --test-list, project/repeat identities not verified end-to-end |
+| playwright-pytest | real pytest-playwright run; matrix cell pass+fail both transports | accepted | — |
+| cypress | real cypress 13.15.0 binary; matrix cell pass+fail both transports | accepted | @cypress/grep integration, per-test selection — gated/unverified |
+| jest | real jest 30.5.2; matrix cell pass+fail both transports; `parse_jest` ingest of `Reports/jest.json` (fix `a3ebeeed`) | accepted | per-test (-t) selection path verified via -t validation only |
+| gtest | real gtest binaries (libgtest 1.14); matrix cell pass+fail both transports; per-binary flag-support probe + result-XML guard (fix `a3ebeeed`) | accepted | suite/binary granularity only — no per-test selection proven |
+| behave | real behave 1.3.3; matrix cell pass+fail both transports | accepted | — |
+| pytest-bdd | real pytest-bdd; scenario-granularity cell pass+fail both transports | accepted | file/suite-granularity items fail "node id not found" — gap recorded |
+| postman-newman | real newman 6.2.1; matrix cell pass+fail both transports | accepted | — |
+| postman-cli | real postman-cli 1.94.0; matrix cell pass+fail both transports | accepted | — |
+| bruno | real bru 2.14.1; matrix cell pass+fail both transports | accepted | — |
+| KRE | real katalonc 11.7.0 + supplied API key; suite+collection pass, suite fail, missing-cred classify — both transports | accepted | execution profiles beyond default not exercised; optional cloud publication not enabled |
 
 ## 8 — Failure & security matrix
 
@@ -112,6 +119,16 @@ Single-VM collapses host+worker — recorded limitation.
 ## Blocked / not-yet-run summary
 
 - **Blocked**: 2 prod-key tests (boundary documented, `docs/licensing.md`).
-- **Not-yet-run**: jest/gtest/behave/pytest-bdd/postman/bruno live acceptance;
-  real (non-fixture) playwright/cypress engines; adversarial executed-identity
-  fixtures; accessibility/keyboard checks; independent-host partition topology.
+- **Not-yet-run**: crafted malformed-report cells; adversarial executed-identity
+  fixtures; accessibility/keyboard checks; independent-host partition topology;
+  Windows worker matrix (Phase B — pending host hypervisor approval).
+- **Recorded asymmetry**: exit-5 (no tests) / exit-127 (missing executable)
+  classify specifically on SSH, generically on the registered-worker path —
+  both honest failures, no false pass.
+- Linux matrix evidence: `~/to-acceptance-evidence/matrix/` —
+  13 frameworks × {worker, SSH-only} pass cells all green at `a3ebeeed`
+  (package sha256 e5b31c97…); 26 fail cells honest `failed`; timeout/
+  cancel/empty/import-error/missing-exe/worker-stopped/KRE-missing-cred
+  exercised; 7 product defects fixed (extglobs, probe markers,
+  Reports dir, jest spec mapping, KRE license classification,
+  jest ingest, gtest flag guard).
