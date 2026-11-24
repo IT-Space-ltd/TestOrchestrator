@@ -3,7 +3,7 @@ flowchart LR
         U["End user / administrator<br/>web browser"]
         GIT["Git repository<br/>suite sources"]
         KLS["Katalon licence service<br/>(optional, KRE activation)"]
-        SSHH["Agentless SSH host<br/>sshd + KRE or Node.js<br/>+ browser + run dir<br/>(no agent installed)"]
+        SSHH["Agentless SSH host<br/>sshd + KRE or Node.js/Python<br/>runtimes + browser + run dir<br/>(no agent installed)"]
     end
 
     subgraph PH["Portal host"]
@@ -28,7 +28,7 @@ flowchart LR
         WKR["buildbot-worker<br/>(offline installer)"]
         KRE["KRE runtime<br/>katalonc subprocess"]
         NODE["Node.js runtime<br/>npx playwright test /<br/>npx cypress run"]
-        ROB["Python runtime<br/>python -m robot"]
+        ROB["Python runtime<br/>python -m robot /<br/>python -m pytest"]
         BRW["target-local browser<br/>Chromium · Firefox ·<br/>WebKit · Electron"]
         WWS["job workspace +<br/>worker credential file"]
         OUT["Katalon Reports/ +<br/>JUnit · traces ·<br/>screenshots · videos"]
@@ -42,7 +42,7 @@ flowchart LR
     BBM -->|"⑥ assign to builder's worker"| BBL
     WKR -->|"⑦ outbound PB +<br/>worker password"| BBM
     BBM -->|"⑧ run step commands<br/>(local or remote)"| BBL
-    BBL -->|"⑨ spawn katalonc / npm ci +<br/>npx --no-install CLI"| KRE
+    BBL -->|"⑨ spawn katalonc / npx /<br/>python -m (pure argv)"| KRE
     BBL --> NODE
     BBL --> ROB
     KRE -.->|"⑩ optional licence activation"| KLS
