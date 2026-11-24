@@ -79,7 +79,8 @@
   {% set arts = ex.artifacts or [] %}
   {% set n_stored = arts | selectattr("storage_state", "equalto", "stored") | list | length %}
   {% set n_failed = arts | selectattr("storage_state", "equalto", "failed") | list | length %}
-  {% set n_pending = arts | length - n_stored - n_failed %}
+  {% set n_expired = arts | selectattr("storage_state", "equalto", "expired") | list | length %}
+  {% set n_pending = arts | length - n_stored - n_failed - n_expired %}
   <table class="data-table">
     <tbody>
       <tr><th scope="row">Test execution</th>
@@ -93,12 +94,19 @@
       <tr><th scope="row">Durable storage</th>
         <td>{% if not arts %}<span class="badge">no artifacts</span>
           {% elif n_stored == arts|length %}<span class="badge success">verified</span>
+          {% elif n_expired == arts|length %}<span class="badge warn">expired</span>
+            <small class="muted">Artifact files expired under the
+            retention policy. The execution summary remains
+            available.</small>
           {% elif n_failed %}<span class="badge danger">{{ n_failed }} file(s) failed to store</span>
           {% elif not store_active %}<span class="badge warn">staged only</span>
             <small class="muted">Durable storage is not configured —
             files may become unavailable when staging is
             removed.</small>
           {% else %}<span class="badge warn">{{ n_pending }} file(s) staged — not yet durable</span>{% endif %}
+          {% if n_expired and n_expired != arts|length %}<small class="muted">
+            {{ n_expired }} file(s) expired under the retention
+            policy.</small>{% endif %}
           {% if n_failed %}<small class="muted">Tests completed, but
             {{ n_failed }} artifact file(s) could not be stored.
             Available files are listed below.</small>{% endif %}</td></tr>
@@ -285,9 +293,11 @@
         <td><span class="badge">{{ a.storage_state or "staged" }}</span>
           {% if a.storage_state == "missing" %}<br><small class="muted">
             staging removed — unrecoverable without a new run</small>
+          {% elif a.storage_state == "expired" %}<br><small class="muted">
+            removed under the retention policy</small>
           {% endif %}</td>
         <td class="cell-actions">
-          {% if a.storage_state != "missing" %}
+          {% if a.storage_state not in ("missing", "expired") %}
           <a class="button secondary sm" href="{{ url_for('portal.download_artifact', execution_id=ex.id, artifact_id=a.id) }}">download</a>
           {% endif %}
           {% if a.storage_state == "failed" %}

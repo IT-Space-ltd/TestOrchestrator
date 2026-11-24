@@ -883,6 +883,71 @@
   {% endfor %}</ul>
   {% endif %}
 
+  <h3>Retention</h3>
+  <p class="muted">Artifact files and execution metadata have
+  <strong>separate</strong> retention policies. Operational logs use
+  their own setting ({{ retention_eff.logs_days }} days) — untouched
+  here. The clock starts when an execution reaches a terminal
+  state; active runs, in-flight transfers, and unverified
+  staged-only files are never deleted by cleanup. Policy changes
+  apply to existing eligible records, not only new runs.</p>
+  <table>
+    <tr><th>Domain</th><th>Keep for</th><th>Source</th></tr>
+    <tr><td>Artifact files</td>
+        <td>{{ retention_eff.artifact_days or "forever" }}{% if retention_eff.artifact_days %} days{% endif %}</td>
+        <td>{{ retention_eff.artifact_source }}{% if retention_eff.artifact_source == "global" %} ({{ retention_eff.global_artifact_days or "forever" }}){% endif %}</td></tr>
+    <tr><td>Execution metadata + summaries</td>
+        <td>{{ retention_eff.metadata_days or "forever" }}{% if retention_eff.metadata_days %} days{% endif %}</td>
+        <td>{{ retention_eff.metadata_source }}{% if retention_eff.metadata_source == "global" %} ({{ retention_eff.global_metadata_days or "forever" }}){% endif %}</td></tr>
+  </table>
+  {% if can_edit %}
+  <form method="post" class="add-form"
+        action="{{ url_for('portal.retention_update',
+                           project_id=project.id) }}">
+    {{ plain_form.csrf_token }}
+    <div class="grid-2">
+      <div class="field"><label for="ret-art">Artifact files — days
+        (empty = inherit global)</label>
+        <input id="ret-art" name="artifact_days" type="number" min="0"
+               placeholder="{{ retention_eff.global_artifact_days or 'forever' }}"
+               value="{{ retention_eff.project_raw.artifact_days
+                        if retention_eff.project_raw.artifact_days
+                           is not none else '' }}"></div>
+      <div class="field"><label for="ret-meta">Execution metadata +
+        summaries — days</label>
+        <input id="ret-meta" name="metadata_days" type="number" min="0"
+               placeholder="{{ retention_eff.global_metadata_days or 'forever' }}"
+               value="{{ retention_eff.project_raw.metadata_days
+                        if retention_eff.project_raw.metadata_days
+                           is not none else '' }}"></div>
+    </div>
+    <p class="muted"><em>Example:</em> keep artifact files for 30
+    days and execution summaries for 180 days — example values only,
+    not defaults.</p>
+    <div class="btn-row">
+      <button class="button secondary" type="submit">Save retention policy</button>
+    </div>
+  </form>
+  <form method="post" class="add-form"
+        action="{{ url_for('portal.retention_preview',
+                           project_id=project.id) }}">
+    {{ plain_form.csrf_token }}
+      <button class="button secondary" type="submit">Preview cleanup</button>
+  </form>
+  {% if current_user.role.value == 'admin' %}
+  <form method="post" class="add-form"
+        action="{{ url_for('portal.retention_run',
+                           project_id=project.id) }}"
+        data-confirm="Run retention cleanup now? This deletes expired artifact files and eligible execution records under the current policy.">
+    {{ plain_form.csrf_token }}
+      <button class="button" type="submit">Run cleanup now</button>
+  </form>
+  {% endif %}
+  <p class="muted">Git publication is a separate retention domain:
+  published reports live in the destination repository and are not
+  removed by artifact cleanup — Git history is never rewritten.</p>
+  {% endif %}
+
   <h3>Optional — Git publication</h3>
   <p class="muted">Publishing copies <em>explicitly selected</em>
   reports to a Git repository. It is optional, independent of

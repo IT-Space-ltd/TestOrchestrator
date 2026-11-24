@@ -407,6 +407,7 @@ def project_detail(project_id):
             project_id=project.id).order_by(ArtifactStore.name).all(),
         capture_categories=CAPTURE_CATEGORIES,
         capture_policy=project.capture_policy(),
+        retention_eff=_retention_context(project),
         users=(User.query.order_by(User.username).all()
                if current_user.role.value == "admin" else []),
         executions=Execution.query.filter_by(project_id=project_id)
@@ -1099,6 +1100,97 @@ def capture_policy_update(project_id):
                  f"{project.id}: {project.capture_policy()}")
     flash("Capture policy saved — applies to NEW executions; "
           "recorded policy on past runs is unchanged.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/retention",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def retention_update(project_id):
+    """Per-project retention overrides — empty field = inherit the
+    global default. Applies to ALL eligible records at the next
+    cleanup run, not only new executions (§storage-7)."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    from .. import retention
+    try:
+        a_days = retention.parse_days(
+            request.form.get("artifact_days"))
+        m_days = retention.parse_days(
+            request.form.get("metadata_days"))
+    except ValueError as exc:
+        flash(f"Retention days must be a whole number ≥ 0. {exc}",
+              "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project.id, tab="storage"))
+    pol = {}
+    if a_days is not None:
+        pol["artifact_days"] = a_days
+    if m_days is not None:
+        pol["metadata_days"] = m_days
+    project.retention_json = json.dumps(pol)
+    db.session.commit()
+    record_audit(current_user.username, "retention.policy",
+                 f"{project.id}: {pol}")
+    flash("Retention policy saved — it applies to existing eligible "
+          "records at the next cleanup run, not only new runs. "
+          "Saving a policy never deletes anything by itself.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/retention/preview",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def retention_preview(project_id):
+    """Non-destructive count of what the CURRENT policy would expire —
+    required before the destructive run is enabled."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    from .. import retention
+    out = retention.preview(project_id=project.id)
+    session[f"retention_preview_ok_{project.id}"] = \
+        datetime.now().timestamp()
+    a, m = out["artifacts"], out["metadata"]
+    flash(f"Retention preview: {a['files']} artifact file(s) "
+          f"({a['bytes']} bytes) across {a['executions']} execution(s) "
+          f"would expire; {m['executions']} execution(s) including "
+          "their summaries would be deleted. Nothing has been "
+          "removed.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/retention/run",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def retention_run(project_id):
+    """Destructive sweep — allowed only right after a preview so the
+    operator saw the affected scope first (§storage-7)."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    key = f"retention_preview_ok_{project.id}"
+    when = session.pop(key, 0)
+    if datetime.now().timestamp() - when > 600:
+        flash("Run the preview first — the affected scope must be "
+              "shown before deletion is allowed.", "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project.id, tab="storage"))
+    from .. import retention
+    out = retention.sweep(project_id=project.id,
+                          actor=current_user.username)
+    if out["artifact_errors"]:
+        flash(f"Cleanup finished with PARTIAL failures: "
+              f"{out['artifacts_expired']} artifact file(s) expired, "
+              f"{out['artifact_errors']} deletion error(s) (left in "
+              "place for retry), "
+              f"{out['executions_removed']} execution record(s) "
+              "removed.", "error")
+    else:
+        flash(f"Cleanup complete: {out['artifacts_expired']} artifact "
+              f"file(s) expired, {out['executions_removed']} "
+              "execution record(s) removed.", "info")
     return redirect(url_for("portal.project_detail",
                             project_id=project.id, tab="storage"))
 
@@ -2920,6 +3012,28 @@ def retry_execution(execution_id):
                                 execution_id=execution_id))
     return redirect(url_for("portal.execution_detail",
                           execution_id=new_ex.id))
+
+
+def _retention_context(project) -> dict:
+    """Effective retention for display: per-domain days +
+    which source (project override vs global default) applies."""
+    from .. import retention, settings as _s
+    eff = retention.effective_policy(project)
+    raw = project.retention()
+    return {
+        "artifact_days": eff["artifact_days"],
+        "metadata_days": eff["metadata_days"],
+        "artifact_source": ("project" if raw.get("artifact_days")
+                            is not None else "global"),
+        "metadata_source": ("project" if raw.get("metadata_days")
+                            is not None else "global"),
+        "global_artifact_days": int(_s.get(
+            "retention_artifact_days", 0) or 0),
+        "global_metadata_days": int(_s.get(
+            "retention_metadata_days", 0) or 0),
+        "project_raw": raw,
+        "logs_days": int(_s.get("logs_retention_days", 30) or 30),
+    }
 
 
 _DL_STAGE_SEM = threading.BoundedSemaphore(4)

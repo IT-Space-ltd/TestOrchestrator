@@ -31,6 +31,9 @@ class Project(db.Model):
     # permissions, snapshotted into each execution's run_config.
     capture_policy_json = db.Column(db.Text, nullable=False,
                                   default="{}")
+    # Per-project retention overrides (§storage-7): null per key =
+    # inherit the global default; 0 = keep forever.
+    retention_json = db.Column(db.Text, nullable=False, default="{}")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
     def capture_policy(self) -> dict:
@@ -40,6 +43,12 @@ class Project(db.Model):
         except ValueError:
             raw = {}
         return normalize_policy(raw)
+
+    def retention(self) -> dict:
+        try:
+            return json.loads(self.retention_json or "{}")
+        except ValueError:
+            return {}
 
 
 class GitBinding(db.Model):

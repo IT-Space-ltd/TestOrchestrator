@@ -484,13 +484,21 @@ def reporting_save():
     """Persist reporting config. Saving NEVER publishes — publication is
     a separate explicit action."""
     from flask import request
-    settings_mod.update({
-        "reportinglabs_enabled":
-            bool(request.form.get("reportinglabs_enabled")),
-    })
+    upd = {"reportinglabs_enabled":
+           bool(request.form.get("reportinglabs_enabled"))}
+    for key in ("retention_artifact_days", "retention_metadata_days"):
+        raw = (request.form.get(key) or "").strip()
+        try:
+            upd[key] = max(0, int(raw or 0))
+        except ValueError:
+            flash(f"{key} must be a whole number ≥ 0.", "error")
+            return redirect(url_for("system.reporting_page"))
+    settings_mod.update(upd)
     record_audit(current_user.username, "reporting.config.saved",
                  "reporting settings updated (no values)")
-    flash("Reporting settings saved. No runs were published.", "info")
+    flash("Reporting settings saved. No runs were published and "
+          "no records were deleted — retention runs are a separate "
+          "explicit action.", "info")
     return redirect(url_for("system.reporting_page"))
 
 
