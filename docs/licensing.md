@@ -31,3 +31,53 @@ viewing and recording a code; `scripts/install.py` accepts an
 optional `TO_LICENCE_CODE` and warns — never aborts — on a rejected
 code. Signature verification and stored-row re-verification are
 unchanged; this is separate from KRE licensing, which is untouched.
+
+## Test coverage boundary — production issuer key
+
+Two tests in `tests/test_licence_enforcement.py` are **blocked** under
+the current security boundary and must not be reported as passing or
+silently removed. Any release exception requires explicit acceptance.
+
+### Blocked tests
+
+- `test_production_key_auto_loaded` — proves that a fresh process,
+  with no test-side `register_key`, verifies a `key_id:"prod"`
+  signed code against the shipped `release/licence_pubkey.pem`
+  (the production key auto-load path). It signs a payload in-test
+  with `/tmp/to-license-issuer/private.pem`, which requires the
+  production issuer private key.
+- `test_payload_fields_signed` — proves that swapping signed payload
+  fields (customer/licence_id) inside a valid `prod`-signed code is
+  rejected. It reads a production-signed code fixture
+  (`/tmp/lic-valid.txt`). Verifying the negative requires a
+  genuine prod signature; a test-key code would not exercise the
+  `key_id:"prod"` path.
+
+### What test-key coverage proves
+
+The remaining 16 tests in the file run against a test key fixture
+(`key_id:"test"`): signature verification, tampered payload, bad
+signature, unknown key_id, wrong product, malformed code, date-range
+enforcement, forged stored rows, activation rate limiting, and the
+informational (non-enforcing) status semantics. The Ed25519 verify
+path itself is fully exercised.
+
+### What remains unverified
+
+- That `release/licence_pubkey.pem` is auto-loaded by a fresh
+  process as the `prod` verification key (registration wiring, not
+  cryptography).
+- Rejection of field-tampered payloads specifically under the
+  `prod` key_id.
+
+### Future fixture option
+
+A checked-in **production-signed sample licence code** (an artifact
+generated once by the issuer — never the private key itself) would
+let both tests run without any signing capability at test time:
+auto-load verified by parsing the fixture, tamper rejection by
+mutating it. This changes no production trust behavior; it only
+ships a signed artifact, the same class of data as the shipped
+public key. `test_production_key_auto_loaded` specifically cannot
+be satisfied any other way — generating a fresh prod signature is
+its entire point.

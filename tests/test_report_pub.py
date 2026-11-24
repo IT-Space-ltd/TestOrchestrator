@@ -232,3 +232,53 @@ def test_duplicate_publish_delivery_safe(app, tmp_path):
         assert r.get("skipped")
         db.session.refresh(ex)
         assert ex.report_pub_sha == sha1
+
+
+def test_publish_failure_artifacts_remain_retrievable(tmp_path):
+    """Publication failure must not disturb durable storage: a stored
+    artifact stays 'stored' with its backend object intact — primary
+    retrieval is independent of the optional publication path."""
+    from tests.conftest import make_app, seed_users
+    roots = tmp_path / "approved"
+    roots.mkdir()
+    app = make_app(tmp_path, "pub.db",
+                   TO_ARTIFACT_ROOTS=[str(roots)])
+    with app.app_context():
+        db.create_all()
+    seed_users(app)
+    repo = _repo(tmp_path)
+    with app.app_context():
+        import json as _j
+        from testorchestrator import storage
+        from testorchestrator.execution import Artifact, ArtifactStore
+        p, b, s = _env(app, repo)
+        store = ArtifactStore(
+            project_id=p.id, name="S", kind="local",
+            config_json=_j.dumps({"root": str(roots)}))
+        db.session.add(store); db.session.flush()
+        ex = dispatch.create_execution("m", s, binding=b)
+        ex.state = ExecutionState.COMPLETED
+        rd = tmp_path / "rep"
+        rd.mkdir()
+        (rd / "j.xml").write_text("<testsuite/>")
+        ex.report_dir = str(rd)
+        from testorchestrator.results import sha256_file
+        a = Artifact(execution_id=ex.id, kind="junit",
+                     rel_path="j.xml", sha256=sha256_file(rd / "j.xml"),
+                     size=13, mime="text/xml", mapped=True)
+        db.session.add(a); db.session.flush()
+        ref = storage.backend_for(store).put(
+            rd / "j.xml", f"{p.id}/{ex.id}/1/j.xml")
+        a.store_id, a.storage_ref = store.id, ref
+        a.storage_state = "stored"
+        # publication fails (broken remote) — storage must not move
+        b.url = str(tmp_path / "nonexistent")
+        db.session.commit()
+        r = gitsync.publish_report(ex.id)
+        assert r.get("error")
+        db.session.refresh(a)
+        assert a.storage_state == "stored"
+        got = storage.backend_for(store).path(a.storage_ref)
+        assert got.read_bytes() == b"<testsuite/>"
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.COMPLETED
