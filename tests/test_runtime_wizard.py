@@ -122,6 +122,46 @@ def test_project_associations_non_kre_only(app, client):
         assert json.loads(rt.allowed_projects or "[]") == []
 
 
+def test_probe_blocked_runtime_not_dispatchable(app, client):
+    """A non-KRE runtime whose probe found a missing dependency is
+    excluded from pick_runtime; KRE runtimes are never gated."""
+    from testorchestrator import dispatch
+    from testorchestrator.execution import Execution, Project
+    rid = _runner(app)
+    with app.app_context():
+        p = Project(name="P1", description="")
+        db.session.add(p)
+        db.session.flush()
+        dead = RuntimeConnection(
+            name="dead", runner_id=rid, transport="local",
+            executable_path="/x", runtime_kind="pytest",
+            readiness_state="missing-dependency")
+        ok = RuntimeConnection(
+            name="ok", runner_id=rid, transport="local",
+            executable_path="/y", runtime_kind="pytest",
+            readiness_state="ready-discovery")
+        kre = RuntimeConnection(
+            name="k", runner_id=rid, transport="local",
+            executable_path="/z", runtime_kind="kre",
+            readiness_state="missing-dependency")
+        db.session.add_all([dead, ok, kre])
+        db.session.commit()
+        ex = Execution(project_id=p.id, source_sha="s",
+                       report_dir="/tmp/r", snapshot_json="{}")
+        db.session.add(ex)
+        db.session.commit()
+        runner = db.session.get(Runner, rid)
+        picked = dispatch.pick_runtime(ex, runner)
+        # dead + kre filtered differently: dead is probe-blocked,
+        # kre is never gated by readiness — but pytest-kind 'ok'
+        # comes first in creation order anyway? Verify the blocked
+        # one specifically is skipped:
+        assert picked is not dead
+        assert dispatch._runtime_probe_blocked(dead) is True
+        # KRE unchanged: readiness state never gates it
+        assert dispatch._runtime_probe_blocked(kre) is False
+
+
 def test_wizard_admin_only(app, client):
     """Non-admin roles cannot reach the wizard."""
     from tests.conftest import login

@@ -506,6 +506,11 @@ def create_execution(username: str, suite: Suite = None,
         if _rt is None or not _rt.enabled:
             raise DispatchError(
                 "runtime connection unavailable or disabled")
+        if _runtime_probe_blocked(_rt):
+            raise DispatchError(
+                f"runtime {_rt.name!r} is not dispatch-ready "
+                f"({ _rt.readiness_state}) — fix the toolchain or "
+                "re-run the readiness probe")
         # worker_label runtimes are bindings to a removed worker
         # transport. They fail VISIBLY here rather than silently
         # rerouting: the runtime must be re-registered against a
@@ -1050,9 +1055,23 @@ def pick_runner(execution: Execution) -> Runner | None:
     return None
 
 
+def _runtime_probe_blocked(rt) -> bool:
+    """Non-KRE runtimes whose last probe returned a definitive
+    negative readiness outcome are not dispatch candidates —
+    scheduling onto a toolchain already proven absent would just
+    produce a failed run. Uncertain states (not-checked,
+    evidence-stale, checking) stay selectable; positive evidence is
+    per the structured readiness_state set at probe time. KRE
+    runtimes are untouched ("" / missing state → kre, no gate)."""
+    if (rt.runtime_kind or "kre") == "kre":
+        return False
+    return rt.readiness_state in ("missing-dependency",
+                                  "target-unavailable")
+
+
 def pick_runtime(execution: Execution, runner: Runner):
     for rt in runner.runtimes:
-        if not rt.enabled:
+        if not rt.enabled or _runtime_probe_blocked(rt):
             continue
         allowed = json.loads(rt.allowed_projects or "[]")
         if allowed and execution.project_id not in allowed:
@@ -1358,6 +1377,7 @@ def _select_runner_runtime(ex: Execution):
                       if runtime else [])
         if (not runtime or not runtime.enabled
                 or runtime.runner_id != runner.id
+                or _runtime_probe_blocked(runtime)
                 or (rt_allowed and ex.project_id not in rt_allowed)):
             return None, None, (
                 f"explicitly selected runtime {req_runtime[:12]}… is "
