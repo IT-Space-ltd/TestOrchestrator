@@ -41,7 +41,8 @@ def submit(runtime, app_url: str = "",
     kind = runtime.runtime_kind or "kre"
     pyfw = kind in (robotfw.KIND, pytestfw.KIND, "behave")
     gtw = kind == "gtest"
-    kind = kind if pyfw or gtw or kind in nodefw.KINDS \
+    shfw = kind in ("postman", "bruno")   # POSIX script probes
+    kind = kind if pyfw or gtw or shfw or kind in nodefw.KINDS \
         else "playwright"
     runner = runtime.runner
     rid = _rid(runtime)
@@ -53,6 +54,12 @@ def submit(runtime, app_url: str = "",
     elif gtw:
         from .adapters import gtestfw
         scripts = gtestfw.probe_scripts(app_url.strip())
+    elif kind == "postman":
+        from .adapters import postmanfw
+        scripts = postmanfw.probe_scripts(app_url.strip())
+    elif kind == "bruno":
+        from .adapters import brunofw
+        scripts = brunofw.probe_scripts(app_url.strip())
     elif kind == robotfw.KIND:
         scripts = robotfw.probe_scripts(app_url.strip())
     else:
@@ -98,6 +105,10 @@ def submit(runtime, app_url: str = "",
         else:
             argv = (robotfw.probe_argv(runner.os_arch) if pyfw
                     else gtestfw.probe_argv(runner.os_arch) if gtw
+                    else postmanfw.probe_argv(runner.os_arch)
+                    if kind == "postman"
+                    else brunofw.probe_argv(runner.os_arch)
+                    if kind == "bruno"
                     else nodefw.probe_argv(runner.os_arch))
             spec = {"executable": argv[0], "args": argv[1:],
                     "exec_workdir": "build/src",

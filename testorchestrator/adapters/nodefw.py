@@ -66,11 +66,17 @@ def build_args(kind: str, browser: str = "", spec: str = "",
         if browser:
             # playwright selects browsers via project names
             args += ["--project", browser]
+        for proj in projects:
+            args += ["--project", proj]
         if workers > 0:
             args += ["--workers", str(workers)]
         if shard:
             # i/N — the frozen unit assignment for partitioned runs
             args += ["--shard", shard]
+        if test_pattern:
+            # --grep is a regex over the title path — callers emit it
+            # ONLY for natively validated unique titles, anchored.
+            args += ["--grep", test_pattern]
         if spec:
             args += [spec]
     elif kind == "cypress":

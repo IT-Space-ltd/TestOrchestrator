@@ -295,10 +295,37 @@ show a refresh hint and cannot dispatch either.
 | cypress | `specPattern` glob from config | **file only** (`--spec`) | optional (no standard `cypress --list` → stays manual) | no per-`it()` selection in UI (not reliable) — clearly labeled |
 | playwright | spec glob + `projects` from config | file + (`--grep` test if `--list` collect used) | recommended for projects/variants (`--list`) | per-test selection via grep unstable with special chars → labeled |
 | playwright-via-pytest | same as pytest | file + test | optional | needs `pytest-playwright` on the target (probe) |
+| gtest | TEST/TEST_F/TEST_P macros → candidates only | file (exe) + test after native list | `--gtest_list_tests` per binary — authoritative | param/disabled/instantiations need native; GTEST_* env scrubbed; `--gtest_fail_if_no_test_selected` opt-in; POSIX only (Win follow-up) |
+| jest | literal config + name scan | file + test (native) | `--collectTests --json` (probe-gated; expands each/param cases, skips/todos) → fallback `--listTests` file-only | `-t` is full-name regex — duplicates in file stay candidates; collect JSON is discovery metadata not results |
+| postman | v2.1 JSON schema-validated + v3 `definition.yaml` multi-file | collection; v2.1 folder (newman, unique names); v3 request/folder paths (postman-cli) | collection JSON is authoritative statically | Newman unmaintained → v2.1 only; postman-cli v3 reporters = `--output` streamed YAML (no --reporters); first-match name selectors never used; local files only (no cloud UID/upload) |
+| bruno | `bruno.json`/`opencollection.yml` roots + `.bru`/YAML requests | collection + folder + request (path-based, ordered) | static parse authoritative (files, not code) | recursion explicit (`-r`); sandbox=safe default, developer mode opt-in; `--env-var`/`--global-env-var` argv exposure documented |
 
 **Plain-language rule:** where only file-level selection is
 reliable (Cypress), only file-level is offered and labeled as such
 — no silent downgrade.
+
+**Doc-review corrections applied:** Postman/Newman boundary
+(Newman unmaintained, v2.1 JSON only; v3 multi-file YAML via
+postman-cli; reporters are format-aware — v3 uses `--output`, not
+`--reporters`; ambiguous display names never used as selectors —
+CLI first-match semantics; local files only, no signed-in cloud
+runs). Jest `--collectTests --json` for native per-test inventory
+(probe-gated, `--listTests` fallback; `wouldRun` rows are
+discovery metadata not execution results; `-t` full-name matching
+— duplicate names in a file stay candidates). GoogleTest native
+listing authoritative; GTEST_* env scrubbed; disabled tests
+opt-in; no-test-selected flag; filters use gtest wildcard syntax
+not regex. Playwright `--list --reporter=json` native inventory
+with `--grep` selection (anchored-escaped, `--test-list` evaluated
+for versions that support it — line/col annotations not usable as
+disambiguators); project deps declared separately from selections.
+pytest-bdd resolves via pytest collection (executable identity +
+feature/scenario provenance both kept). Behave `--dry-run` is
+validation not execution; junit captures stdout/stderr regardless
+of capture flags (secret-leakage tested). Robot dry-run is not a
+sandbox; template rows ≠ independent tests. Cypress `--spec` stays
+within effective specPattern — validated before dispatch; per-test
+selection awaits a separately decided integration.
 
 ### 3.7 Dispatch / selection plumbing
 
@@ -383,9 +410,13 @@ targeted evidence; the full regression gate runs in M12.
 | M10 | **remote collection + Git publication + retention** | planned | §12 |
 | M11 | Results & Artifacts project tab | planned | §13 |
 | M12 | integrated acceptance + full regression | planned | §14 |
+| M13 | **Postman** (v2.1 JSON + v3 YAML, newman/postman-cli) | implemented (acceptance pending) | §15 |
+| M14 | **Bruno** (`bru` CLI, both collection layouts) | implemented (acceptance pending) | §16 |
+| M15 | **doc-review corrections** across adapters (§3.6 note) | implemented | §15–17 |
 
 Milestone evidence ledger: `3024d727` M0+M1 · `46357d43` plan ·
-`bbc77e0a` M2 · `bdaca4a7` M5 · `c7910ef2` regression tests.
+`bbc77e0a` M2 · `bdaca4a7` M5 · `c7910ef2` regression tests ·
+`4466ea73` M8/M9+M6 native collection.
 
 ## 6b. M6/M7 authorization record
 
@@ -623,3 +654,71 @@ conflicts, unavailable storage, retries; historical access after
 storage change; access after VM removal; isolation + retention;
 publication-loop prevention; FULL regression (not targeted counts)
 + acceptance ledger.
+
+## 15. M13 — Postman (`framework=postman`, runtime kind `postman`)
+
+Two documented collection formats, explicit engine selection
+(`fp.settings.engine`: `newman` | `postman-cli`):
+
+- **v2.1 JSON**: content-validated via `info.schema` marker —
+  filename carries no meaning. Newman `--folder` selects folders by
+  name → selectable only when unique inside the collection;
+  requests stay candidates (no engine selector; assertions are
+  report outcomes).
+- **v3 native-git YAML**: `definition.yaml` marks the root (topmost
+  only — nested markers are folders); request YAML files validated
+  by content (`name:`/`method:` keys), `resources/`+`environments/`
+  excluded. postman-cli path selectors make requests/folders
+  selectable; **newman cannot execute v3** (unmaintained, v2.1
+  only) — items are gated non-selectable with the boundary shown.
+- Reporters are format-aware: v2.1 → `--reporters cli,junit` +
+  `--reporter-junit-export`; v3 → `--output Reports/postman.raw.yaml`
+  (streamed YAML — mutually exclusive with `--reporters`).
+- Cloud-off: the collection arg is always a local path — cloud
+  UIDs/signed-in runs (which auto-upload) are not a default path;
+  event reporting disable where the probed version supports it.
+- newman argv: `run <col> -e/-g/-d --folder -n --delay-request
+  --timeout-request --reporter-json-no-body` (bodies stay out
+  unless `capture_bodies` explicitly opted in — §4 secret policy).
+  `--export-environment`/`-k` (TLS) are never implied; `-k` only
+  when `insecure` is explicitly configured.
+- Readiness probe records `node`/`newman`/`postman` binary versions
+  + junit support.
+
+## 16. M14 — Bruno (`framework=bruno`, runtime kind `bruno`)
+
+- Roots: dirs with `bruno.json` OR `opencollection.yml` (scan when
+  `test_roots` empty, else configured roots validated); multiple
+  nested collections per repo.
+- `.bru` meta parse: name/type/tags/script-block presence
+  (`script:*`/`tests`/`assert` flagged → isolated-target warning);
+  non-request `.bru` (folder.bru/meta) → asset items. YAML requests
+  need request-shaped keys — arbitrary YAML is never a request.
+- Environments (`environments/*.bru/.yml/.json`) + datasets
+  (`*-data.csv/json`) as asset items — names only, values never.
+- Execution: `bru run` FROM the collection root (spec workdir =
+  `build/src/<root>`); selectors are collection-relative paths in
+  order; recursion explicit (`rc.bruno_recurse`); sequential
+  default.
+- `--sandbox safe` default; `developer_mode` + `module_cache` are
+  explicit opt-ins recorded in the snapshot; TLS on unless
+  `insecure`; dedicated reporter flags `--reporter-json/-junit/
+  -html` (deprecated generic output flags not used); probe checks
+  `bru --version` + `--sandbox`/`--global-env`/junit flag support.
+
+## 17. M15 — doc-review corrections applied
+
+jest `--collectTests --json` collector (probe-gated + `--listTests`
+fallback; `wouldRun` ≠ pass; `-t` anchored-escaped full-name
+selectors, duplicates-in-file stay candidates; `--runTestsByPath`
+file selection). Playwright `--list --reporter=json` emits
+`file::project::title` with duplicate-title demotion; selection
+maps to anchored-escaped `--grep` + `--project` + file arg
+(`--test-list` noted for versions that support it — line/col are
+not disambiguators). gtest: `GTEST_*` env scrub, disabled-tests
+opt-in, `--gtest_fail_if_no_test_selected`, wildcard-syntax
+filters (not regex). Behave `--dry-run` = validation only; junit
+captures stdout/stderr regardless of capture flags (leakage
+documented). Robot: dry-run ≠ sandbox; template rows not
+independent tests. Cypress: `--spec` inside effective specPattern;
+per-test needs a separately decided integration.

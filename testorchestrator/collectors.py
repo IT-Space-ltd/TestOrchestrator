@@ -244,6 +244,10 @@ try {
     { encoding: "utf-8", timeout: 600000 });
   const doc = JSON.parse(out || "{}");
   const items = [];
+  const seen = {};
+  // duplicates: (file, project, full title) — --grep is a regex over
+  // the title path, so an identical title in the same file+project
+  // cannot be selected uniquely; those stay candidates.
   const walk = (suite, parent) => {
     const loc = (suite.location || {}).file || "";
     for (const spec of suite.specs || []) {
@@ -251,11 +255,15 @@ try {
         const proj = t.projectName || "";
         const title = [parent, suite.title || "",
                        spec.title || ""].filter(Boolean).join(" > ");
+        const key = `${loc}::${proj}::${title}`;
+        const dup = seen[key]; seen[key] = true;
         items.push({
           kind: "test", path: loc, name: spec.title || "",
-          node_id: `${loc}::${proj}::${title}`,
+          node_id: dup ? "" : ("t:" + title + ";;" + proj),
           granularity: "test", parent: suite.title || "",
-          tags: proj ? [proj] : [], warnings: ""});
+          tags: proj ? [proj] : [],
+          warnings: dup ? "duplicate title in file+project — "
+            + "select the file instead" : ""});
       }
     }
     for (const sub of suite.suites || [])
@@ -274,29 +282,77 @@ try {
 }
 '''
 
-JEST_COLLECT = r'''// Jest native collector (node) — `jest --listTests --json`
-// resolves the repo's real spec inventory (config + projects) on
-// the target. Per-test identities stay candidates — jest exposes
-// no built-in per-test listing.
+JEST_COLLECT = r'''// Jest native collector (node).
+// Current-jest `--collectTests --json` emits per-test structured
+// results WITHOUT running test bodies — nested describe names,
+// expanded test.each/describe.each cases, skipped/todo markers.
+// It still evaluates each file's top-level code → isolated target
+// only. Older jest lacks --collectTests → fallback --listTests
+// gives file-level identity; a warning marks tests as unresolved
+// candidates (never fake selectors). Collection output is
+// discovery metadata — `wouldRun` rows are NOT passing results;
+// execution ingestion is a separate path.
 const { execFileSync } = require("child_process");
 const fs = require("fs");
-try {
-  const out = execFileSync(
-    "npx", ["--no-install", "jest", "--listTests", "--json"],
-    { encoding: "utf-8", timeout: 600000 });
-  const items = (JSON.parse(out || "[]")).map(rel => ({
-    kind: "suite", path: rel, name: rel.split("/").pop(),
-    node_id: rel, granularity: "file", parent: "",
-    tags: [], warnings: "" }));
+const warnings = [];
+let items = [];
+function emit() {
   fs.mkdirSync("Reports", { recursive: true });
-  fs.writeFileSync("Reports/collect.json", JSON.stringify(
-    { framework: "jest", items, warnings: [] }));
-} catch (e) {
-  fs.mkdirSync("Reports", { recursive: true });
-  fs.writeFileSync("Reports/collect.json", JSON.stringify({
-    framework: "jest", items: [],
-    warnings: [`jest --listTests failed: ${e.message}`] }));
+  fs.writeFileSync("Reports/collect.json",
+    JSON.stringify({ framework: "jest", items, warnings }));
 }
+let out = "";
+try {
+  out = execFileSync(
+    "npx", ["--no-install", "jest", "--collectTests", "--json"],
+    { encoding: "utf-8", timeout: 600000 });
+} catch (e) {
+  // --collectTests unsupported/failed → file-level fallback
+  try {
+    const lout = execFileSync(
+      "npx", ["--no-install", "jest", "--listTests", "--json"],
+      { encoding: "utf-8", timeout: 600000 });
+    items = (JSON.parse(lout || "[]")).map(rel => ({
+      kind: "suite", path: rel, name: rel.split("/").pop(),
+      node_id: rel, granularity: "file", parent: "",
+      tags: [], warnings: "" }));
+    warnings.push("--collectTests unavailable (" + e.message +
+      ") — file-level inventory only; per-test selection " +
+      "requires a jest version that supports --collectTests");
+  } catch (e2) {
+    warnings.push(`jest collection failed: ${e2.message}`);
+  }
+  emit(); process.exit(0);
+}
+const doc = JSON.parse(out || "{}");
+const seen = {};                       // duplicate fullName index
+for (const tr of (doc.testResults || [])) {
+  const rel = tr.name || tr.testFilePath || "";
+  items.push({ kind: "suite", path: rel,
+    name: rel.split("/").pop(), node_id: rel,
+    granularity: "file", parent: "", tags: [], warnings: "" });
+  for (const a of (tr.assertionResults || [])) {
+    const full = a.fullName || a.title || "";
+    const status = a.status || "";
+    const dup = seen[rel + "::" + full];
+    seen[rel + "::" + full] = true;
+    // selectable only when the full name is unique in its file —
+    // -t matches the complete name path, so identical names in the
+    // same file are NOT disambiguable by pattern.
+    items.push({
+      kind: "test", path: rel, name: full,
+      parent: (a.ancestorTitles || []).join(" "),
+      node_id: dup ? "" : ("t:" + full),
+      granularity: "test", parent2: rel,
+      selectable: !dup && status !== "skipped" &&
+                  status !== "todo" && status !== "pending",
+      tags: status !== "passed" ? status : "",
+      warnings: dup ? "duplicate full name in file — select the "
+        + "file instead (testNamePattern cannot disambiguate)"
+        : "" });
+  }
+}
+emit();
 '''
 
 CYPRESS_COLLECT = r'''// Cypress collector (node) — no native list command exists;

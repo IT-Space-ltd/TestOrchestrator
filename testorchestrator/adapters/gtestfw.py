@@ -21,17 +21,30 @@ KIND = "gtest"
 
 def build_script(runs, prepare="", configure="", build="",
                  extra_args=(), list_tests: bool = False,
-                 timeout_s: int = 0) -> str:
+                 timeout_s: int = 0, run_disabled: bool = False,
+                 fail_if_no_test: bool = False) -> str:
     """POSIX driver executed as ``sh -c <script>`` — runs live under
     the staged checkout. ``runs`` = [(exe_path, filter, junit_name)].
     Every argument is single-quoted for the shell — no interpolation
-    of test names into command position."""
+    of test names into command position. GTEST_* env is scrubbed:
+    inherited filters/sharding/repetition must never silently alter
+    the requested execution (docs correction §3).
+    ``run_disabled`` is the explicit disabled-test opt-in;
+    ``fail_if_no_test`` emits --gtest_fail_if_no_test_selected where
+    the binary supports it (a 0 exit with 0 tests is never PASS)."""
     def q(s):
         return "'" + str(s).replace("'", "'\\''") + "'"
 
     # Build manifest is appended line-by-line; JSON snippets are
     # literal (no f-strings) so braces/quotes stay unambiguous.
-    lines = ["set -u", "R=Reports", "mkdir -p $R/junit",
+    lines = ["set -u",
+             # scrub inherited gtest env — filters/shards/repeats/
+             # output targets are set by argv below, never ambient
+             "unset GTEST_FILTER GTEST_OUTPUT GTEST_SHARD_INDEX "
+             "GTEST_TOTAL_SHARDS GTEST_REPEAT GTEST_SHUFFLE "
+             "GTEST_ALSO_RUN_DISABLED_TESTS "
+             "GTEST_FAIL_IF_NO_TEST_SELECTED 2>/dev/null || true",
+             "R=Reports", "mkdir -p $R/junit",
              'MANIFEST="$R/build-manifest.json"',
              'echo "{" > "$MANIFEST"',
              'echo "  \\"steps\\": [" >> "$MANIFEST"']
@@ -71,9 +84,12 @@ def build_script(runs, prepare="", configure="", build="",
                 f" > $R/list-{jname}.txt 2>&1 || exit 3")
         args = " ".join(q(a) for a in extra_args)
         flt = f"--gtest_filter={filt}" if filt else ""
+        dis = " --gtest_also_run_disabled_tests" if run_disabled else ""
+        nz = (" --gtest_fail_if_no_test_selected"
+              if fail_if_no_test else "")
         lines.append(
-            f"  {t}{q(exe)} --gtest_color=no --gtest_brief=1 "
-            f"--gtest_output=xml:$R/junit/{jname}.xml"
+            f"  {t}{q(exe)} --gtest_color=no --gtest_brief=1{dis}{nz}"
+            f" --gtest_output=xml:$R/junit/{jname}.xml"
             f" {flt} {args} || exit 1")
     lines.append('echo "}" >> "$MANIFEST"')
     return "\n".join(lines)

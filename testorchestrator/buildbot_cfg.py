@@ -412,7 +412,7 @@ def write_run_credential(execution_id: str, value: str) -> str:
 
 def node_exec_spec(ex, executable: str, args: list,
                    env: dict = None, deps_argv: list = None,
-                   posix: bool = True) -> dict:
+                   posix: bool = True, workdir: str = "") -> dict:
     """Validated runner spec for Node.js browser-test runtimes
     (playwright/cypress). Same contract as kre_exec_spec — argv list
     only, no shell, no secrets — plus an explicit env map (e.g.
@@ -424,8 +424,9 @@ def node_exec_spec(ex, executable: str, args: list,
         "executable": executable,
         "args": list(args),
         # tar unpacks the project to <builddir>/src — the framework
-        # CLI runs inside it (project-pinned deps via npx).
-        "exec_workdir": "build/src",
+        # CLI runs inside it (project-pinned deps via npx). Bruno
+        # executes from the collection root (workdir override).
+        "exec_workdir": workdir or "build/src",
         "report_src": "src/Reports",
         "posix": posix,
     }

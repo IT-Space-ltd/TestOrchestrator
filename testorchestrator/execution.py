@@ -783,7 +783,7 @@ class DiscoveredItem(db.Model):
 # choice picks the discovery adapter — detection is only a hint.
 FRAMEWORK_KINDS = ("katalon", "pytest", "pytest-bdd", "behave",
                    "robot", "cypress", "playwright", "playwright-pytest",
-                   "gtest", "jest")
+                   "gtest", "jest", "postman", "bruno")
 
 
 class FrameworkProject(db.Model):

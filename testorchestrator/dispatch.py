@@ -23,7 +23,8 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
-from .adapters import behavefw, gtestfw, nodefw, pytestfw, robotfw
+from .adapters import (behavefw, brunofw, gtestfw, nodefw, postmanfw,
+                       pytestfw, robotfw)
 
 
 def _tag_list(raw) -> list:
@@ -71,6 +72,8 @@ FRAMEWORK_RUNTIME = {
     "playwright": "playwright",
     "gtest": "gtest",
     "jest": "jest",
+    "postman": "postman",
+    "bruno": "bruno",
 }
 
 
@@ -111,6 +114,11 @@ def _fp_item_gate(source_item, rc=None):
                 raise DispatchError(
                     f"{fp.framework} items require a {want!r} "
                     f"runtime (selected is {got or 'unknown'!r})")
+        # Framework-project execution settings travel with the
+        # snapshot — gtest build/drive config, postman engine config.
+        if fp.framework in ("gtest", "postman", "bruno") \
+                and fp.framework not in rc:
+            rc[fp.framework] = dict(fp.settings() or {})
 
 
 # ---------- creation / snapshot ----------
@@ -261,6 +269,28 @@ def create_execution(username: str, suite: Suite = None,
             fw = source_item.framework or ""
             if fw in ("pytest", "pytest-bdd", "playwright-pytest"):
                 rc.setdefault("node_ids", [source_item.node_id])
+            elif fw == "jest" and source_item.node_id.startswith(
+                    "t:"):
+                # t:<fullName> — jest -t matches the complete name
+                # path; anchored + regex-escaped so literals can't
+                # widen. File context via --runTestsByPath.
+                import re as _re
+                rc.setdefault("test_pattern",
+                              "^" + _re.escape(
+                                  source_item.node_id[2:]) + "$")
+                rc.setdefault("spec", source_item.path)
+            elif fw == "playwright" and \
+                    source_item.node_id.startswith("t:"):
+                # t:<title path>;;<project> — playwright --grep is a
+                # regex over the title; anchored+escaped, project
+                # selected by name, file as positional arg.
+                import re as _re
+                _tp, _, _pj = source_item.node_id[2:].partition(";;")
+                rc.setdefault("test_pattern",
+                              "^" + _re.escape(_tp) + "$")
+                if _pj:
+                    rc.setdefault("projects", [_pj])
+                rc.setdefault("spec", source_item.path)
             elif fw == "behave":
                 rc.setdefault("behave_targets",
                               [source_item.node_id])
@@ -271,6 +301,46 @@ def create_execution(username: str, suite: Suite = None,
             fw = source_item.framework or ""
             if fw in ("cypress", "playwright"):
                 rc.setdefault("spec", source_item.node_id)
+            elif fw == "postman":
+                rc.setdefault("postman_collection",
+                              source_item.node_id)
+                if "format:v3" in (source_item.tags or ""):
+                    rc.setdefault("postman_format", "v3")
+        elif source_item.node_id and \
+                source_item.granularity in ("folder", "request") and \
+                (source_item.framework or "") == "postman":
+            # Selection semantics differ by engine/format — v3 uses
+            # path selectors (definition.yaml folder / request file);
+            # v2.1 folders are newman --folder NAME selectors.
+            col = source_item.path
+            if "format:v3" in (source_item.tags or ""):
+                # v3: the collection arg is the ROOT dir (in: tag),
+                # not the folder/request file.
+                for t in (source_item.tags or "").split(";"):
+                    if t.startswith("in:"):
+                        col = t[3:]
+            rc.setdefault("postman_collection", col)
+            if "format:v3" in (source_item.tags or ""):
+                rc.setdefault("postman_format", "v3")
+                rc.setdefault("postman_paths",
+                              [source_item.node_id])
+            else:
+                rc.setdefault("postman_folder",
+                              source_item.node_id.split("/")[-1])
+        elif (source_item.framework or "") == "bruno":
+            # bru runs FROM the collection root; selectors are
+            # collection-relative paths in selection order.
+            col_root = ""
+            for t in (source_item.tags or "").split(";"):
+                if t.startswith("in:"):
+                    col_root = t[3:]
+            if source_item.granularity == "collection":
+                col_root = source_item.node_id
+                paths = []
+            else:
+                paths = [source_item.node_id]
+            rc.setdefault("bruno_collection", col_root)
+            rc.setdefault("bruno_paths", paths)
     _validate_parallel(rc, _snapshot_runtime_kind(rc))
     snapshot = {
         "plan_id": plan_id,
@@ -351,6 +421,29 @@ def create_execution(username: str, suite: Suite = None,
                 str(rc.get("gtest_filter") or "")[:512],
             "gtest": {str(k)[:32]: v for k, v in
                       dict(rc.get("gtest") or {}).items()},
+            # postman: engine settings resolved from the framework
+            # project; collection/folder from the selected item.
+            "postman_collection":
+                str(rc.get("postman_collection") or "")[:512],
+            "postman_folder":
+                str(rc.get("postman_folder") or "")[:512],
+            "postman_format":
+                str(rc.get("postman_format") or "")[:16],
+            "postman_paths": [str(x)[:512] for x in
+                              list(rc.get("postman_paths") or [])
+                              [:128]],
+            "postman": {str(k)[:32]: v for k, v in
+                        dict(rc.get("postman") or {}).items()},
+            # bruno: collection root + ordered collection-relative
+            # paths + explicit recursion + engine settings.
+            "bruno_collection":
+                str(rc.get("bruno_collection") or "")[:512],
+            "bruno_paths": [str(x)[:512]
+                            for x in list(rc.get("bruno_paths") or [])
+                            [:128]],
+            "bruno_recurse": bool(rc.get("bruno_recurse")),
+            "bruno": {str(k)[:32]: v for k, v in
+                      dict(rc.get("bruno") or {}).items()},
             # Native-collection operation (M6): the worker runs the
             # framework's own collector and returns structured JSON
             # instead of executing tests. fp_id ties the result to
@@ -2189,7 +2282,9 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             configure=str(g.get("configure_cmd") or ""),
             build=str(g.get("build_cmd") or ""),
             extra_args=list(g.get("gtest_args") or []),
-            timeout_s=int(rc.get("timeout_seconds") or 0))
+            timeout_s=int(rc.get("timeout_seconds") or 0),
+            run_disabled=bool(g.get("run_disabled")),
+            fail_if_no_test=bool(g.get("fail_if_no_test", True)))
         # Driver runs inline as `sh -c <script>` — no file staged
         # into the checkout; the spec argv carries the whole driver.
         if runner.target_type == "ssh":
@@ -2223,6 +2318,153 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         db.session.commit()
         record_audit("system", "execution.buildbot_dispatched",
                      f"{ex.id}: {builder} (gtest) brid {brid}")
+        return
+    if node_kind == postmanfw.KIND:
+        # Postman: engine binary runs the selected collection inside
+        # the staged checkout. Settings come from the framework
+        # project (fp.settings → rc["postman"] via _fp_item_gate).
+        pmc = dict(rc.get("postman") or {})
+        engine = str(pmc.get("engine") or "newman")
+        if engine not in postmanfw.ENGINES:
+            _fail(ex, "config",
+                  f"postman engine {engine!r} not supported "
+                  f"(choose {', '.join(postmanfw.ENGINES)})")
+            return
+        win = (runner.os_arch or "").lower().startswith("win")
+        exe, prefix = postmanfw.build_invocation(
+            engine, (runtime.executable_path or "").strip(), win)
+        collection = str(rc.get("postman_collection") or "").strip()
+        if not collection:
+            _fail(ex, "config",
+                  "no Postman collection selected — discovery lists "
+                  "validated collections")
+            return
+        pm_args = prefix + postmanfw.build_args(
+            engine, collection,
+            folder=str(rc.get("postman_folder") or ""),
+            paths=list(rc.get("postman_paths") or []),
+            collection_format=str(rc.get("postman_format") or
+                                  "v2.1"),
+            environment=str(pmc.get("environment_file") or ""),
+            globals_file=str(pmc.get("globals_file") or ""),
+            data=str(pmc.get("data_file") or ""),
+            iterations=int(pmc.get("iterations") or 0),
+            delay_ms=int(pmc.get("delay_ms") or 0),
+            timeout_ms=int(pmc.get("timeout_ms") or 0),
+            insecure=bool(pmc.get("insecure")),
+            capture_bodies=bool(pmc.get("capture_bodies")))
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            exe_dir = str(Path(exe).parent)
+            if Path(exe).is_absolute() and exe_dir != ".":
+                extra["path_prefix"] = exe_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, pm_args, executable=exe,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, exe, pm_args, posix=not win)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (postman/{engine}) "
+                     f"brid {brid}")
+        return
+    if node_kind == brunofw.KIND:
+        # Bruno: `bru run` executes FROM the collection root —
+        # collection-relative paths in selection order, recursion
+        # explicit only. Settings → rc["bruno"] via _fp_item_gate.
+        bs = dict(rc.get("bruno") or {})
+        col_root = str(rc.get("bruno_collection") or "").strip()
+        if col_root == "" and not rc.get("bruno_paths"):
+            _fail(ex, "config",
+                  "no Bruno collection selected — discovery lists "
+                  "validated collection roots")
+            return
+        paths = list(rc.get("bruno_paths") or [])
+        recurse = bool(rc.get("bruno_recurse"))
+        bru_args = brunofw.build_args(
+            col_root, paths=paths, recurse=recurse,
+            environment=str(bs.get("environment") or ""),
+            environment_file=str(bs.get("environment_file") or ""),
+            global_environment=str(bs.get("global_environment") or ""),
+            workspace_path=str(bs.get("workspace_path") or ""),
+            env_vars=list(bs.get("env_vars") or []),
+            global_env_vars=list(bs.get("global_env_vars") or []),
+            include_tags=list(bs.get("include_tags") or []),
+            exclude_tags=list(bs.get("exclude_tags") or []),
+            tests_only=bool(bs.get("tests_only")),
+            bail=bool(bs.get("bail")),
+            delay_ms=int(bs.get("delay_ms") or 0),
+            iterations=int(bs.get("iterations") or 0),
+            data_file=str(bs.get("data_file") or ""),
+            insecure=bool(bs.get("insecure")),
+            developer_mode=bool(bs.get("developer_mode")),
+            module_cache=bool(bs.get("module_cache")),
+            cacert=str(bs.get("cacert") or ""),
+            client_cert=str(bs.get("client_cert") or ""),
+            proxy=str(bs.get("proxy") or ""),
+            no_proxy=bool(bs.get("no_proxy")))
+        win = (runner.os_arch or "").lower().startswith("win")
+        bru_exe = (runtime.executable_path or "").strip() or "bru"
+        col_wd = ("build/src" + ("/" + col_root if col_root else ""))
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src" + ("/" + col_root
+                                            if col_root else ""),
+                     "report_rel": "proj/src" + ("/" + col_root
+                                                if col_root else "")
+                     + "/Reports"}
+            bru_dir = str(Path(bru_exe).parent)
+            if Path(bru_exe).is_absolute() and bru_dir != ".":
+                extra["path_prefix"] = bru_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, bru_args, executable=bru_exe,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, bru_exe, bru_args, posix=not win,
+                workdir=col_wd)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (bruno) brid {brid}")
         return
     flags, dropped = kre_adapter.gated_flags(
         runtime.detected_version, rc.get("kre_options") or {})

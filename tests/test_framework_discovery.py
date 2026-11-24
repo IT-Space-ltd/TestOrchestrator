@@ -677,3 +677,124 @@ def test_native_collect_runtime_gate(app, tmp_path):
         rc = ex.snapshot()["run_config"]
         assert rc["native_collect"] and rc["fp_id"] == fp.id
         assert rc["requested_runtime"] == rt2.id
+
+
+# ---------- postman / bruno adapters ----------
+
+PM_V21 = {
+    "api/collections/login.postman_collection.json": json.dumps({
+        "info": {"name": "Login", "schema":
+                 "https://schema.getpostman.com/json/collection/"
+                 "v2.1.0/collection.json"},
+        "variable": [{"key": "base_url", "value": "http://x"}],
+        "item": [
+            {"name": "auth", "item": [
+                {"name": "token", "request": {"method": "POST",
+                                              "url": "{{base_url}}"},
+                 "event": [{"listen": "test",
+                            "script": {"exec": ["pm.test()"]}}]},
+                {"name": "me", "request": {"method": "GET"}}]},
+            {"name": "ping", "request": {"method": "GET"}}]}),
+    "api/env/local.postman_environment.json": "{}",
+    "api/other.json": '{"not":"a collection"}',
+}
+
+PM_V3 = {
+    "colls/orders/definition.yaml": "name: Orders\n",
+    "colls/orders/requests/list.yaml": "name: list\nmethod: GET\n",
+    "colls/orders/admin/definition.yaml": "name: admin\n",
+    "colls/orders/admin/create.yaml": "name: create\nmethod: POST\n",
+    "colls/orders/resources/schema.yaml": "openapi: 3\n",
+}
+
+BRUNO_TREE = {
+    "api/bruno.json": '{"version":"1","name":"api","type":'
+                      '"collection"}',
+    "api/ping.bru": "meta {\n  name: ping\n  type: http\n}\n"
+                    "get { url: http://x }\n",
+    "api/admin/create.bru": "meta {\n  name: create\n  type: http\n}"
+                            "\ntests { assert(res.status, 200) }\n",
+    "api/environments/local.bru": "vars { host: x }\n",
+    "nested/opencollection.yml": "name: nested\n",
+    "nested/get-user.yaml": "name: get-user\ntype: request\n",
+    "nested/notes.yaml": "just: data\n",
+}
+
+
+def test_postman_v21_collection(tmp_path):
+    wt = _write(tmp_path, PM_V21)
+    fp = _fp("postman", test_roots=["api"])
+    res = discover(fp, _B(wt))
+    col = [i for i in res.items if i.kind == "collection"]
+    assert len(col) == 1 and col[0].selectable
+    assert "format:v2.1" in col[0].tags
+    folders = [i for i in res.items if i.kind == "folder"]
+    assert folders[0].selectable                 # newman --folder
+    reqs = [i for i in res.items if i.kind == "test"]
+    assert len(reqs) == 3
+    assert all(not r.selectable for r in reqs)   # requests candidate
+    assert any("vars:base_url" in (c.tags or "") for c in col)
+    assert any("script" in w for w in res.warnings)
+
+
+def test_postman_v3_cli_only(tmp_path):
+    """v3 YAML collections are postman-cli only — newman can't
+    execute them (unmaintained, v2.1 only)."""
+    wt = _write(tmp_path, PM_V3)
+    fp = _fp("postman", test_roots=["colls"])
+    fp.settings_json = json.dumps({"engine": "newman"})
+    res = discover(fp, _B(wt))
+    col = [i for i in res.items if i.kind == "collection"]
+    assert len(col) == 1
+    assert not col[0].selectable                 # engine mismatch
+    assert "postman-cli" in col[0].warnings
+    fp2 = _fp("postman", test_roots=["colls"])
+    fp2.settings_json = json.dumps({"engine": "postman-cli"})
+    res2 = discover(fp2, _B(wt))
+    col2 = [i for i in res2.items if i.kind == "collection"]
+    assert col2[0].selectable
+    reqs = [i for i in res2.items if i.kind == "test"]
+    assert all(r.selectable for r in reqs)       # v3 path selectors
+    assert {r.node_id for r in reqs} == {
+        "colls/orders/requests/list.yaml",
+        "colls/orders/admin/create.yaml"}
+
+
+def test_bruno_collection_and_paths(tmp_path):
+    wt = _write(tmp_path, BRUNO_TREE)
+    fp = _fp("bruno")
+    res = discover(fp, _B(wt))
+    cols = [i for i in res.items if i.kind == "collection"]
+    assert len(cols) == 2                        # both layouts
+    reqs = [i for i in res.items if i.kind == "test"]
+    nodes = {r.node_id for r in reqs}
+    assert "ping.bru" in nodes and "admin/create.bru" in nodes
+    assert "get-user.yaml" in nodes              # yaml request
+    assert all(r.selectable for r in reqs)       # path selectors
+    folders = [i for i in res.items if i.kind == "folder"]
+    assert folders[0].node_id == "admin"
+    assert "recursion" in folders[0].warnings
+    env = [i for i in res.items if i.tags == "environment"]
+    assert env and not env[0].selectable
+    # notes.yaml isn't a request — never an item
+    assert not any(i.path.endswith("notes.yaml") for i in res.items)
+
+
+def test_bruno_and_postmanfw_args():
+    from testorchestrator.adapters import brunofw, postmanfw
+    a = brunofw.build_args("api", paths=["admin", "ping.bru"],
+                           recurse=True, environment="local",
+                           include_tags=["smoke"], iterations=3,
+                           developer_mode=False)
+    assert a[:4] == ["run", "admin", "ping.bru", "-r"]
+    assert "--sandbox" in a and a[a.index("--sandbox") + 1] == "safe"
+    assert "--env" in a and "--tags-include" in a
+    a2 = brunofw.build_args("api", developer_mode=True)
+    assert a2[a2.index("--sandbox") + 1] == "developer"
+    p = postmanfw.build_args("newman", "c.json", folder="auth",
+                             environment="e.json")
+    assert "--folder" in p and "--reporter-json-no-body" in p
+    p3 = postmanfw.build_args("postman-cli", "colls/orders",
+                              paths=["colls/orders/requests/list.yaml"],
+                              collection_format="v3")
+    assert "--output" in p3 and "--reporters" not in p3
