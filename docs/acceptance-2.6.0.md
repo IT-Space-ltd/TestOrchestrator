@@ -2312,3 +2312,13 @@ restart verified (NRestarts=1, new PID, units healthy).
 **Service-identity re-verified post-upgrade**: all 5 units `User=`
 testorchestrator + effective UID; secrets preserved (600/640/700);
 data preserved across reinstall (projects/runners/items/secrets).
+
+## Teardown — post-acceptance (verified)
+
+- Host install removed: 5 units stopped+disabled+deleted, `daemon-reload`; `/opt/testorchestrator`, `/var/lib/testorchestrator`, `/etc/testorchestrator` deleted; system user `testorchestrator` removed. `ss` shows zero listeners on :443/:8080/:9989/:18080/:8010/:39995.
+- Worker VM: `multipass delete to-worker --purge` → `multipass list` = no instances (in-VM KRE credential + fixtures destroyed with the VM).
+- Throwaway keypairs deleted: `~/.ssh/id_to_worker{,.pub}`, `~/vm-e2e-tmp/to_key{,.pub}`.
+- KRE account password (`~/vm-e2e-tmp/kre-cred`, mode 600, never used — no API key path in product) **shredded**. Recommend rotating the account password — it transited this conversation.
+- Host fixtures removed: `/tmp/to-preview-data`, `/tmp/pw-venv`, `/tmp/to-ssh`, `/tmp/node-v*`; preview waitress killed.
+- Sudoers grant `/etc/sudoers.d/devin-to-stage` removed — sudo re-prompts.
+- Repo state: head `7ea90634`, clean tree. Branch `feature/2.6.0-node-runners`, PR #4 — no merge/tag/publish per boundary.
