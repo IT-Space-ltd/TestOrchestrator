@@ -2214,3 +2214,24 @@ UI/infra/exec rows rerun against the new hash.
   e2e test files). First attempt hit a transient SIGSEGV in the
   bundled-runtime venv check during `validate_package.py`; identical
   retry passed. Noted as an environment flake, not product.
+
+### Defect found and fixed — retry-block false positive (f0c97760)
+
+`test_07` licence-failure dispatch on the VM (`katalonc-licfail`, exit
+2, "License is not activated" on stderr) landed **UNKNOWN /
+infrastructure** instead of FAILED. Root cause: `_retry_blocked_line`
+substring-matched `TO_RETRY_BLOCKED` in the prep step's stdio — but the
+prep *script itself* (containing that literal string in its echo
+statements) is echoed into the log's header lines. Every buildbot
+failure without junit output was misread as a retry refusal: execs
+parked UNKNOWN holding reservations instead of reporting the honest
+FAILED/infrastructure verdict. Fix: the marker must start an emitted
+output line (channel prefix stripped). Regression test
+`test_prep_script_echo_is_not_a_retry_block` reproduces the real log
+shape; existing `test_retry_blocked_maps_unknown_and_holds_reservations`
+still guards the genuine block path (16/16 buildbot_dispatch green).
+
+Package `262fead1e9e5…ee29eb` → **STALE** for execution/outcome rows;
+rebuild from `f0c97760` under way.
+- New: sha256 `d0cd23ab0130fc6b10099d2a9791a9264e26fb8d0927179bf27626d8a66525d5`, built at `f0c97760` (CSP fix + retry-block fix + e2e updates).
+- `d0cd23ab…25d5` → **STALE** (delegated-confirm regression in the CSP fix itself). New: sha256 `49b9537a160a60c16d99e0a59c65e7ba0b12c6c1f84751fe2d8393b70b432560` at `711cb317`.

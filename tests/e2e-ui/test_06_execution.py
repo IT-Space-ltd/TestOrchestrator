@@ -120,6 +120,17 @@ def _probe(page, name):
         page.wait_for_timeout(1500)
 
 
+def _seed_items():
+    r = subprocess.run(
+        ["sudo", "env",
+         "PYTHONPATH=/opt/testorchestrator",
+         "/opt/testorchestrator/venv/bin/python",
+         "/home/szefi/vm-e2e-tmp/host-seed.py"],
+        capture_output=True, text=True, timeout=60)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "SEEDED-ITEMS" in r.stdout
+
+
 def _open_item(page, item_name):
     """Open the discovered item detail via the project inventory tab."""
     page.goto("/projects")
@@ -128,6 +139,13 @@ def _open_item(page, item_name):
     path = ITEM_PATHS.get(item_name, item_name)
     link = page.locator(
         "a[href^='/discovered/']", has_text=path).first
+    if link.count() == 0:
+        # a queued git-sync (binding create/sync/publish) replaces the
+        # binding's item set — reseed and retry once
+        _seed_items()
+        page.reload()
+        link = page.locator(
+            "a[href^='/discovered/']", has_text=path).first
     expect(link).to_be_visible()
     page.goto(link.get_attribute("href"))
 
@@ -212,14 +230,7 @@ def test_seed_non_katalon_items():
     """Seed pytest/robot/pw/cy items (discovery is .prj-only by
     design — documented boundary). Items only; every user action goes
     through the browser."""
-    r = subprocess.run(
-        ["sudo", "env",
-         "PYTHONPATH=/opt/testorchestrator",
-         "/opt/testorchestrator/venv/bin/python",
-         "/home/szefi/vm-e2e-tmp/host-seed.py"],
-        capture_output=True, text=True, timeout=60)
-    assert r.returncode == 0, r.stdout + r.stderr
-    assert "SEEDED-ITEMS" in r.stdout
+    _seed_items()
 
 
 def test_katalon_items_discovered_by_sync(admin_page):
