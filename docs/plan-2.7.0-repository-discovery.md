@@ -234,7 +234,61 @@ New files: `templates/portal/framework_project_{new,preview}.html`,
 partial `_framework_fields.html` (per-kind fieldsets toggled by
 existing external-JS `data-` pattern — **no inline JS**, CSP rule).
 
-### 3.5 Dispatch / selection plumbing
+**Draft-Save:** Ein Framework-Projekt lässt sich jederzeit speichern
+— auch wenn Discovery noch nicht laufen kann (kein Worker, kein
+Sync, Repo noch nicht ausgecheckt). Der Zustand wird strikt
+unterschieden: **„Konfiguration gespeichert"** (draft — bearbeitbar,
+nicht ausführbar) vs. **„Discovery validiert"** (Preview erfolgreich
+→ Ausführung freigegeben). Die Run-Schaltfläche für ein
+Framework-Projekt ist erst nach erfolgreicher Discovery-Validierung
+aktiv; gespeicherte Drafts zeigen ihren Status als Badge.
+Modellseitig: `discovery_status` auf `FrameworkProject` —
+`draft|pending|ok|failed`.
+
+### 3.5 Feld-für-Feld-Onboarding (Required / Optional / Framework-spezifisch)
+
+**Schritt „Repository verbinden"** (bestehendes Binding-Formular, unverändert):
+
+| Feld | Status | Bemerkung |
+|---|---|---|
+| Repository-URL | Pflicht | https/ssh/lokal; userinfo (`user:pass@`) wird **abgelehnt** |
+| Credential-Referenz | Optional | SecretRef-Name; nie Wert, nie in URL/Logs |
+| Ref (Branch/Tag/Commit) | Optional | Default `main` |
+
+**Schritt „Framework-Projekt"** (neu):
+
+| Feld | Status | Gilt für | Bemerkung |
+|---|---|---|---|
+| `name` (Anzeigename) | Pflicht | alle | frei wählbar |
+| `framework` | Pflicht | alle | explizite Wahl; Auto-Erkennung nur als Hinweis |
+| `project_root` | Pflicht | alle | relativ zum Checkout; dir-browser + Freitext |
+| `workdir` | Optional | alle | Default = `project_root` |
+| `config_file` | Optional | alle außer katalon fest auf `.prj`-Root | Framework-Default wird gesucht, Override setzbar |
+| `test_roots[]` | Pflicht (≥1, Default vorbelegt) | alle | Default z. B. `tests`/`src` je Framework |
+| `include`/`exclude` | Optional | alle | Globs, Framework-Defaults vorbelegt |
+| `feature_roots[]` | BDD-Pflicht | behave, pytest-bdd | Default `features/` bzw. `test_roots` |
+| `stepdef_roots[]` | BDD-Optional | behave, pytest-bdd, robot-GWT | Default `step_definitions/` |
+| `support_roots[]` | Optional | alle | Fixtures/resources — nie als Tests gelistet |
+| `settings_json` | Optional | Playwright-Projects, Robot var-files, pytest addopts | je Adapter |
+
+### 3.6 Framework-Fähigkeitsmatrix (Zielbild)
+
+| Framework | Statische Discovery | Auswahl-Granularität | Native Collection | Einschränkungen |
+|---|---|---|---|---|
+| katalon | XML-Parse `.tc`/`.ts`/`.glbl` (heute) | suite/collection (file); case nur via Run-Filter | nicht nötig | unverändert, Parität |
+| pytest | AST-Parse (`test_*.py`, Klassen, Funktionen, parametrize-IDs, Marker) | **file + test** (`::nodeid`) | optional (`--collect-only`, tiefer: fixtures/conftest) | statisch findet keine dynamisch generierten Tests (fixtures, plugins) |
+| pytest-bdd | pytest-AST + Gherkin-Parse | file + scenario | optional | Binding-Matching statisch nicht immer eindeutig |
+| behave | `.feature`-Parse (Scenarios, Outlines/Examples, Tags) | file + scenario | optional | Schritte werden beim Run evaluiert |
+| robot | `.robot`-Parse (Tests, Tags, Templates, GWT-Stil) | file + test (`--test`) | optional (libdoc-ähnlich) | dynamische/Test-Templates nur teilweise statisch |
+| cypress | Glob `specPattern` aus Config | **file only** (`--spec`) | optional (`cypress run --list` nicht standard → bleibt optional/manuell) | kein per-`it()`-Auswahl über UI (nicht zuverlässig) — klar gelabelt |
+| playwright | spec-Glob + `projects` aus Config | file + (`--grep` test, wenn `-list`-Collect) | empfohlen für Projects/Variants (`--list`) | per-Test-Auswahl via grep instabil bei Sonderzeichen → gelabelt |
+| playwright-via-pytest | wie pytest | file + test | optional | braucht `pytest-playwright` auf dem Target (Probe) |
+
+**Klartext-Regel:** Wo nur file-level zuverlässig ist (Cypress),
+wird nur file-level angeboten und so gelabelt — kein stilles
+Herunterstufen.
+
+### 3.7 Dispatch / selection plumbing
 
 - Dispatch gate widened: `DISPATCHABLE_KINDS` per framework — file
   and test-level items for pytest/robot/node; suite/collection for
@@ -258,6 +312,17 @@ existing external-JS `data-` pattern — **no inline JS**, CSP rule).
 | `b3c4d5e6f7a8` | `discovered_items`: +`framework_project_id` (nullable→backfill→FK), +`framework`, +`node_id`, +`granularity`, +`selectable` |
 | `c4d5e6f7a8b9` | backfill: one `katalon` FrameworkProject per existing GitBinding (`project_root := coalesce(prj_path, subdirectory)`) |
 | `d5e6f7a8b9c0` | `git_bindings.discovery_status` → per-framework-project state kept on the new table |
+
+**Bestandsschutz:** Existierende Bindings, Suites, Releases,
+Schedules und gespeicherte Ausführungen bleiben **bit-identisch in
+ihrem Verhalten** — die Migration legt pro Binding genau ein
+`katalon`-FrameworkProject an, das exakt die bisherigen Pfade
+(`subdirectory`, `prj_path`-Root) und die bisherige Discovery
+übernimmt. Kein Bestandsobjekt ändert Framework, Pfade oder
+Selektion; `Execution.framework` wird nur für **neue** Runs
+korrekt gestempelt (historische Rows bleiben unverändert).
+Sichtbare Änderung für Bestandsnutzer: nichts — die Katalon-
+Inventory-Liste zeigt dieselben Items über dieselbe Bindung.
 
 ## 5. Dependencies & security
 
