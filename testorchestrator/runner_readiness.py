@@ -125,6 +125,8 @@ def submit(runtime, app_url: str = "",
         {"_probe": {"rid": rid, "brid": int(brid), "kind": kind,
                     "transport": runner.target_type or "",
                     "at": time.time()}})
+    if (runtime.runtime_kind or "kre") != "kre":
+        runtime.readiness_state = "checking"
     from .execution import utcnow
     runtime.last_check_at = utcnow()
     db.session.commit()
@@ -246,10 +248,20 @@ def poll(runtime) -> bool:
         runtime.last_diagnostic = (
             f"{pend['kind']} readiness: probe finished but produced "
             "no markers — inspect the build log")
+        if (runtime.runtime_kind or "kre") != "kre":
+            runtime.readiness_state = "target-unavailable"
     else:
         runtime.last_diagnostic = _summarize(probe, pend["kind"])
         runtime.probe_json = json.dumps(
             {k: v for k, v in probe.items()})
+        # Structured state (M16): toolchain probe pass = ready for
+        # discovery; project-dependent validation is a separate step
+        # at collection/dispatch time.
+        if (runtime.runtime_kind or "kre") != "kre":
+            runtime.readiness_state = (
+                "ready-discovery"
+                if "readiness: ready" in runtime.last_diagnostic
+                else "missing-dependency")
     from .execution import utcnow
     runtime.last_check_at = utcnow()
     db.session.commit()

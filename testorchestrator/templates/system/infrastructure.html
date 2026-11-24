@@ -287,6 +287,9 @@ or license KRE.</p>
             {% elif "re-check" in rt.last_diagnostic|lower %}
             <span class="badge">Re-check required</span>
             {% else %}<span class="badge ok">Check passed</span>{% endif %}
+            {% if (rt.runtime_kind or "kre") != "kre" %}
+            <br><span class="badge">{{ rt.readiness_state }}</span>
+            {% endif %}
             <small class="muted">{{ rt.last_check_at|localtime_short if rt.last_check_at else "" }}
               {%- if rt.last_diagnostic and not rt.last_diagnostic.startswith('{') %}<br>{{ rt.last_diagnostic[:200] }}{% endif %}</small></td>
           <td class="actions-cell"><span class="row-actions">
@@ -335,6 +338,12 @@ or license KRE.</p>
     <p class="muted">{{ unbound|length }} installation(s) not
     associated with a worker.</p></div>
   {% endif %}
+  <div class="btn-row">
+    <a class="button primary" href="{{ url_for('system.add_runtime_wizard') }}">Add Runtime</a>
+    <small class="muted">Guided setup for non-KRE frameworks — a
+      runtime names the installed tools to use on a target; adding
+      one never installs software.</small>
+  </div>
   <details class="block-details"><summary class="button">Register a test runtime</summary>
   <form method="post" action="{{ url_for('system.create_runtime') }}">
     {{ runtime_form.csrf_token }}

@@ -19,6 +19,7 @@ from ..extensions import db
 from .. import settings as settings_mod
 from ..netconf import (NetApplyError, apply_config, rollback_config)
 from ..certs import (CertificateError, generate_local, import_pem)
+from .. import dispatch
 from ..models import Role, record_audit
 from ..network import (ValidationError, access_links, check_port_conflicts,
                        detect_address_candidates, parse_host,
@@ -2108,6 +2109,8 @@ def edit_runtime(runtime_id):
         rt.probe_json = ""
         rt.last_diagnostic = (
             "re-check required — probe-relevant config changed")
+        if (rt.runtime_kind or "kre") != "kre":
+            rt.readiness_state = "evidence-stale"
     db.session.commit()
     record_audit(current_user.username, "runtime.edited", rt.name)
     return redirect(url_for("system.infrastructure"))
@@ -2395,3 +2398,125 @@ def backup_restore_report():
     if stashed is None:
         return redirect(url_for("system.backup_page"))
     return render_template("system/backup_report.html", **stashed)
+
+
+# ---------- Guided Add Runtime wizard (M16 — non-KRE only) ----------
+
+def _wizard_targets():
+    """Existing authorized execution targets for step 2 — workers +
+    SSH hosts with their reachability shown; nothing is provisioned."""
+    from ..execution import Runner
+    return [r for r in Runner.query.filter_by(enabled=True)
+            .order_by(Runner.name).all()
+            if not r.name.startswith("fx-")]
+
+
+@system_bp.route("/infrastructure/add-runtime")
+@role_required(Role.ADMIN)
+def add_runtime_wizard():
+    """Guided runtime-profile creation for non-KRE frameworks.
+
+    A runtime tells TestOrchestrator which installed tools to use on
+    a worker or SSH target — adding one never installs software.
+    KRE is deliberately absent: the existing Add KRE flow is
+    untouched."""
+    from ..runtime_profiles import RUNTIME_PROFILES, sandbox_choices
+    return render_template(
+        "system/runtime_wizard.html",
+        apply_form=ApplyForm(),
+        profiles=RUNTIME_PROFILES,
+        sandbox_choices=sandbox_choices(),
+        targets=_wizard_targets(),
+        selected_fw=(request.args.get("framework") or ""))
+
+
+@system_bp.route("/infrastructure/add-runtime", methods=["POST"])
+@role_required(Role.ADMIN)
+def add_runtime_create():
+    """Create a runtime profile. Only fields belonging to the chosen
+    framework are read — hidden/incompatible settings are dropped
+    even if forcibly submitted. Saves are allowed incomplete with
+    readiness_state 'not-checked'; dispatch gates on readiness."""
+    from ..execution import Runner, RuntimeConnection
+    from ..runtime_profiles import RUNTIME_PROFILES, profile
+    ApplyForm().validate_on_submit()
+    framework = (request.form.get("framework") or "").strip()
+    prof = profile(framework)
+    if framework == "katalon" or prof is None:
+        flash("Unknown framework — KRE is added through the existing "
+              "Add KRE flow, not this wizard.", "error")
+        return redirect(url_for("system.add_runtime_wizard"))
+    runner = db.session.get(Runner,
+                            (request.form.get("runner_id") or ""))
+    if runner is None or not runner.enabled:
+        flash("Choose an existing enabled execution target — the "
+              "wizard never provisions hosts.", "error")
+        return redirect(url_for(
+            "system.add_runtime_wizard", framework=framework))
+    cfg = {}
+    for key, _kind, _label, _help in prof["fields"]:
+        v = (request.form.get(f"cfg_{key}") or "").strip()
+        if key == "env":
+            v = "\n".join(l.strip() for l in v.splitlines()
+                          if l.strip())[:2048]
+        if v:
+            cfg[key] = v[:512] if key != "env" else v
+    ef = prof.get("engine_field")
+    if ef:
+        engine = (request.form.get(f"cfg_{ef[0]}") or "").strip()
+        if engine not in {v for v, _ in ef[2]}:
+            flash("Postman requires an explicit engine choice — "
+                  "Newman or Postman CLI; they support different "
+                  "collection formats.", "error")
+            return redirect(url_for(
+                "system.add_runtime_wizard", framework=framework))
+        cfg[ef[0]] = engine
+    rt = RuntimeConnection(
+        name=(request.form.get("name") or "").strip()[:128]
+            or f"{framework} @ {runner.name}",
+        description=(request.form.get("description") or "")[:1024],
+        runner_id=runner.id,
+        transport=runner.target_type,
+        executable_path=(request.form.get("cfg_exec_path")
+                         or request.form.get("cfg_python_env")
+                         or request.form.get("cfg_node_bin") or "")
+                         .strip()[:512],
+        workspace_root=(request.form.get("workspace_root")
+                        or "").strip()[:512],
+        runtime_kind=dispatch.FRAMEWORK_RUNTIME[framework],
+        config_json=json.dumps(cfg),
+        readiness_state="not-checked")
+    db.session.add(rt)
+    db.session.commit()
+    record_audit(current_user.username, "runtime.wizard_created",
+                 f"{rt.id} {framework} on {runner.name}")
+    flash(f"Runtime {rt.name!r} saved — status: not checked. "
+          "Run Check readiness before using it; project "
+          "compatibility is validated when a repository is "
+          "connected.", "info")
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/runtimes/<runtime_id>/projects", methods=["POST"])
+@role_required(Role.ADMIN)
+def runtime_projects(runtime_id):
+    """Manage project associations for a non-KRE runtime profile.
+    Refuses KRE runtimes — their association path is unchanged."""
+    from ..execution import Project, RuntimeConnection
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    if (rt.runtime_kind or "kre") == "kre":
+        flash("KRE associations are managed by the existing flow — "
+              "this action is for non-KRE runtimes.", "error")
+        return redirect(url_for("system.infrastructure"))
+    selected = request.form.getlist("project_ids")
+    known = {p.id for p in Project.query.all()}
+    rt.allowed_projects = json.dumps(
+        [s for s in selected if s in known])
+    db.session.commit()
+    record_audit(current_user.username, "runtime.projects_set",
+                 f"{rt.id} -> {len(selected)} project(s)")
+    flash("Project associations updated.", "info")
+    return redirect(url_for("system.infrastructure"))

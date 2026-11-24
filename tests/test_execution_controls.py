@@ -290,16 +290,22 @@ def test_migration_upgrade_preserves_existing(tmp_path):
     with app.app_context():
         from flask_migrate import upgrade
         upgrade(directory=MIGR, revision="d5e6f7a8b9c0")   # old head
-        p = Project(name="P"); db.session.add(p); db.session.flush()
-        s = Suite(project_id=p.id, name="S"); db.session.add(s)
-        db.session.flush()
+        # Raw SQL: the ORM model has columns the old revision lacks —
+        # the point is row readability across upgrade, not ORM
+        # insert-at-old-schema.
         import sqlalchemy as sa
+        db.session.execute(sa.text(
+            "INSERT INTO projects (id,name,description) VALUES "
+            "('p1','P','')"))
+        pid = "p1"
+        s = Suite(project_id=pid, name="S"); db.session.add(s)
+        db.session.flush()
         db.session.execute(sa.text(
             "INSERT INTO schedules (id,project_id,name,target_type,"
             "suite_id,kind,description,enabled,created_by,"
             "run_config_json) VALUES "
             "('sc1',:p,'w','suite',:s,'interval','',1,'m','{}')"),
-            {"p": p.id, "s": s.id})
+            {"p": pid, "s": s.id})
         db.session.execute(sa.text(
             "INSERT INTO executions (id,project_id,suite_id,"
             "snapshot_json,source_sha,state,outcome,git_state,"
@@ -309,7 +315,7 @@ def test_migration_upgrade_preserves_existing(tmp_path):
             "allure_version) VALUES "
             "('e1',:p,:s,'{}','sha','COMPLETED','PASSED','NONE',"
             "'m','2026-01-01','','','','','','','pending','',"
-            "'pending','','')"), {"p": p.id, "s": s.id})
+            "'pending','','')"), {"p": pid, "s": s.id})
         db.session.commit()
         upgrade(directory=MIGR)                            # to head
         db.session.expire_all()

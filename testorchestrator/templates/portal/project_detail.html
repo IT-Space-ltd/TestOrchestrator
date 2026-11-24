@@ -713,7 +713,7 @@
         {% if can_edit %}
         <form method="post" class="inline"
               action="{{ url_for('portal.store_delete', store_id=s.id) }}"
-              onsubmit="return confirm('Remove or retire this destination? If stored artifacts still reference it, the destination is retired — configuration kept for retrieval, no new writes. Otherwise it is removed.')">
+              data-confirm="Remove or retire this destination? If stored artifacts still reference it, the destination is retired — configuration kept for retrieval, no new writes. Otherwise it is removed.">
           {{ plain_form.csrf_token }}
           <button class="button sm danger">Remove</button></form>
         {% endif %}</td>
@@ -838,22 +838,7 @@
           Save destination</button></div>
     </fieldset>
   </form>
-  <script>
-  (function () {
-    var form = document.getElementById("add-store-form");
-    if (!form) return;
-    function sync() {
-      var kind = form.querySelector("input[name=kind]:checked");
-      form.querySelectorAll(".store-cfg").forEach(function (fs) {
-        var on = kind && fs.dataset.kind === kind.value;
-        fs.hidden = !on;
-        fs.disabled = !on;   /* hidden inputs are never submitted */
-      });
-    }
-    form.addEventListener("change", sync);
-    sync();
-  })();
-  </script>
+  <script src="{{ url_for('static', filename='js/storage-form.js') }}?v={{ js_v }}" defer></script>
   {% endif %}
 
   <h3>Artifact capture</h3>

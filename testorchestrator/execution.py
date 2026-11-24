@@ -346,7 +346,24 @@ class RuntimeConnection(db.Model):
     # resolved on the TARGET host.
     runtime_kind = db.Column(db.String(16), nullable=False,
                              default="kre")
+    # Framework-adapted toolchain settings for non-KRE runtimes
+    # (M16): python_env/node_bin/engine/sandbox-policy/env-allowlist
+    # etc. — additive JSON; KRE rows keep "{}" and never read it.
+    config_json = db.Column(db.Text, nullable=False, default="{}")
+    # Structured readiness state (M16) — KRE rows stay on
+    # last_diagnostic semantics; non-KRE wizard drives these:
+    #   not-checked | checking | ready-discovery | ready-execution |
+    #   project-validation-required | missing-dependency |
+    #   unsupported-version | target-unavailable | evidence-stale
+    readiness_state = db.Column(db.String(32), nullable=False,
+                                default="not-checked")
     runner = db.relationship("Runner", backref="runtimes")
+
+    def config(self) -> dict:
+        try:
+            return json.loads(self.config_json or "{}")
+        except ValueError:
+            return {}
 
 
 class ExecutionState(str, enum.Enum):

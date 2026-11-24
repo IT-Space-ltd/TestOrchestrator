@@ -736,3 +736,51 @@ captures stdout/stderr regardless of capture flags (leakage
 documented). Robot: dry-run ≠ sandbox; template rows not
 independent tests. Cypress: `--spec` inside effective specPattern;
 per-test needs a separately decided integration.
+
+## 18. M16 — unified runtime management (non-KRE), KRE unchanged
+
+Hard boundary: the existing Add KRE form, KRE validation, dispatch,
+licensing, and registration stay exactly as-is. The new flow never
+offers `runtime_kind=kre`.
+
+Model inspection findings (existing, reused — no KRE change):
+
+- **Execution target** = `Runner` (local / buildbot-worker / ssh;
+  os_arch, reachability via health+heartbeat, target_type).
+- **Runtime profile** = `RuntimeConnection` (runner_id FK,
+  runtime_kind, executable_path, workspace_root, credential_ref,
+  detected_version, verified_capabilities, probe_json,
+  last_check_at, allowed_projects). It is already per-target and
+  supports non-KRE kinds — it IS the runtime profile; the milestone
+  adds framework-adapted config + structured readiness + the wizard.
+- **Framework adapter** = `discovery/*` + `adapters/*fw` (M1–M14).
+- One target ⇒ many profiles; one profile ⇒ many projects
+  (allowed_projects association).
+- Framework-adapted toolchain settings (env, sandbox/engine policy,
+  venv/node resolution) land in a new `config_json` column — flat
+  KRE fields untouched.
+- Readiness states: not-checked / ready-discovery / ready-execution
+  / project-validation-required / missing-dependency /
+  unsupported-version / target-unavailable / evidence-stale —
+  stored on the profile, probes run on the TARGET under the
+  execution account (existing `runtime_readiness` pattern reused).
+
+Wizard flow: Add Runtime → framework (no KRE; Postman requires
+explicit newman|postman-cli engine) → target (reachability shown)
+→ framework-adapted toolchain fields with contextual examples →
+check readiness → review+save → project association. Incomplete
+profiles save as not-ready and cannot dispatch.
+
+Evidence: every inventory/execution snapshots the effective
+profile + resolved versions + config fingerprint; profile edits
+never rewrite historical snapshots.
+
+## 19. M17 — sequential one-VM acceptance (resource constraint)
+
+All disposable-VM acceptance uses at most ONE VM at a time:
+inspect resources → start VM → feature-scoped setup → acceptance →
+export evidence to durable storage → remove feature services →
+reuse or destroy before the next. Applies to S3-compatible,
+mounted-share, native framework, and browser acceptance and to
+bounded-batch full regression. No second VM without explicit
+approval; no privileged host changes implied.

@@ -97,7 +97,7 @@
   {% if can_edit %}
   <form method="post" class="inline"
         action="{{ url_for('portal.fp_delete', fp_id=fp.id) }}"
-        onsubmit="return confirm('Delete this framework project and its inventory?')">
+        data-confirm="Delete this framework project and its inventory?">
     {{ plain_form.csrf_token }}
     <button class="button danger">Delete</button>
   </form>
