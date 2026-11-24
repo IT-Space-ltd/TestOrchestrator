@@ -812,6 +812,14 @@
           <div class="field"><label><input type="checkbox"
                 name="path_style" value="1"> path-style
             addressing (some S3-compatible services)</label></div>
+          <div class="field"><label for="store-ca">Custom CA bundle
+            (optional)</label>
+            <input id="store-ca" name="ca_bundle" maxlength="256"
+                   placeholder="/var/lib/testorchestrator/tls/ca.pem">
+            <small class="muted">PEM file on the TestOrchestrator
+            host, inside an administrator-approved storage root.
+            TLS verification is always on — this only changes
+            which certificate authority is trusted.</small></div>
         </div>
       </fieldset>
     </fieldset>

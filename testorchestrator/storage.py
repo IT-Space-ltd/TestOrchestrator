@@ -193,6 +193,22 @@ class _S3Store:
             except SecretError as exc:
                 raise StoreError(
                     f"credential {credential_ref!r}: {exc}") from exc
+        # Custom CA: a PEM bundle path, constrained to the
+        # administrator-approved roots (same boundary as artifact
+        # roots — user-supplied paths never probe arbitrary files).
+        # TLS verification is always on; there is no config that
+        # disables it.
+        verify = True
+        ca = (cfg.get("ca_bundle") or "").strip()
+        if ca:
+            ca_path = Path(ca)
+            if not _under(ca_path, approved_local_roots()):
+                raise StoreError(
+                    f"CA bundle {ca_path} is outside the approved "
+                    "local roots")
+            if not ca_path.is_file():
+                raise StoreError(f"CA bundle {ca_path} not found")
+            verify = str(ca_path)
         from botocore.config import Config
         self._client = boto3.client(
             "s3",
@@ -202,6 +218,7 @@ class _S3Store:
             else None,
             aws_secret_access_key=(credential.split(":", 1)[1]
                                    if ":" in credential else None),
+            verify=verify,
             config=Config(s3={"addressing_style": "path"}
                           if cfg.get("path_style") else {}))
         self.bucket = cfg["bucket"]

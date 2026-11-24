@@ -16,8 +16,9 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import os
-from flask import (abort, flash, redirect, render_template, request,
-                   Response, send_file, session, url_for)
+from flask import (abort, after_this_request, flash, redirect,
+                   render_template, request, Response, send_file,
+                   session, url_for)
 from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
@@ -1023,7 +1024,7 @@ def _store_form_fields(project_id):
                           or "").strip()
         cfg = {k: (request.form.get(k) or "").strip()
                for k in ("bucket", "prefix", "region",
-                         "endpoint_url")}
+                         "endpoint_url", "ca_bundle")}
         cfg["path_style"] = bool(request.form.get("path_style"))
         if not cfg["bucket"]:
             err = "S3-compatible storage requires a bucket."
@@ -2936,9 +2937,32 @@ def download_artifact(execution_id, artifact_id):
         if artifact.storage_state != "stored" or st is None:
             abort(404)
         try:
-            target = backend_for(st).path(artifact.storage_ref)
-        except (StoreError, AttributeError):
+            backend = backend_for(st)
+        except StoreError:
             abort(404)
+        try:
+            target = backend.path(artifact.storage_ref)
+        except AttributeError:
+            # Object-store backend (no local path): stage the durable
+            # copy to a temp file for checksum verification, serve it,
+            # and remove it once the response has been sent.
+            import shutil
+            import tempfile
+            try:
+                body = backend.open(artifact.storage_ref)
+            except Exception:                            # noqa: BLE001
+                abort(404)
+            with tempfile.NamedTemporaryFile(
+                    delete=False) as tmp:
+                shutil.copyfileobj(body, tmp)
+                tmp_path = tmp.name
+            target = Path(tmp_path)
+
+            @after_this_request
+            def _drop_temp(response, p=tmp_path):
+                response.call_on_close(
+                    lambda: Path(p).unlink(missing_ok=True))
+                return response
         if not target.is_file():
             abort(404)
     # Checksum re-verified on every download — stale evidence is refused.
