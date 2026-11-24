@@ -23,6 +23,7 @@ the same execution overwrites identical content, never duplicates.
 Verification = size + sha256 after write; failure → ``failed``
 state, staging preserved, retry is a re-run of the same transfer.
 """
+import concurrent.futures
 import hashlib
 import os
 import secrets
@@ -33,6 +34,37 @@ from flask import current_app
 
 class StoreError(Exception):
     pass
+
+
+# Bounded I/O pool for request-path storage operations. A mounted
+# share (NFS 'hard' mount is the common default) can block a syscall
+# uninterruptibly — the kernel thread stays in D-state until the
+# server returns and NOTHING in-process can preempt it, not even
+# cancellation signals. Without a bound, such an op would occupy a
+# request-handling thread indefinitely. This pool (2 workers) caps
+# kernel-blocked leakage while the request itself returns a timeout
+# error promptly. Mount options are NOT touched — hard+sync data
+# integrity semantics are preserved; the bound is purely
+# application-side request-capacity protection (§storage-4).
+_STORE_IO_POOL = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="store-io")
+STORE_IO_TIMEOUT_S = 20
+
+
+def run_bounded(fn, timeout=STORE_IO_TIMEOUT_S):
+    """Run a storage I/O op off the calling thread with a timeout.
+    Returns fn() result or raises StoreError on timeout — the
+    blocked worker may stay parked on the dead share (bounded at
+    pool size) but request capacity is never occupied indefinitely.
+    """
+    fut = _STORE_IO_POOL.submit(fn)
+    try:
+        return fut.result(timeout=timeout)
+    except concurrent.futures.TimeoutError:
+        raise StoreError(
+            "storage operation timed out — destination unresponsive "
+            "(possible share outage); retry when it recovers") \
+            from None
 
 
 def _approved_roots(key: str):

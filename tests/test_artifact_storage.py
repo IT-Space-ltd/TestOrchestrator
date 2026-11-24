@@ -432,6 +432,146 @@ def test_store_routes_require_edit_role(tmp_path):
         assert client.post(url, data={}).status_code == 403, url
 
 
+# ------------------------------------------------------------------
+# object-store download staging — bounded resource safeguards (§5)
+# ------------------------------------------------------------------
+
+class _ObjBackend:
+    """Object-store stand-in: open() only, no .path() — drives the
+    staging fallback exactly like _S3Store."""
+    def __init__(self, data):
+        self.data = data
+    def open(self, ref):
+        import io
+        return io.BytesIO(self.data)
+    def delete(self, ref):
+        return True
+
+
+def _staged_dl_app(tmp_path, data=b"<testsuite/>", size=None):
+    """App + execution + artifact stored in an object store, staged
+    files already gone → the download must take the staging path."""
+    from tests.conftest import make_app, seed_users, login
+    roots = tmp_path / "approved"
+    app = make_app(tmp_path, "dl.db", TO_ARTIFACT_ROOTS=[str(roots)])
+    with app.app_context():
+        db.create_all()
+    seed_users(app)
+    with app.app_context():
+        p = Project(name="P", description="d")
+        db.session.add(p); db.session.flush()
+        rd = tmp_path / "gone"                     # never created
+        ex = Execution(project_id=p.id, source_sha="s",
+                       report_dir=str(rd), snapshot_json="{}")
+        db.session.add(ex); db.session.flush()
+        from testorchestrator.results import sha256_file
+        src = tmp_path / "r.xml"
+        src.write_bytes(data)
+        st = ArtifactStore(project_id=p.id, name="obj", kind="s3",
+                           config_json=json.dumps({"bucket": "b"}))
+        db.session.add(st); db.session.flush()
+        a = Artifact(execution_id=ex.id, kind="junit",
+                     rel_path="r.xml", sha256=sha256_file(src),
+                     size=size if size is not None else len(data),
+                     mime="text/xml", mapped=True,
+                     store_id=st.id, storage_ref="k/r.xml",
+                     storage_state="stored")
+        db.session.add(a); db.session.commit()
+        ex_id, a_id = ex.id, a.id
+    c = app.test_client()
+    login(c, "admin")
+    return app, c, ex_id, a_id
+
+
+def test_obj_download_staged_and_cleaned(tmp_path, monkeypatch):
+    """Staging path serves bytes; temp file removed after close and
+    lives under instance/.dl-staging — never in a report dir or an
+    approved root (can't be collected as an artifact)."""
+    app, c, ex_id, a_id = _staged_dl_app(tmp_path)
+    monkeypatch.setattr(storage, "backend_for",
+                        lambda st: _ObjBackend(b"<testsuite/>"))
+    r = c.get(f"/executions/{ex_id}/artifacts/{a_id}")
+    assert r.status_code == 200 and r.data == b"<testsuite/>"
+    d = Path(app.instance_path) / ".dl-staging"
+    assert d.parent == Path(app.instance_path)
+    assert list(d.iterdir()) == []            # cleaned on close
+
+
+def test_obj_download_oversize_refused(tmp_path, monkeypatch):
+    """Object larger than the registered size → 409, not unbounded
+    buffering."""
+    app, c, ex_id, a_id = _staged_dl_app(
+        tmp_path, data=b"x" * 100, size=10)
+    monkeypatch.setattr(storage, "backend_for",
+                        lambda st: _ObjBackend(b"x" * 100))
+    r = c.get(f"/executions/{ex_id}/artifacts/{a_id}")
+    assert r.status_code == 409
+    d = Path(app.instance_path) / ".dl-staging"
+    assert not d.exists() or list(d.iterdir()) == []
+
+
+def test_obj_download_checksum_mismatch(tmp_path, monkeypatch):
+    """Corrupted durable copy → 409 + temp removed."""
+    app, c, ex_id, a_id = _staged_dl_app(tmp_path)
+    monkeypatch.setattr(storage, "backend_for",
+                        lambda st: _ObjBackend(b"TAMPERED!"))
+    r = c.get(f"/executions/{ex_id}/artifacts/{a_id}")
+    assert r.status_code == 409
+    d = Path(app.instance_path) / ".dl-staging"
+    assert not d.exists() or list(d.iterdir()) == []
+
+
+def test_obj_download_stale_sweep(tmp_path, monkeypatch):
+    """Abandoned temp files (crash leftovers) are swept on the next
+    staging pass."""
+    app, c, ex_id, a_id = _staged_dl_app(tmp_path)
+    monkeypatch.setattr(storage, "backend_for",
+                        lambda st: _ObjBackend(b"<testsuite/>"))
+    import os, time
+    from testorchestrator.portal import routes as pr
+    with app.app_context():
+        d = pr._dl_staging_dir()
+        stale = d / ".dl-abandoned"
+        stale.write_bytes(b"old")
+        old = time.time() - pr._DL_STAGE_MAX_AGE_S - 10
+        os.utime(stale, (old, old))
+    r = c.get(f"/executions/{ex_id}/artifacts/{a_id}")
+    assert r.status_code == 200
+    assert not stale.exists()                 # swept
+
+
+def test_obj_download_concurrency_cap(tmp_path, monkeypatch):
+    """Semaphore exhaustion → bounded 503 rather than unbounded
+    worker-thread occupation."""
+    app, c, ex_id, a_id = _staged_dl_app(tmp_path)
+    monkeypatch.setattr(storage, "backend_for",
+                        lambda st: _ObjBackend(b"<testsuite/>"))
+    from testorchestrator.portal import routes as pr
+    class _Never:
+        def acquire(self, timeout=None):
+            return False
+        def release(self):
+            pass
+    monkeypatch.setattr(pr, "_DL_STAGE_SEM", _Never())
+    r = c.get(f"/executions/{ex_id}/artifacts/{a_id}")
+    assert r.status_code == 503
+
+
+def test_blocking_storage_op_is_bounded(tmp_path, monkeypatch):
+    """§storage-4: a storage I/O op stuck on a dead share cannot
+    occupy request capacity indefinitely — run_bounded surfaces a
+    timeout error promptly (the parked worker is bounded at pool
+    size). Verified with a sleeping op standing in for an
+    uninterruptible NFS block."""
+    import time
+    from testorchestrator.storage import run_bounded, StoreError
+    t0 = time.time()
+    with _app(tmp_path, tmp_path / "r").app_context():
+        with pytest.raises(StoreError, match="timed out"):
+            run_bounded(lambda: time.sleep(30), timeout=0.5)
+    assert time.time() - t0 < 10
+
+
 def test_s3_non_tls_endpoint_refused(tmp_path):
     """http:// endpoints are refused by default — TLS is required;
     a test-only config flag is the only override (§7)."""

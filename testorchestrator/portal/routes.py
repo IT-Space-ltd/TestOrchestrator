@@ -9,16 +9,18 @@ and log streams.
 """
 
 import hashlib
+import io
 import json
 import re
 import mimetypes
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import os
-from flask import (abort, after_this_request, flash, redirect,
-                   render_template, request, Response, send_file,
-                   session, url_for)
+from flask import (abort, after_this_request, current_app, flash,
+                   redirect, render_template, request, Response,
+                   send_file, session, url_for)
 from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
@@ -1061,8 +1063,8 @@ def store_test(project_id):
         project_id=project.id, name=name[:128], kind=kind,
         config_json=json.dumps(cfg), credential_ref=credential_ref)
     try:
-        from ..storage import backend_for
-        steps = backend_for(store).probe_steps()
+        from ..storage import backend_for, run_bounded
+        steps = run_bounded(backend_for(store).probe_steps)
     except Exception as exc:
         steps = [("destination configuration", False, str(exc))]
     _flash_probe_steps(steps)
@@ -1149,8 +1151,8 @@ def store_probe(store_id):
         abort(404)
     PlainForm().validate_on_submit()
     try:
-        from ..storage import backend_for
-        steps = backend_for(store).probe_steps()
+        from ..storage import backend_for, run_bounded
+        steps = run_bounded(backend_for(store).probe_steps)
     except Exception as exc:
         steps = [("destination configuration", False, str(exc))]
     ok = all(s[1] for s in steps)
@@ -2805,9 +2807,16 @@ def artifact_retry(artifact_id):
         abort(404)
     ex = _execution_or_404(a.execution_id)
     PlainForm().validate_on_submit()
-    from ..storage import store_execution_artifacts
-    out = store_execution_artifacts(
-        ex, Path(ex.report_dir or ""))
+    from ..storage import store_execution_artifacts, run_bounded, \
+        StoreError
+    try:
+        out = run_bounded(
+            lambda: store_execution_artifacts(
+                ex, Path(ex.report_dir or "")), timeout=120)
+    except StoreError as exc:
+        flash(f"Storage retry could not run: {exc}", "error")
+        return redirect(url_for("portal.execution_detail",
+                                execution_id=ex.id))
     record_audit(current_user.username, "artifact.store_retry",
                  f"{a.id} -> {out}")
     if out["skipped"]:
@@ -2913,6 +2922,82 @@ def retry_execution(execution_id):
                           execution_id=new_ex.id))
 
 
+_DL_STAGE_SEM = threading.BoundedSemaphore(4)
+_DL_STAGE_MAX_AGE_S = 3600
+
+
+def _dl_staging_dir() -> Path:
+    """Staging dir for object-store downloads: lives in the instance
+    dir — never under a report dir or an approved storage root, so a
+    staged file can neither be collected as an artifact nor reached
+    through another project's path space."""
+    d = Path(current_app.instance_path) / ".dl-staging"
+    d.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return d
+
+
+def _stage_object_download(backend, artifact):
+    """Object-store durable copy → bounded temp file for checksum
+    verification; returns (path, reader-factory). The reader deletes
+    the file on iterator close; error paths unlink eagerly.
+
+    Safeguards (§storage-5): concurrency cap so downloads can't eat
+    all worker threads; size cap at the registered artifact size
+    (an oversized object is refused, not trusted); ENOSPC maps to a
+    clean 503; any staging error removes the partial file; a stale
+    sweep removes files abandoned by process termination."""
+    import errno
+    import time
+    if not _DL_STAGE_SEM.acquire(timeout=30):
+        abort(503)
+    tmp_path = None
+    try:
+        d = _dl_staging_dir()
+        # Crash cleanup: staged files are response-ephemeral; anything
+        # older than the bound is abandoned by definition.
+        now = time.time()
+        for f in d.iterdir():
+            try:
+                if f.stat().st_mtime < now - _DL_STAGE_MAX_AGE_S:
+                    f.unlink(missing_ok=True)
+            except OSError:
+                pass
+        try:
+            body = backend.open(artifact.storage_ref)
+        except Exception:                                # noqa: BLE001
+            abort(404)
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(dir=d, prefix=".dl-")
+        try:
+            with os.fdopen(fd, "wb") as out:
+                remaining = (artifact.size or 0) + 1
+                while remaining > 0:
+                    chunk = body.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    remaining -= len(chunk)
+            oversize = bool(body.read(1))
+        except OSError as exc:
+            Path(tmp_path).unlink(missing_ok=True)
+            tmp_path = None
+            if exc.errno == errno.ENOSPC:
+                abort(503)
+            abort(500)
+        except Exception:                                # noqa: BLE001
+            Path(tmp_path).unlink(missing_ok=True)
+            tmp_path = None
+            abort(503)
+        if oversize:
+            # Object exceeds the registered size — refuse, never
+            # buffer unbounded content.
+            Path(tmp_path).unlink(missing_ok=True)
+            abort(409)
+        return Path(tmp_path)
+    finally:
+        _DL_STAGE_SEM.release()
+
+
 @portal_bp.route("/executions/<execution_id>/artifacts/<artifact_id>")
 @login_required
 def download_artifact(execution_id, artifact_id):
@@ -2927,6 +3012,8 @@ def download_artifact(execution_id, artifact_id):
     target = (root / artifact.rel_path).resolve()
     staged_ok = str(target).startswith(
         str(root.resolve()) + "/") and target.is_file()
+    staged_temp = None
+    st = None
     if not staged_ok:
         # Staging may be gone after cleanup — serve the durable copy
         # when the artifact reached `stored` state (§8 historical
@@ -2943,39 +3030,57 @@ def download_artifact(execution_id, artifact_id):
         try:
             target = backend.path(artifact.storage_ref)
         except AttributeError:
-            # Object-store backend (no local path): stage the durable
-            # copy to a temp file for checksum verification, serve it,
-            # and remove it once the response has been sent.
-            import shutil
-            import tempfile
+            target = _stage_object_download(backend, artifact)
+            staged_temp = target
+        # A mounted share can block stat/read uninterruptibly — the
+        # verify ops run under the bounded storage-I/O pool so a dead
+        # share can't occupy request capacity indefinitely (§storage-4).
+        if st.kind == "mounted":
+            from ..storage import run_bounded
             try:
-                body = backend.open(artifact.storage_ref)
-            except Exception:                            # noqa: BLE001
-                abort(404)
-            with tempfile.NamedTemporaryFile(
-                    delete=False) as tmp:
-                shutil.copyfileobj(body, tmp)
-                tmp_path = tmp.name
-            target = Path(tmp_path)
-
-            @after_this_request
-            def _drop_temp(response, p=tmp_path):
-                response.call_on_close(
-                    lambda: Path(p).unlink(missing_ok=True))
-                return response
-        if not target.is_file():
+                exists_ok = run_bounded(
+                    lambda t=target: t.is_file())
+            except StoreError:
+                abort(503)
+        else:
+            exists_ok = target.is_file()
+        if not exists_ok:
             abort(404)
     # Checksum re-verified on every download — stale evidence is refused.
     from ..results import sha256_file
-    if sha256_file(target) != artifact.sha256:
+    if (staged_temp is None and st is not None
+            and st.kind == "mounted"):
+        from ..storage import run_bounded
+        try:
+            ok_sum = run_bounded(
+                lambda: sha256_file(target) == artifact.sha256)
+        except StoreError:
+            abort(503)
+        if not ok_sum:
+            abort(409)
+    elif sha256_file(target) != artifact.sha256:
+        if staged_temp is not None:
+            staged_temp.unlink(missing_ok=True)
         abort(409)
     record_audit(current_user.username, "artifact.download", artifact.id)
     mime = artifact.mime or "application/octet-stream"
+    download_name = (artifact.rel_path.replace("\\", "/").rpartition("/")[-1]
+                     or artifact.rel_path)
+    if staged_temp is not None:
+        # Bounded (== verified artifact size): serve from memory and
+        # remove the staged copy deterministically — no reliance on
+        # iterator-close ordering; the stale sweep stays as the
+        # crash path for files abandoned mid-staging.
+        data = staged_temp.read_bytes()
+        staged_temp.unlink(missing_ok=True)
+        return send_file(io.BytesIO(data), mimetype=mime,
+                         download_name=download_name,
+                         as_attachment=True)
     if artifact.mime in ("text/html", "image/svg+xml"):
         return send_file(target, as_attachment=True,
-                         download_name=target.name)
+                         download_name=download_name)
     return send_file(target, mimetype=mime,
-                     download_name=target.name, as_attachment=True)
+                     download_name=download_name, as_attachment=True)
 
 
 @portal_bp.route("/executions/<execution_id>/report")
