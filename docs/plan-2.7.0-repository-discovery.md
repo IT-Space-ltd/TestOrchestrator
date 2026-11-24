@@ -406,7 +406,7 @@ targeted evidence; the full regression gate runs in M12.
 | M6 | native collection on worker (opt-in) | approved | VM provisioning approved — see §6b |
 | M7 | acceptance on host+VM, worker+SSH | approved | ledger to be appended |
 | M8 | **GoogleTest + Jest** (selector, adapters, runtimes, dispatch, ingestion) | in progress | §10 |
-| M9 | **storage subsystem** (local/mounted/S3 settings + backend interfaces) | planned | §11 |
+| M9 | **storage subsystem** (local/mounted/S3 settings + backend interfaces) | implemented — s3 gated on boto3 approval | §11 |
 | M10 | **remote collection + Git publication + retention** | planned | §12 |
 | M11 | Results & Artifacts project tab | planned | §13 |
 | M12 | integrated acceptance + full regression | planned | §14 |
@@ -612,15 +612,29 @@ Never auto-snapshot-update (`--ci` always); non-interactive.
 
 ## 11. M9 — storage subsystem
 
-`ArtifactBackend` model: `local` (admin-approved root), `network`
-(administrator-mounted share — same filesystem contract, approved
-subdir), `s3` (bucket/prefix/region/optional endpoint + SecretRef
-or workload identity). Connection validation + explicit temp
-write/read/delete test on save. Credentials never in URLs/logs/
-exports; TLS verified. Tested S3-compatible provider recorded —
-no universal-compatibility claim. New destinations apply to new
-executions only; historical refs preserved; moving artifacts is a
-separate explicit migration.
+`ArtifactStore` model: `local` (admin-approved roots), `mounted`
+(administrator-mounted share — approved roots, no share
+management), `s3` (bucket/prefix/region/endpoint + credential
+reference; boto3 dependency separately approved — absent ⇒ honest
+readiness failure). Implemented status: **local + mounted working
+and tested; s3 capability-gated** pending boto3 approval and a
+real disposable S3-compatible target (approval needed for both).
+Guided Add Storage UI: type → per-kind destination fields
+(hidden/incompatible inputs are `disabled`, never submitted) →
+project scope → **Test connection** (reachable → auth → temp
+write → read-back+checksum → temp delete, each check reported
+individually; runs on an unsaved config) → save. Primary storage
+and optional Git publication are presented as visibly separate
+concepts. Destinations referenced by stored artifacts are
+**retired**, never deleted — config kept so retrieval stays
+possible. Per-execution pipeline status shows test execution /
+artifact collection / durable storage / Git publication
+independently; per-artifact state
+(`staged → uploading → stored|failed`, `expired` eligible only
+after a verified durable copy) with authenticated retry.
+Credentials never in URLs/logs/exports. New destinations apply to
+new executions only; historical refs preserved; moving artifacts
+is a separate explicit migration.
 
 ## 12. M10 — collection, publication, retention
 

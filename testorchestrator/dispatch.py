@@ -1718,6 +1718,22 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
         ))
     db.session.commit()
     _write_evidence_manifest(ex, report_dir)
+    # Durable storage (M9): stage → store → verify; staging is kept
+    # — workspace cleanup may only drop confirmed `stored` copies.
+    try:
+        from .storage import store_execution_artifacts
+        out = store_execution_artifacts(ex, report_dir)
+        if out["failed"]:
+            record_audit("system", "artifacts.store_failed",
+                         f"{ex.id}: {out['failed']} artifact(s) "
+                         "failed durable storage — staging kept, "
+                         "retry via artifact re-transfer")
+    except Exception as exc:                        # noqa: BLE001
+        try:
+            record_audit("system", "artifacts.store_failed",
+                         f"{ex.id}: storage layer error {exc}")
+        except Exception:
+            pass  # storage must never break the execution pipeline
     # Local-report status is tracked separately from state/outcome.
     try:
         from . import reporting

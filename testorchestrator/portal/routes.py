@@ -21,8 +21,8 @@ from flask import (abort, flash, redirect, render_template, request,
 from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
-from ..execution import (DiscoveredItem, Execution, ExecutionState,
-                         FrameworkProject,
+from ..execution import (ArtifactStore, DiscoveredItem, Execution,
+                         ExecutionState, FrameworkProject,
                          ReleaseItem, RuntimeConnection,
                        GitBinding, OutboxEvent,
                          Outcome, Project, Release,
@@ -399,6 +399,8 @@ def project_detail(project_id):
                          kind='suite').all()],
         suite_form=suite_form, plain_form=PlainForm(),
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
+        artifact_stores=ArtifactStore.query.filter_by(
+            project_id=project.id).order_by(ArtifactStore.name).all(),
         users=(User.query.order_by(User.username).all()
                if current_user.role.value == "admin" else []),
         executions=Execution.query.filter_by(project_id=project_id)
@@ -992,6 +994,216 @@ def _native_collect_targets(fp) -> list:
     return [r for r in RunnerInstance.query.filter_by(
         enabled=True).order_by(RunnerInstance.name).all()
         if getattr(r, "runtime_kind", "") == want]
+
+
+# ---------- Results & Artifacts storage (M9–M11) ----------
+
+def _store_form_fields(project_id):
+    """Parse the Add-Storage form. Only fields relevant to the
+    selected kind are read — hidden incompatible settings are never
+    persisted even if submitted (§Storage UI 9). Returns
+    (kind, name, cfg, credential_ref, error)."""
+    kind = (request.form.get("kind") or "local").strip()
+    name = (request.form.get("name") or "").strip() or kind
+    # credential_ref only exists for S3 — dropped for other kinds
+    # even if a hidden field was forcibly submitted.
+    credential_ref = ""
+    cfg = {}
+    err = None
+    if kind in ("local", "mounted"):
+        cfg = {"root": (request.form.get("root") or "").strip(),
+               "subdir": (request.form.get("subdir") or "").strip()}
+        if not cfg["root"]:
+            err = "A root path is required."
+    elif kind == "s3":
+        credential_ref = (request.form.get("credential_ref")
+                          or "").strip()
+        cfg = {k: (request.form.get(k) or "").strip()
+               for k in ("bucket", "prefix", "region",
+                         "endpoint_url")}
+        cfg["path_style"] = bool(request.form.get("path_style"))
+        if not cfg["bucket"]:
+            err = "S3-compatible storage requires a bucket."
+    else:
+        err = f"unknown store kind {kind!r}"
+    return kind, name, cfg, credential_ref, err
+
+
+def _flash_probe_steps(steps):
+    """Render a connection-test checklist as flash lines — one row
+    per check (§Storage UI 3)."""
+    for label, ok, detail in steps:
+        mark = "✓" if ok else "✗"
+        flash(f"{mark} {label}" + (f" — {detail}" if detail else ""),
+              "info" if ok else "error")
+
+
+@portal_bp.route("/projects/<project_id>/artifact-stores/test",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_test(project_id):
+    """Test Connection — run the probe against an UNSAVED store so
+    the user can verify the destination before saving. The probe
+    only creates/reads/deletes a small temporary object (§3)."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    kind, name, cfg, credential_ref, err = _store_form_fields(
+        project.id)
+    if err:
+        flash(err, "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project.id, tab="storage"))
+    store = ArtifactStore(
+        project_id=project.id, name=name[:128], kind=kind,
+        config_json=json.dumps(cfg), credential_ref=credential_ref)
+    try:
+        from ..storage import backend_for
+        steps = backend_for(store).probe_steps()
+    except Exception as exc:
+        steps = [("destination configuration", False, str(exc))]
+    _flash_probe_steps(steps)
+    ok = all(s[1] for s in steps)
+    record_audit(current_user.username, "artifact_store.test",
+                 f"{project.id} {kind} -> {'ok' if ok else 'FAIL'}")
+    flash(("Connection test passed — the destination can be saved."
+           if ok else "Connection test FAILED — fix the destination "
+           "or ask an administrator for access, then test again."),
+          "info" if ok else "error")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/artifact-stores/new",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_new(project_id):
+    """Create a durable artifact store. local/mounted roots must sit
+    inside the administrator-approved root lists — enforced again at
+    every use, not just save. Credentials stay referenced, never in
+    config_json/URLs/logs."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    kind, name, cfg, credential_ref, err = _store_form_fields(
+        project.id)
+    if err:
+        flash(err, "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project.id, tab="storage"))
+    store = ArtifactStore(
+        project_id=project.id, name=name[:128], kind=kind,
+        config_json=json.dumps(cfg),
+        credential_ref=credential_ref)
+    try:
+        from ..storage import backend_for
+        ok, msg = backend_for(store).probe()
+    except Exception as exc:
+        ok, msg = False, str(exc)
+    store.validated_at = utcnow() if ok else None
+    store.last_error = "" if ok else msg[:512]
+    db.session.add(store)
+    db.session.commit()
+    record_audit(current_user.username, "artifact_store.created",
+                 f"{store.id} {kind} probe={'ok' if ok else 'FAIL'}")
+    flash(f"Store {name!r} saved — probe "
+          f"{'passed' if ok else 'FAILED: ' + msg}.", "info" if ok
+          else "error")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/artifact-stores/<store_id>/probe",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_probe(store_id):
+    """Explicit write/read/delete validation of a saved store."""
+    store = db.session.get(ArtifactStore, store_id)
+    if store is None:
+        abort(404)
+    PlainForm().validate_on_submit()
+    try:
+        from ..storage import backend_for
+        steps = backend_for(store).probe_steps()
+    except Exception as exc:
+        steps = [("destination configuration", False, str(exc))]
+    ok = all(s[1] for s in steps)
+    msg = "; ".join(f"{l}: {d}" for l, o, d in steps if not o) or \
+        "write/read/delete verified"
+    store.validated_at = utcnow() if ok else None
+    store.last_error = "" if ok else msg[:512]
+    db.session.commit()
+    record_audit(current_user.username, "artifact_store.probed",
+                 f"{store.id} -> {'ok' if ok else 'FAIL'}")
+    _flash_probe_steps(steps)
+    flash(f"Connection test {'passed' if ok else 'FAILED'}.",
+          "info" if ok else "error")
+    return redirect(url_for("portal.project_detail",
+                            project_id=store.project_id,
+                            tab="storage"))
+
+
+@portal_bp.route("/artifact-stores/<store_id>/toggle",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_toggle(store_id):
+    """Active flag applies to NEW executions only — historical
+    artifacts keep their store_id/ref and stay retrievable. Retired
+    destinations cannot be re-activated (retirement is final —
+    create a new destination instead)."""
+    store = db.session.get(ArtifactStore, store_id)
+    if store is None:
+        abort(404)
+    PlainForm().validate_on_submit()
+    if store.retired:
+        flash("Retired destinations cannot be re-activated — create "
+              "a new destination instead.", "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=store.project_id,
+                                tab="storage"))
+    store.active = not store.active
+    db.session.commit()
+    record_audit(current_user.username, "artifact_store.toggled",
+                 f"{store.id} active={store.active}")
+    return redirect(url_for("portal.project_detail",
+                            project_id=store.project_id,
+                            tab="storage"))
+
+
+@portal_bp.route("/artifact-stores/<store_id>/delete",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_delete(store_id):
+    """Retire a destination that stored artifacts still reference —
+    the config is kept so historical files stay retrievable, but it
+    can never receive new writes. Only an unreferenced store is
+    actually deleted (§Storage UI 4)."""
+    store = db.session.get(ArtifactStore, store_id)
+    if store is None:
+        abort(404)
+    PlainForm().validate_on_submit()
+    from ..execution import Artifact
+    in_use = Artifact.query.filter_by(
+        store_id=store.id, storage_state="stored").count()
+    if in_use:
+        store.retired = True
+        store.active = False
+        db.session.commit()
+        record_audit(current_user.username, "artifact_store.retired",
+                     f"{store.id} ({in_use} stored artifacts keep "
+                     "retrieval access)")
+        flash(f"Destination retired — {in_use} stored artifact(s) "
+              "keep retrieval access through its saved "
+              "configuration; it will not receive new files.",
+              "info")
+    else:
+        db.session.delete(store)
+        db.session.commit()
+        record_audit(current_user.username, "artifact_store.deleted",
+                     store_id)
+        flash("Destination removed — no stored artifacts referenced "
+              "it.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=store.project_id,
+                            tab="storage"))
 
 
 @portal_bp.route("/framework-projects/<fp_id>/delete",
@@ -2550,6 +2762,29 @@ def execution_detail(execution_id):
         rl_enabled=settings_mod.get("reportinglabs_enabled", True))
 
 
+@portal_bp.route("/artifacts/<artifact_id>/retry", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def artifact_retry(artifact_id):
+    """Idempotent durable-storage retry for one artifact — re-runs
+    the same transfer (same key), never the tests."""
+    from ..execution import Artifact
+    a = db.session.get(Artifact, artifact_id)
+    if a is None:
+        abort(404)
+    ex = _execution_or_404(a.execution_id)
+    PlainForm().validate_on_submit()
+    from ..storage import store_execution_artifacts
+    out = store_execution_artifacts(
+        ex, Path(ex.report_dir or ""))
+    record_audit(current_user.username, "artifact.store_retry",
+                 f"{a.id} -> {out}")
+    flash(f"Storage retry: {out['stored']} stored, "
+          f"{out['failed']} failed.", "info" if not out["failed"]
+          else "error")
+    return redirect(url_for("portal.execution_detail",
+                            execution_id=ex.id))
+
+
 @portal_bp.route("/executions/<execution_id>/cancel", methods=["POST"])
 @login_required
 def cancel_execution(execution_id):
@@ -2654,8 +2889,23 @@ def download_artifact(execution_id, artifact_id):
         abort(404)
     root = Path(ex.report_dir or "")
     target = (root / artifact.rel_path).resolve()
-    if not str(target).startswith(str(root.resolve()) + "/") or not target.is_file():
-        abort(404)
+    staged_ok = str(target).startswith(
+        str(root.resolve()) + "/") and target.is_file()
+    if not staged_ok:
+        # Staging may be gone after cleanup — serve the durable copy
+        # when the artifact reached `stored` state (§8 historical
+        # access after workspace removal).
+        from ..storage import backend_for, StoreError
+        from ..execution import ArtifactStore
+        st = db.session.get(ArtifactStore, artifact.store_id or "")
+        if artifact.storage_state != "stored" or st is None:
+            abort(404)
+        try:
+            target = backend_for(st).path(artifact.storage_ref)
+        except (StoreError, AttributeError):
+            abort(404)
+        if not target.is_file():
+            abort(404)
     # Checksum re-verified on every download — stale evidence is refused.
     from ..results import sha256_file
     if sha256_file(target) != artifact.sha256:

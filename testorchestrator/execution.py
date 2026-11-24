@@ -619,8 +619,53 @@ class Artifact(db.Model):
     # run/suite level and are labelled unmapped.
     mapped = db.Column(db.Boolean, nullable=False, default=True)
     collected_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    # Durable-storage bookkeeping (M9): the workspace file is a
+    # STAGING copy — cleanup eligibility requires storage_state ==
+    # "stored" with a verified checksum at storage_ref.
+    attempt = db.Column(db.Integer, nullable=False, default=1)
+    store_id = db.Column(db.String(32),
+                         db.ForeignKey("artifact_stores.id"),
+                         nullable=True)
+    storage_state = db.Column(db.String(16), nullable=False,
+                              default="staged")
+    # staged | uploading | stored | failed | expired
+    storage_ref = db.Column(db.String(768), nullable=False, default="")
+    stored_at = db.Column(db.DateTime(timezone=True), nullable=True)
     execution = db.relationship("Execution", backref=db.backref(
         "artifacts", cascade="all, delete-orphan"))
+
+
+class ArtifactStore(db.Model):
+    """Per-project durable artifact destination (M9). Execution
+    metadata/status/parsed results stay in the DB; file bytes go to
+    the project's ACTIVE store at execution-scoped keys. Historical
+    executions keep their store_id/ref — a config change affects new
+    runs only, old artifacts stay reachable (§8)."""
+
+    __tablename__ = "artifact_stores"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    project_id = db.Column(db.String(32),
+                           db.ForeignKey("projects.id"), nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    kind = db.Column(db.String(16), nullable=False)  # local|mounted|s3
+    # local/mounted: {"root", "subdir"}; s3: {"bucket","prefix",
+    # "region","endpoint_url","path_style"} — NEVER credentials.
+    config_json = db.Column(db.Text, nullable=False, default="{}")
+    credential_ref = db.Column(db.String(64), nullable=False,
+                               default="")
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    # Retired destinations keep their config so historical artifacts
+    # stay retrievable — they just never receive new writes.
+    retired = db.Column(db.Boolean, nullable=False, default=False)
+    validated_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_error = db.Column(db.Text, nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    def config(self) -> dict:
+        try:
+            return json.loads(self.config_json or "{}")
+        except ValueError:
+            return {}
 
 
 class OutboxEvent(db.Model):

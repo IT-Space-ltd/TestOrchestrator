@@ -466,6 +466,7 @@ pre.example {
 .tab-bar label:hover, .tab-bar a.tsub:hover { color: #dfe7ee; }
 #tab-analytics:checked ~ .tab-bar a.tsub-analytics,
 #tab-bindings:checked ~ .tab-bar label[for=tab-bindings],
+#tab-storage:checked ~ .tab-bar label[for=tab-storage],
 #tab-access:checked ~ .tab-bar label[for=tab-access],
 #tab-dash:checked ~ .tab-bar label[for=tab-dash],
 #tab-test:checked ~ .tab-bar label[for=tab-test],
@@ -476,6 +477,7 @@ pre.example {
 .tab-panel { display: none; }
 #tab-analytics:checked ~ #panel-analytics,
 #tab-bindings:checked ~ #panel-bindings,
+#tab-storage:checked ~ #panel-storage,
 #tab-access:checked ~ #panel-access,
 #tab-dash:checked ~ #panel-dash,
 #tab-test:checked ~ #panel-test,

@@ -70,7 +70,43 @@
       {{ ex.error_text }}</dd>
     {% endif %}
   </dl>
+</section>
 
+<section class="card">
+  <h2>Pipeline status</h2>
+  <p class="muted">Each stage is independent — a failed stage does
+  not change the test outcome.</p>
+  {% set arts = ex.artifacts or [] %}
+  {% set n_stored = arts | selectattr("storage_state", "equalto", "stored") | list | length %}
+  {% set n_failed = arts | selectattr("storage_state", "equalto", "failed") | list | length %}
+  {% set n_pending = arts | length - n_stored - n_failed %}
+  <table class="data-table">
+    <tbody>
+      <tr><th scope="row">Test execution</th>
+        <td><span class="badge {{ ex.state.value }}">{{ ex.state.value }}</span>
+          <span class="badge outcome-{{ ex.outcome.value }}">{{ ex.outcome.value }}</span></td></tr>
+      <tr><th scope="row">Artifact collection</th>
+        <td>{% if ex.report_status == 'ready' %}<span class="badge success">complete</span>
+          {% elif ex.report_status == 'failed' %}<span class="badge danger">failed</span>
+          {% elif ex.report_status == 'partial' %}<span class="badge warn">partial</span>
+          {% else %}<span class="badge">{{ ex.report_status or 'pending' }}</span>{% endif %}</td></tr>
+      <tr><th scope="row">Durable storage</th>
+        <td>{% if not arts %}<span class="badge">no artifacts</span>
+          {% elif n_stored == arts|length %}<span class="badge success">verified</span>
+          {% elif n_failed %}<span class="badge danger">{{ n_failed }} file(s) failed to store</span>
+          {% else %}<span class="badge warn">{{ n_pending }} file(s) staged — not yet durable</span>{% endif %}
+          {% if n_failed %}<small class="muted">Tests completed, but
+            {{ n_failed }} artifact file(s) could not be stored.
+            Available files are listed below.</small>{% endif %}</td></tr>
+      <tr><th scope="row">Git publication</th>
+        <td><span class="badge {% if ex.report_pub_status == 'failed' %}danger{% endif %}">{{ ex.report_pub_status }}</span>
+          {% if ex.report_pub_status == 'failed' %}<small class="muted">retry available — does not affect test outcome</small>{% endif %}</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card">
+  <h2>Actions</h2>
   {% set show_cancel = ex.state.value not in ("completed", "failed", "canceled")
      and ex.origin != "imported" and current_user.role.value != "po" %}
   {% set show_unknown = ex.state.value == "unknown" and current_user.is_admin %}
@@ -234,7 +270,7 @@
   <h2>Evidence <small class="muted">({{ ex.artifacts | length }} files)</small></h2>
   {% if ex.artifacts %}
   <table class="audit-table">
-    <thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256</th><th></th></tr></thead>
+    <thead><tr><th>File</th><th>Kind</th><th>Size</th><th>SHA-256</th><th>Storage</th><th></th></tr></thead>
     <tbody>
       {% for a in ex.artifacts %}
       <tr>
@@ -242,7 +278,15 @@
         <td><span class="badge">{{ a.kind }}</span></td>
         <td>{{ a.size }}</td>
         <td><code>{{ a.sha256[:12] }}</code></td>
-        <td class="cell-actions"><a class="button secondary sm" href="{{ url_for('portal.download_artifact', execution_id=ex.id, artifact_id=a.id) }}">download</a></td>
+        <td><span class="badge">{{ a.storage_state or "staged" }}</span></td>
+        <td class="cell-actions"><a class="button secondary sm" href="{{ url_for('portal.download_artifact', execution_id=ex.id, artifact_id=a.id) }}">download</a>
+          {% if a.storage_state == "failed" %}
+          <form method="post" class="inline"
+                action="{{ url_for('portal.artifact_retry', artifact_id=a.id) }}">
+            {{ plain_form.csrf_token }}
+            <button class="button sm secondary">retry store</button>
+          </form>
+          {% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
