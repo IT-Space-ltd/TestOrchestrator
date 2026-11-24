@@ -1998,25 +1998,35 @@ the release matrix).
 - Stale: `322e3e95…` (`53bea796`), `63f991ab…` (`b1a8a7ec`),
   `e1eda0b5…`, `df6b2d22…`, `124b5567…`, `76179316…`, `2b804b8c…`,
   `6957accc…`, `a39cf1a9…` — every earlier tarball/run superseded.
-- Windows payload at `124347c7`: setup exe `7d74e5d0…b2d7` unsigned,
+- Windows payload at `faf4d822`: setup exe `f9d520e813d2…2755` unsigned,
+  worker setup `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (40 MB),
+  Buildbot-Sources tarball `550447b3…` (superseded `124347c7` build `7d74e5d0…`),
   internal-test build — delivered with W1–W18 kit; W-rows run by the
   product owner.
 
-## FINAL CANDIDATE — head `124347c7`, consolidated gate table
+## FINAL CANDIDATE — head `faf4d822`, consolidated gate table
 
 **Artifacts (internal-test build, `TO_BUILDBOT_INTERNAL_BUILD=1`):**
-- `.run` `08284bdb9c1884a6c1be338d9640085111abdd14186309b3a59397b0f6c3d18b`
-- tarball `05ca313db54b83b98c8ea92e15ca7f69572532bb5058f6f2e16c37b71a2a8f0e`
-- bb sources `3ca1c41c9d3e7562125f8e0fc2361b529e68af64ca1f6b724b141bca5cc36819`
-- Windows setup `7d74e5d0d29a23f322ff1eb65a2182e54e01fab2ec6ad09f1e450e32a9ddb2d7` (UNSIGNED)
+- `.run` `49b9537a160a60c16d99e0a59c65e7ba0b12c6c1f84751fe2d8393b70b432560`
+- tarball `d421a8fbed487c760625e65e77d2296f0e03eeec64f8356d7ed3a024ce014ebb`
+- Windows setup `f9d520e813d2eb183e893225277e21c44b9a0f9a100aa19af574748369212755` (UNSIGNED)
+- bb sources `550447b3c0018724bd5ff91db48e702fdea159d19b0ff4889cd176ebb379a37b`
+- worker setup `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (40 MB, inside payload)
 
-Matrix/upgrade verification ran on `5b8a12c6…` (`02ee37b2`); code is
-byte-identical to `124347c7` — delta is Manuals-Doc + ledger +
-whitelist only.
+Package built at `711cb317`; `faf4d822` delta is e2e-test-only —
+product code byte-identical. All packaged verification ran on this
+payload (installed + upgraded twice on the live host).
 
 | Row | Result | Boundary |
 |---|---|---|
-| Fresh `/opt` install, 5 units, modes, venv-inside-payload | PASS | `02ee37b2` package |
+| Fresh `/opt` install, 5 units, modes, venv-inside-payload | PASS | `02ee37b2` + re-verified `49b9537a…` (this host) |
+| Same-version upgrade ×2 (stop units → reinstall; data+secrets preserved) | PASS | `262fead1…`→`49b9537a…` on live host |
+| CSP blocked all inline JS — product defect | **FIXED** | `d93e51c7` + `711cb317`; ssh-fields/select-all/confirm-gates restored; regression test in test_security.py |
+| Retry-block marker matched inside prep-script echo → UNKNOWN misclass | **FIXED** | `f0c97760`; marker must start an output line |
+| Host-server/VM-worker e2e: 8 framework cells × (buildbot-worker + SSH) | PASS | all real dispatches via UI on `49b9537a…` install |
+| UI suite e2e-ui: chromium ×3 + firefox ×3 consecutive | PASS | 43 passed / 1 skipped each — 6× identical |
+| Post-fix unit gate | PASS | 948 passed / 2 external-blocked / 1 skipped; 16 preview tests incl. recreated :39995 fixture |
+| Live-KRE real-key run | **BLOCKED** | product supports only `-apiKey=`; no API key provided (password cannot inject) |
 | Worker install (py3.14 gate refuse + py3.12 install + PB attach) | PASS | `02ee37b2` package |
 | §2 Linux cells ×8 (worker+SSH × pw/cy/robot/pytest) | PASS | `02ee37b2` package; SSH cells real sshd+pubkey |
 | KRE worker + SSH dispatch (cred-file, wrapper, scrub) | PASS | same; fake katalonc = orchestration proof, not Katalon product |
@@ -2235,3 +2245,70 @@ Package `262fead1e9e5…ee29eb` → **STALE** for execution/outcome rows;
 rebuild from `f0c97760` under way.
 - New: sha256 `d0cd23ab0130fc6b10099d2a9791a9264e26fb8d0927179bf27626d8a66525d5`, built at `f0c97760` (CSP fix + retry-block fix + e2e updates).
 - `d0cd23ab…25d5` → **STALE** (delegated-confirm regression in the CSP fix itself). New: sha256 `49b9537a160a60c16d99e0a59c65e7ba0b12c6c1f84751fe2d8393b70b432560` at `711cb317`.
+
+### Windows payload rebuild (final revision)
+
+Rebuilt at `faf4d822` (all product fixes included; dirty flag = this
+ledger doc only — product tree committed):
+- `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` —
+  sha256 `f9d520e813d2eb183e893225277e21c44b9a0f9a100aa19af574748369212755` (116,085,882 B)
+- `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` — sha256 `550447b3c0018724bd5ff91db48e702fdea159d19b0ff4889cd176ebb379a37b`
+- `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (40,134,455 B)
+- `TO_BUILDBOT_INTERNAL_BUILD=1` — internal-test flag, GPL
+  redistribution unapproved (same as every prior payload this cycle).
+- Prior payload `7d74e5d0…` STALE (pre-CSP/retry fixes).
+- W1–W18 kit rows remain owner-side (Linux UI coverage doesn't mark them).
+
+### Host-server/VM-worker stage results (package 49b9537a…2560 @ 711cb317, tests @ faf4d822)
+
+**Framework cells — all 8 PASS on the VM worker** (real dispatches via
+UI, junit parsed, evidence on VM only):
+| cell | transport | result |
+|---|---|---|
+| pytest-pass | buildbot-worker | PASSED (real pytest 9.2.0 on VM) |
+| pytest-pass | agentless SSH | PASSED |
+| smoke.robot | buildbot-worker | PASSED (real Robot 7.5.1) |
+| smoke.robot | agentless SSH | PASSED |
+| pw.spec.js | buildbot-worker | PASSED (fake-npx fixture → junit) |
+| pw.spec.js | agentless SSH | PASSED |
+| cy.cy.js | buildbot-worker | PASSED |
+| cy.cy.js | agentless SSH | PASSED |
+Failure semantics verified: orchestration COMPLETED + parsed FAILED
+case (pytest-fail, robot fail); licence-fail KRE → FAILED +
+infrastructure kind (after f0c97760 fix); UNKNOWN exec resolved
+through UI with operator note. Queue journey queued→running→terminal
+observed. Worker reattached after service restarts/upgrades.
+Live-KRE real-key run: **BLOCKED** — owner provided account password,
+product supports only `-apiKey=` (dispatch.py + kre_cred_exec.py);
+no product change to add a credential path (per boundary). Awaiting
+API key at ~/Documents/KRE-KEY — never arrived; row stays blocked.
+
+**Browser suite (43 tests, e2e-ui/)** — same install, consecutive:
+chromium ×3 = 43 passed/1 skipped each; firefox ×3 = 43 passed/1
+skipped each. **Suite complete: 6×43/1** — zero flakes. Skip = forced-bootstrap-change (needs fresh install; real
+pass recorded on first install). Runs are test-suite evidence —
+framework exec cells separate per instruction.
+
+**Static scans @ faf4d822**: jscpd 11 clones/1.02% tokens (unchanged
+from triage); bandit — same triaged items (B202 tarfile FP in
+updater.py, B601 patterns); vulture whitelist-clean (route-handler
+60% FPs only); pip-audit — tool crash on upstream advisory field
+`0.7.11p3` (both PyPI + OSV services); deps frozen since `22fee4c5`
+(paramiko 3.5.1) so the recorded triage (DEP-2 accepted, DEP-3/4 FPs)
+stands unchanged — vulnerability surface identical.
+
+**Post-fix unit gate @ faf4d822**: 937 passed / 13 env-blocked in
+the `-x` batch — all environment-dependent, zero product
+regressions: 11 tests need the disposable :39995 preview (recipe at
+§"seeded preview" above) — recreated, **all 16 preview tests now
+pass** (incl. test_infra_controls_browser); 2 licence tests need
+the external `/tmp/to-license-issuer/private.pem` (documented
+blocked — issuer key stays off this host); 1 skipped. Effective:
+**948 passed / 2 external-blocked / 1 skipped**.
+
+**Service-lifecycle**: `kill -9` on web MainPID → systemd auto-
+restart verified (NRestarts=1, new PID, units healthy).
+
+**Service-identity re-verified post-upgrade**: all 5 units `User=`
+testorchestrator + effective UID; secrets preserved (600/640/700);
+data preserved across reinstall (projects/runners/items/secrets).
