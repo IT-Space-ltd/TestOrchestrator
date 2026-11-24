@@ -242,7 +242,10 @@ yet synced, no checkout). The states are strictly separated:
 The Run button for a framework project stays disabled until
 discovery validated; saved drafts show their status as a badge.
 Model side: `discovery_status` on `FrameworkProject` —
-`draft|pending|ok|failed`.
+`draft|pending|ok|stale|failed`. A `stale` status means the saved
+configuration is intact but the inventory needs a refresh before
+use (new repository revision, changed settings); stale projects
+show a refresh hint and cannot dispatch either.
 
 ### 3.5 Field-by-field onboarding (required / optional / framework-specific)
 
@@ -388,33 +391,61 @@ Live KRE stays subject to the approved-key requirement.
 
 ## 8. Approval gate and first response
 
-This plan authorizes **read-only inspection and plan preparation
-only** — no implementation before the plan is approved.
+This instruction authorizes **read-only inspection and plan
+preparation only** — it does not yet authorize implementation.
 
-Already done in the release session on explicit instruction (not
-part of this plan): PR #4 merged/closed, the four obsolete branches
-deleted (inventory in §1), and branch
-`feature/2.7.0-repository-discovery` created on the approved
-baseline `main@3855e29d`. Everything beyond that — further PR
-actions, branch archival, product-code changes, migrations,
-dependency installs, VM provisioning — **waits for explicit
-approval per milestone**.
+Already done in the release session under the earlier explicit
+instruction ("merge the 2.6.0 branch, close the not-needed repos,
+create the release") — recorded here so the approval list is
+unambiguous:
 
-**Draft-save obligation:** the UI must allow saving a
-repository/framework project as a draft even when discovery cannot
-run yet (e.g. no worker available). "Configuration saved" and
-"discovery validated" are strictly separate states; no discovered
-selection may be executed before successful validation (see
-draft-save in §3.4).
+- PR #4 merged into `main` (`3855e29d`) and auto-closed; tag
+  `2.6.0` pushed; GitHub release 2.6.0 published with 7 assets.
+- Branches deleted (local + remote): `feature/2.6.0-node-runners`,
+  `feature/cheroot-frontend`, `release/2.5.1-backports` (all fully
+  merged), `spike/cheroot-frontend` (5 unmerged spike commits —
+  already productized as the shipped Cheroot frontend).
+- `feature/2.7.0-repository-discovery` created from baseline
+  `main@3855e29d` and pushed — contains only this plan document.
 
-**Conflict rule:** where a requirement conflicts with a framework's
-real capabilities (e.g. no reliable per-test selection in Cypress),
-the conflict is **reported** with an explicit alternative — scope is
-never silently reduced, seed data never substituted, and per-test
-selection never claimed where only file-level is possible (see
-matrix §3.6).
+**Actions that still require approval before execution:**
 
-**Separate decisions (not part of this plan):**
-- Scheduled/periodic binding re-syncs (manual only today)
-- Robot Gherkin plugin with an external parser (needs dependency review)
-- Windows installer signing
+| Action | Detail |
+|---|---|
+| M0 schema migration | new `framework_projects` table + `discovered_items` columns + katalon backfill — runs on user databases |
+| Product-code changes | new `discovery/` package, portal routes/forms/templates, dispatch plumbing |
+| Dependency installs | none planned server-side; target-side needs only frameworks users already have |
+| VM provisioning | disposable worker VM for acceptance (milestones M6–M7) |
+| PR creation | when implementation starts — opened as **draft** |
+| Merge / tag / publish | only on separate explicit approval after acceptance |
+
+No further PR closures, branch deletions, code changes, migrations,
+dependency installs, or VM creation happen until the corresponding
+actions are approved.
+
+### Draft configuration and discovery validation
+
+The UI must allow a repository and framework project to be saved as
+a draft when discovery cannot yet run — e.g. no suitable worker
+available or dependencies missing. The three states are strictly
+distinguished:
+
+- **Configuration saved** — the settings have been stored (draft).
+- **Discovery validated** — discovery completed successfully for a
+  specific repository revision and configuration.
+- **Discovery stale or failed** — the inventory requires refresh or
+  correction before use.
+
+Valid discovery for the selected revision and configuration is
+required before executing a discovered selection. A saved draft is
+never presented as a successfully parsed project.
+
+### Scope and capability conflicts
+
+Where a requirement conflicts with a framework's capabilities, the
+conflict is reported and an explicit alternative proposed — never
+silently reduced scope, never seeded inventories substituting real
+discovery, never claiming individual-test selection where only
+file-level selection is supported (see matrix §3.6).
+
+**After delivering this plan: stop and wait for approval.**
