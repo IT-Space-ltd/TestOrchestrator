@@ -41,6 +41,7 @@ class _BBProbe(BuildbotAdapter):
         self.br_state = {}          # brid -> buildrequest dict
         self.row_at_submit = None
         self.fail_submit = None
+        self.prep_log = ""
 
     def find_buildrequests(self, execution_id):
         return list(self.existing)
@@ -65,7 +66,9 @@ class _BBProbe(BuildbotAdapter):
     def builds_for_request(self, dispatch_id):
         return [{"buildid": 1}]
 
-    def run_log(self, buildid):
+    def run_log(self, buildid, step_names=None):
+        if step_names and "prep" in step_names:
+            return self.prep_log
         return "kre stdout"
 
     def workers(self):
@@ -309,6 +312,151 @@ def test_success_collects_and_completes(app, monkeypatch, tmp_path):
         assert ex.outcome == Outcome.PASSED
 
 
+def test_prep_script_echo_is_not_a_retry_block(
+        app, monkeypatch, tmp_path):
+    """The prep step's stdio echoes the whole prep script in its
+    header lines — including the literal TO_RETRY_BLOCKED echo text.
+    That script echo must NOT be read as a refusal marker: only an
+    emitted TO_RETRY_BLOCKED: output line means the prep refused."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 2,
+                          "claimed": True}
+    # Real log shape: header line contains the script body (marker
+    # text embedded mid-line); no emitted marker anywhere.
+    stub.prep_log = (
+        "hsh -c 'af=.to_exec_attempt_deadbeef; n=$(( $(cat \"$af\" "
+        "|| echo 0) + 1 )); echo \"$n\" > \"$af\"; if [ \"$n\" "
+        "-gt 1 ]; then echo \"TO_RETRY_BLOCKED: attempt $n\"; "
+        "exit 70; fi' to-exec ./katalonc\n"
+        "oNPX-FAKE completed\n"
+        "hprogram finished with exit code 2")
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.DISPATCHED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert "TO_RETRY_BLOCKED" not in ex.error_text
+
+
+def test_retry_blocked_maps_unknown_and_holds_reservations(
+        app, monkeypatch, tmp_path):
+    """A buildrequest resubmit REFUSED by prep (unresolvable prior
+    attempt / retry policy exceeded) must map to UNKNOWN — not FAILED:
+    the original attempt may still be live, so its reservations stay
+    held and the row lands on the reconciliation queue."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 2,
+                          "claimed": True}
+    stub.prep_log = ("TO_RETRY_BLOCKED: pid 4242 alive; env marker "
+                     "mismatch or unreadable — original attempt state "
+                     "unresolved, relaunch blocked")
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.DISPATCHED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.add(d.ResourceReservation(
+            execution_id=ex.id, runner_id=rid,
+            resource_kind="slot", slot_index=0))
+        db.session.commit()
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.UNKNOWN
+        assert ex.error_kind == "infrastructure"
+        assert "TO_RETRY_BLOCKED" in ex.error_text
+        assert "reconciliation" in ex.error_text
+        resv = d.ResourceReservation.query.filter_by(
+            execution_id=ex.id, released_at=None).all()
+        assert resv                  # claims stay held — never freed
+        assert Outcome[ex.outcome.name] == Outcome.INCOMPLETE
+
+
+def test_retry_policy_rendered_into_specs(app):
+    """retry_enabled/max_attempts come from run_config — explicit, not
+    implied by attempt bookkeeping."""
+    with app.app_context():
+        ex = type("E", (), {})()
+        ex.snapshot = lambda: {"run_config": {
+            "max_attempts": "5", "retry_enabled": False}}
+        spec = buildbot_cfg.kre_exec_spec(
+            ex, type("R", (), {"executable_path": "/x"})(), ["a"])
+        assert spec["max_attempts"] == 5
+        assert spec["retry_enabled"] is False
+        ex2 = type("E", (), {})()
+        ex2.snapshot = lambda: {"run_config": {}}
+        spec2 = buildbot_cfg.node_exec_spec(ex2, "/x", ["a"])
+        assert spec2["max_attempts"] == 3
+        assert spec2["retry_enabled"] is True
+        # None (readiness probe) gets the safe defaults, no crash
+        spec3 = buildbot_cfg.ssh_exec_spec(None, "py", "d", "f")
+        assert spec3["max_attempts"] == 3
+
+
+def test_retry_policy_persisted_in_snapshot(app, monkeypatch, tmp_path):
+    """The policy must survive the immutable snapshot — a UI/API
+    run_config reaches the worker-side prep unchanged. Disabling
+    retries means a resubmitted buildrequest hits attempt 2 and is
+    blocked, not relaunched."""
+    stub = _BBProbe()
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        _, rtid, diid = _env(app, monkeypatch, stub,
+                             worktree=tmp_path / "wt")
+        ex = d.create_execution(
+            "u", None,
+            run_config={"runtime_id": rtid,
+                        "retry_enabled": False, "max_attempts": "5"},
+            source_item=db.session.get(DiscoveredItem, diid))
+        rc = ex.snapshot()["run_config"]
+        assert rc["retry_enabled"] is False
+        assert rc["max_attempts"] == 5          # clamped/str→int
+        rt = db.session.get(RuntimeConnection, rtid)
+        spec = buildbot_cfg.kre_exec_spec(ex, rt, ["a"])
+        assert spec["retry_enabled"] is False   # snapshot→spec chain
+        assert spec["max_attempts"] == 5
+        # defaults when unset
+        ex2 = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        rc2 = ex2.snapshot()["run_config"]
+        assert rc2["retry_enabled"] is True
+        assert rc2["max_attempts"] == 3
+
+
+def test_windows_spec_forces_retry_disabled(app):
+    """No confirmed-orphan resolution exists on Windows, so the spec
+    forces retry_enabled=false/max_attempts=1 regardless of what the
+    run_config asked for — a silent unconditional relaunch must be
+    impossible. The worker-side prep counter enforces attempt>1."""
+    with app.app_context():
+        ex = type("E", (), {})()
+        ex.snapshot = lambda: {"run_config": {
+            "max_attempts": "5", "retry_enabled": True}}
+        rt = type("R", (), {"executable_path": "/x"})()
+        spec = buildbot_cfg.kre_exec_spec(ex, rt, ["a"], posix=False)
+        assert spec["posix"] is False
+        assert spec["retry_enabled"] is False
+        assert spec["max_attempts"] == 1
+        spec2 = buildbot_cfg.node_exec_spec(ex, "npx", ["a"],
+                                            posix=False)
+        assert spec2["retry_enabled"] is False
+        assert spec2["max_attempts"] == 1
+
+
 class _FakeChan:
     def __init__(self, out=b"", rc=0):
         self._out = out
@@ -417,3 +565,47 @@ def test_ssh_remote_cancel_kills_process_group(app, monkeypatch, tmp_path):
             "u", None, run_config={"runtime_id": rtid},
             source_item=db.session.get(DiscoveredItem, diid))
         assert d._ssh_remote_cancel(ex2) is None
+
+
+def test_staging_cleared_on_predispatch_fail(app, monkeypatch, tmp_path):
+    """A _fail INSIDE _submit_buildbot (after stage_source — e.g. the
+    ssh credential gate) leaves no staged tar/cred behind."""
+    stub = _BBProbe()
+    ids = _env(app, monkeypatch, stub, target_type="ssh")
+    rid, rtid, diid = ids
+    with app.app_context():
+        rt = db.session.get(RuntimeConnection, rtid)
+        rt.credential_ref = "portal-side-secret"   # ssh: rejected gate
+        db.session.commit()
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        sd = buildbot_cfg.staging_dir()
+        sd.mkdir(parents=True, exist_ok=True)
+        d._buildbot_assign_and_submit(ex)
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert "credential_ref is portal-side" in ex.error_text
+        assert not (sd / f"{ex.id}.tar").exists()
+        assert not (sd / f"{ex.id}.cred").exists()
+
+
+def test_sweep_removes_terminal_leftovers_keeps_live(app, tmp_path):
+    """Reconcile sweep deletes staged files of terminal executions;
+    DISPATCHED/QUEUED runs and unknown ids keep theirs."""
+    with app.app_context():
+        sd = buildbot_cfg.staging_dir()
+        sd.mkdir(parents=True, exist_ok=True)
+        done = Execution(project_id="p-x",
+                         state=ExecutionState.FAILED)
+        live = Execution(project_id="p-x",
+                         state=ExecutionState.DISPATCHED)
+        db.session.add_all([done, live])
+        db.session.commit()
+        for eid in (done.id, live.id, "no-such-exec"):
+            (sd / f"{eid}.tar").write_text("x")
+        removed = d._sweep_stale_staging()
+        assert removed >= 1
+        assert not (sd / f"{done.id}.tar").exists()
+        assert (sd / f"{live.id}.tar").exists()
+        assert (sd / "no-such-exec.tar").exists()

@@ -18,8 +18,12 @@
   var updatedEl = document.getElementById("dash-updated");
 
   function setStale(on) { if (staleEl) staleEl.hidden = !on; }
-  function setUpdated(ts) {
-    if (updatedEl) updatedEl.textContent = "Updated " + ts.slice(0, 19) + "Z";
+  function setUpdated(data) {
+    if (!updatedEl) return;
+    var zone = data.timezone || "UTC";
+    var local = data.generated_at_local ||
+      data.generated_at.slice(0, 19).replace("T", " ") + " +00:00";
+    updatedEl.textContent = "Updated " + local + " (" + zone + ")";
   }
 
   function setText(key, value) {
@@ -46,12 +50,12 @@
         (hide ? " hidden" : "") + ">" +
         "<td><a href='/projects/" + esc(p.id) + "'><strong>" + esc(p.name) +
         "</strong></a><div class='muted'>" + esc((p.description || "").slice(0, 80)) + "</div></td>" +
-        "<td>" + esc((p.latest_finished_at || "—").slice(0, 16)) + "</td>" +
+        "<td>" + esc(p.latest_finished_at_local || (p.latest_finished_at || "—").slice(0, 16).replace("T", " ")) + "</td>" +
         "<td>" + (p.latest_outcome ? "<span class='badge outcome-" + esc(p.latest_outcome) + "'>" + esc(p.latest_outcome) + "</span>" : "—") + "</td>" +
         "<td>" + p.active + (p.queued ? " (" + p.queued + " queued)" : "") + "</td>" +
         "<td>" + (p.pass_rate === null ? "—" : p.pass_rate + "% <span class='muted'>of " + p.pass_total + "</span>") + "</td>" +
-        "<td>" + esc((p.next_run_at || "—").slice(0, 16)) + "</td>" +
-        "<td><a href='/projects/" + esc(p.id) + "'>Open</a></td></tr>";
+        "<td>" + esc(p.next_run_at_local || (p.next_run_at || "—").slice(0, 16).replace("T", " ")) + "</td>" +
+        "<td><div class='cell-actions'><a class='button secondary sm' href='/projects/" + esc(p.id) + "'>Open</a></div></td></tr>";
     }).join("");
   }
 
@@ -88,11 +92,11 @@
     setText("runners_available", m.runners_available + "/" + m.runners_total);
     setText("runners_healthy", m.runners_healthy);
     setText("schedules_upcoming", m.schedules_upcoming);
-    setText("next_schedule_at", (m.next_schedule_at || "—").slice(0, 19));
+    setText("next_schedule_at", m.next_schedule_at_local || (m.next_schedule_at || "—").slice(0, 19));
     renderProjects(data.projects);
     renderRecent(data.recent);
     renderChart(data.chart_outcomes);
-    setUpdated(data.generated_at);
+    setUpdated(data);
   }
 
   function schedule(ms) {

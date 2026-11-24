@@ -11,6 +11,7 @@ Python runtime components (see requirements.txt for pinned versions):
   alembic, Mako — MIT
   argon2-cffi, argon2-cffi-bindings, cffi, pycparser — MIT
   typing_extensions — PSF
+  tzdata — public-domain data / Apache-2.0 notices (see tzdata-LICENSE*)
   waitress — ZPL-2.1-derived (see waitress-*-LICENSE.txt)
 
 Public HTTPS/redirect frontend (in-process WSGI server):

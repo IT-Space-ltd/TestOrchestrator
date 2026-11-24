@@ -10,7 +10,7 @@
   {% if release.end_date and release.status not in ('released','archived') and release.end_date < today() %}
   <span class="badge danger">overdue</span>
   {% endif %}
-  {% if release.released_at %}· released {{ release.released_at|string|truncate(16, true, '') }}{% endif %}</p>
+  {% if release.released_at %}· released {{ release.released_at|localtime_short }}{% endif %}</p>
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for c, m in messages %}<p class="flash flash-{{ c }}">{{ m }}</p>{% endfor %}
 {% endwith %}
@@ -78,7 +78,7 @@
 <tr><td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
   <td><code>{{ e.target_path }}</code></td>
   <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
-  <td>{{ (e.started_at|string)[:16] if e.started_at else "—" }}</td></tr>
+  <td>{{ e.started_at|localtime_short }}</td></tr>
 {% endfor %}</tbody></table>
 {% else %}<p class="muted">No executions yet.</p>{% endif %}
 </section>

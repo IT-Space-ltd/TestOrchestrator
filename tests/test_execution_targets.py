@@ -290,6 +290,23 @@ def test_create_runner_blank_scope_stores_empty(app, client,
         assert json.loads(r.allowed_projects) == []
 
 
+def test_create_runner_duplicate_name_flashes_not_500(app, client,
+                                                     monkeypatch):
+    """Regression: a duplicate runner name hit the UNIQUE constraint
+    and 500'd. It must flash a validation error like create_user."""
+    monkeypatch.setattr(
+        "testorchestrator.buildbot_cfg.sync",
+        lambda: {"workers": 0, "targets": 0})
+    login(client, "admin")
+    resp = _create(app, client, name="dup-target")
+    assert resp.status_code == 200
+    resp = _create(app, client, name="dup-target")
+    assert resp.status_code == 200
+    assert b"already exists" in resp.data
+    with app.app_context():
+        assert Runner.query.filter_by(name="dup-target").count() == 1
+
+
 def test_internal_worker_credentials_adopted_from_secrets_json(
         app, tmp_path):
     """Regression: provisioned worker passwords in secrets.json must be

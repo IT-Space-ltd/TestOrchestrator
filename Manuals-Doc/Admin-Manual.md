@@ -1,17 +1,16 @@
-# TestOrchestrator 2.5.1 — Administrator Manual
+# TestOrchestrator 2.6.0 — Administrator Manual
 
-Applies to **TestOrchestrator 2.5.1** (release tag `2.5` — the
-initial public release).
+Applies to **TestOrchestrator 2.6.0** (release tag `2.6`).
 
 **How to read the validation markers** — every procedure carries one:
 
 | Marker | Means |
 |---|---|
-| **[verified]** | Executed against the release install package — details in `docs/acceptance-2.5.0.md` |
+| **[verified]** | Executed against the release install package — details in `docs/acceptance-2.5.0.md` / `docs/acceptance-2.6.0.md` |
 | **[code/CI]** | Documented from installer source and CI evidence; not interactively validated here |
 | **[doc-env]** | Demonstrated on the isolated documentation environment (fixture data) — procedure is real, values are not |
 
-All screenshots were captured from the released 2.5.1 codebase — the
+Screenshots were captured from the 2.6.0 codebase — the
 index lists each frame's provenance.
 
 ---
@@ -27,7 +26,7 @@ index lists each frame's provenance.
 - [3. Package selection and verification](#3-package-selection-and-verification)
 - [4. Linux installation](#4-linux-installation)
   - [4.1 Requirements](#41-requirements)
-  - [4.2 Tarball install **[verified]**](#42-tarball-install-verified)
+  - [4.2 Tarball install — step by step **[verified]**](#42-tarball-install--step-by-step-verified)
   - [4.3 The `.run` self-extracting package](#43-the-run-self-extracting-package)
   - [4.4 First startup and bootstrap **[verified]**](#44-first-startup-and-bootstrap-verified)
   - [4.5 Directory layout **[verified]**](#45-directory-layout-verified)
@@ -36,20 +35,18 @@ index lists each frame's provenance.
   - [4.8 Uninstall](#48-uninstall)
   - [4.9 HTTPS frontend — Cheroot](#49-https-frontend--cheroot)
 - [5. Windows installation **[verified]**](#5-windows-installation-verified)
-  - [5.1 Install and first access](#51-install-and-first-access)
-  - [5.2 Certificate trust (what the installer does for you)](#52-certificate-trust-what-the-installer-does-for-you)
-  - [5.3 Stop, restart, uninstall](#53-stop-restart-uninstall)
-  - [5.4 Remote access — separate deployment mode](#54-remote-access--separate-deployment-mode)
-  - [5.5 Validation gates — honest status](#55-validation-gates--honest-status)
-- [6. Workers — installation and operation (Linux) **[verified end to end]**](#6-workers--installation-and-operation-linux-verified-end-to-end)
-  - [6.1 Get the worker archive through the portal](#61-get-the-worker-archive-through-the-portal)
-  - [6.2 Verify the asset **[verified]**](#62-verify-the-asset-verified)
-  - [6.3 Configure the coordinator](#63-configure-the-coordinator)
-  - [6.4 Register the worker](#64-register-the-worker)
-  - [6.5 Register the KRE installation on the worker](#65-register-the-kre-installation-on-the-worker)
-  - [6.6 Dispatch a controlled demonstration job **[verified]**](#66-dispatch-a-controlled-demonstration-job-verified)
-  - [6.7 Logs, stop, restart, removal](#67-logs-stop-restart-removal)
-  - [6.8 Windows worker **[code/CI]**](#68-windows-worker-codeci)
+  - [5.1 Windows controller](#51-windows-controller)
+  - [5.2 Windows execution hosts](#52-windows-execution-hosts)
+- [6. Execution targets — installation and operation](#6-execution-targets--installation-and-operation)
+  - [6.1 Windows Buildbot worker](#61-windows-buildbot-worker)
+  - [6.2 Native Linux Buildbot worker](#62-native-linux-buildbot-worker)
+  - [6.3 Agentless Linux SSH target](#63-agentless-linux-ssh-target)
+  - [6.4 Register a KRE installation on a target](#64-register-a-kre-installation-on-a-target)
+  - [6.5 Worker authentication and secrets](#65-worker-authentication-and-secrets)
+  - [6.6 Node.js browser runtimes (Playwright / Cypress)](#66-nodejs-browser-runtimes-playwright--cypress)
+  - [6.7 Robot Framework runtime](#67-robot-framework-runtime)
+  - [6.8 pytest runtime](#68-pytest-runtime)
+  - [6.9 KRE licensing](#69-kre-licensing)
 - [7. Security and administration](#7-security-and-administration)
   - [7.1 Users and roles **[verified]**](#71-users-and-roles-verified)
   - [7.2 Secrets **[verified]**](#72-secrets-verified)
@@ -68,10 +65,14 @@ index lists each frame's provenance.
 - [10. Troubleshooting](#10-troubleshooting)
 - [11. Demonstrated worker flow used for these docs](#11-demonstrated-worker-flow-used-for-these-docs)
 - [12. Runbooks — step by step](#12-runbooks--step-by-step)
-  - [12.1 Add a worker](#121-add-a-worker)
+  - [12.1 Add an execution target](#121-add-an-execution-target)
   - [12.2 Register a KRE installation (runtime connection)](#122-register-a-kre-installation-runtime-connection)
   - [12.3 Add a user and assign a role](#123-add-a-user-and-assign-a-role)
   - [12.4 Licence status (informational)](#124-licence-status-informational)
+  - [12.5 Connect Robot Framework — step by step (worker + SSH)](#125-connect-robot-framework--step-by-step-worker--ssh)
+  - [12.6 Connect pytest — step by step (worker + SSH)](#126-connect-pytest--step-by-step-worker--ssh)
+  - [12.7 Connect Playwright — step by step (worker + SSH)](#127-connect-playwright--step-by-step-worker--ssh)
+  - [12.8 Connect Cypress — step by step (worker + SSH)](#128-connect-cypress--step-by-step-worker--ssh)
 - [13. Production deployment checklist](#13-production-deployment-checklist)
 - [14. Configuration reference](#14-configuration-reference)
   - [14.1 Environment variables (set in `web.env` / service unit)](#141-environment-variables-set-in-webenv--service-unit)
@@ -307,7 +308,7 @@ them. Evidence that never reached the repository cannot be recreated
 ### 2.2 Windows
 
 - Windows amd64 can host the **controller itself** —
-  `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` installs
+  `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` installs
   the same Cheroot portal, embedded Python, and Buildbot 4.3.0 stack
   (master + `to-local` + `to-ssh-dispatcher`) as the Linux packages,
   lifecycle-managed via Scheduled Tasks under
@@ -329,9 +330,9 @@ Download from the GitHub release `2.5`:
 
 | Asset | Use |
 |---|---|
-| `testorchestrator-2.5.1-linux-x86_64.tar.gz` | Linux payload + installer |
-| `testorchestrator-2.5.1-linux-x86_64.run` | Self-extracting variant of the same payload |
-| `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` | Windows controller installer (§5.1) |
+| `testorchestrator-2.6.0-linux-x86_64.tar.gz` | Linux payload + installer |
+| `testorchestrator-2.6.0-linux-x86_64.run` | Self-extracting variant of the same payload |
+| `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` | Windows controller installer (§5.1) |
 | `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | Corresponding sources for the bundled GPL components |
 | `SHA256SUMS.txt` | Checksums — also covers the bundled worker `.exe` |
 | `build-manifest.json` | Provenance: source commit, `dirty` flag, tool versions |
@@ -347,9 +348,9 @@ Verify before installing **[verified]**:
 
 ```bash
 curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/SHA256SUMS.txt
-curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/testorchestrator-2.5.1-linux-x86_64.tar.gz
+curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/testorchestrator-2.6.0-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-# testorchestrator-2.5.1-linux-x86_64.tar.gz: OK
+# testorchestrator-2.6.0-linux-x86_64.tar.gz: OK
 ```
 
 The manifest pins the exact source commit and the bundled Buildbot
@@ -373,14 +374,14 @@ tarball and check it before anything runs:
 
 ```bash
 sha256sum -c SHA256SUMS.txt
-# testorchestrator-2.5.1-linux-x86_64.tar.gz: OK
+# testorchestrator-2.6.0-linux-x86_64.tar.gz: OK
 ```
 
 **Step 2 — extract and run the installer:**
 
 ```bash
-tar -xzf testorchestrator-2.5.1-linux-x86_64.tar.gz
-cd testorchestrator-2.5.1-linux-x86_64
+tar -xzf testorchestrator-2.6.0-linux-x86_64.tar.gz
+cd testorchestrator-2.6.0-linux-x86_64
 
 # interactive — licence prompt is optional (Enter skips it)
 sudo bash install.sh
@@ -603,7 +604,7 @@ across the failed apply.
 
 Procedure:
 
-1. Download `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe`
+1. Download `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe`
    and verify it against `SHA256SUMS.txt` (`certutil -hashfile <file>
    SHA256` on the Windows host). The installer is **unsigned** —
    SmartScreen will warn; the checksum is the trust anchor.
@@ -619,7 +620,7 @@ Procedure:
    public desktop (opens the portal in the default browser) and
    offers a finish-page option to launch it directly.
 
-`testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` installs the
+`testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` installs the
 complete controller on a Windows amd64 host — the same product the
 Linux packages install:
 
@@ -741,7 +742,14 @@ running work to another target — pinned runs fail visibly.
    adds a Startup-folder shortcut that shows a notification-area
    (tray) icon at user logon — right-click offers **Start** /
    **Stop** / **Quit** (Quit only closes the icon; the worker keeps
-   running under its Scheduled Task).
+   running under its Scheduled Task). The icon carries a small
+   status dot at its bottom-right corner: **green** when the
+   worker's Scheduled Task is running (the process is alive — this
+   says nothing about master connectivity), **red** when it is not,
+   and red with a "status check failed" note when the status query
+   itself fails. The tooltip and the first menu line spell out
+   "Running" / "Not running", so colour is never the only cue. The
+   indicator refreshes every two seconds while the tray is open.
 4. The target shows `Awaiting registration` until the worker connects
    over PB :9989, then lists discovered runners/runtimes. Install
    output is logged to
@@ -749,6 +757,11 @@ running work to another target — pinned runs fail visibly.
 5. Reinstall over an existing install preserves worker identity (no
    duplicate target); uninstall removes the Scheduled Task, the tray
    autostart shortcut, and does not touch KRE or unrelated files.
+
+   ![Remote worker installers — Windows .exe and Linux bundle rows with SHA-256](Screenshot-Doc/admin/worker-installers.png)
+
+   *The bundled offline installers under **Remote worker installers**
+   on the Infrastructure page — every row ships its SHA-256.*
 
 ### 6.2 Native Linux Buildbot worker
 
@@ -774,8 +787,24 @@ running work to another target — pinned runs fail visibly.
    unit, and delete `$HOME`/`$DATA` explicitly — workspaces are never
    removed implicitly.
 5. Registration, credentials, runner discovery, and capacity are then
-   managed from the Admin UI (rotate the secret with **Issue secret**;
-   drain before maintenance).
+   managed from the Admin UI (rotate the secret with **Issue
+   password**; drain before maintenance).
+
+   ![Add execution target — Buildbot worker type selected](Screenshot-Doc/admin/runner-new-worker.png)
+
+   *The **Add execution target** form with **Buildbot worker**
+   selected — name, target type, OS/arch, workspace root, slot count.*
+
+   ![One-time worker password — shown once in the flash banner](Screenshot-Doc/admin/worker-issue-password.png)
+
+   *The generated per-worker password appears **once** in the flash
+   banner after **Manage ▾ → Issue password** — copy it into the
+   installer immediately; it is stored only encrypted.*
+
+   ![install_linux_worker.sh --help output](Screenshot-Doc/admin/worker-install-help.png)
+
+   *The offline installer is self-documenting — `--help` prints the
+   usage, every flag, and the uninstall steps.*
 
 ### 6.3 Agentless Linux SSH target
 
@@ -818,6 +847,277 @@ kept as SecretRefs in the encrypted secret store — never in runner
 rows, logs, build properties, or exported configuration. Rotating or
 replacing a stored secret never reveals the current value.
 
+### 6.6 Node.js browser runtimes (Playwright / Cypress)
+
+Register **Playwright Test** or **Cypress** as a runtime kind on any
+Buildbot worker (Windows/Linux) or agentless Linux SSH target. Runs
+stage the project under `build/src` and invoke
+`npx playwright test --reporter=junit` or `npx cypress run` —
+results upload through the same Reports/ pipeline and normalize
+into TestResult rows. Cypress emits per-spec `junit-[hash].xml`
+files so later specs cannot overwrite earlier reports.
+
+**Prerequisites on the target host** (pre-provisioned — nothing is
+bundled into the packages or worker installer):
+
+- Node.js (and `npx` on PATH, or set the runtime's executable path)
+- the project's Playwright/Cypress dependencies
+- the required browsers and system dependencies — for Playwright
+  `npx playwright install --with-deps` once per host
+- a writable remote workspace (SSH targets)
+- the target's service/SSH account must be able to launch Node.js
+  and the browser and write results
+
+The framework can be a project dependency — no global install, no
+separate Playwright/Cypress agent. On SSH targets nothing is
+installed on the host beyond those prerequisites; the controller's
+dispatcher reaches it over SSH and retrieves results over SFTP.
+
+**Connectivity is not reachability.** A connected worker or a
+working SSH session proves only that the *target* is reachable —
+not that the browser on that host can reach the application under
+test. Use **Check runner readiness** on the Infrastructure page:
+it runs a probe on the same target, account and transport the real
+run uses, and reports Node.js/framework/browser versions and —
+when an application URL is supplied — whether the browser can reach
+it. Readiness installs nothing, runs no tests, and never echoes
+secrets; results persist on the runtime row (Playwright and Cypress
+are checked separately — a host can be ready for one and not the
+other). Typical failures and where to fix them:
+
+| Symptom | Where to fix |
+| --- | --- |
+| `node`/`npx` missing | Install Node.js on the **target** host |
+| framework version "not detected" | Add `playwright`/`cypress` to the project deps on the target |
+| browser launch fails | `npx playwright install` / verify browser on the target |
+| `app_url UNREACHABLE` | Network/firewall between target host and the app under test |
+| SFTP errors (SSH targets) | Enable the SFTP subsystem and a writable workdir on the host |
+
+Browsers are validated against each framework's supported set —
+Playwright: `chromium`, `firefox`, `webkit`; Cypress: `chrome`,
+`firefox`, `edge`, `electron`, `chromium`. An unsupported value
+fails the launch rather than being substituted.
+
+
+### 6.7 Robot Framework runtime
+
+Register **Robot Framework** as a runtime kind (`robot`) on any
+Buildbot worker (Windows/Linux) or agentless Linux SSH target.
+Configure the runtime's **executable path** as the target's Python
+interpreter — a venv `bin/python` (POSIX) or `Scripts\python.exe`
+(Windows) is the recommended form. Execution is pure argv
+(`python -m robot`): no Bash, no PATH, no activation scripts, and
+paths containing spaces are safe. Runs stage the project under
+`build/src` and produce `Reports/junit.xml` (shared normalizer)
+plus native `output.xml`, `log.html`, `report.html` and the console
+log — all uploaded as artifacts on pass *and* fail.
+
+**Prerequisites:** Robot Framework and the project's required
+Python libraries must be installed in the selected target's Python
+environment. Any required browsers, drivers, or external tools must
+also be available to the execution account. Tests run on the
+target, which must be able to reach the system under test and write
+reports and artifacts. No separate Robot Framework agent is
+required. There is no portal browser selector for Robot — browser
+configuration belongs to the Robot project and its libraries.
+
+Run forms expose a project-relative suite file or directory plus
+optional `--test`, `--suite`, `--include`/`--exclude` tag fields.
+Robot exit codes classify explicitly: 1–249 is the failed-test
+count, 250–252 are usage/data/configuration problems, 253 is
+interruption, 255 internal — an invalid invocation is never shown
+as ordinary test failures, and a missing `junit.xml` can never
+pass as a zero-test run. Suite-level parallelism uses Pabot
+(`--processes=N`) when the optional dependency probed
+`opt_pabot=ok` on the target. Out of scope for 2.6.0: custom
+listeners, keyword-level browsing.
+
+**Check runner readiness** probes — under the real execution
+account — the configured interpreter, Robot version, configured
+required-library imports, workspace write access, and application
+reachability (external tools when configured). Checks that cannot
+run report as *not checked*; nothing is installed and no tests run.
+
+**Interruption and recovery differ by transport and by what was
+lost.** On agentless SSH targets the remote run is detached
+(`run.sh`/`run.pid`): losing the SSH *session* mid-run lets the
+dispatcher reconnect, reattach to the same run, and collect its
+results — the CLI was launched exactly once in the tested scenario
+(bb:259). A Buildbot **master restart** aborts worker-side runs
+instead: the in-flight build is cancelled, the worker kills the
+running CLI, and the run is not resumed or automatically relaunched
+— partial artifacts are retained and the run requires resubmission
+(tested: bb:279, one launch). A master restart also cancels any
+in-flight SSH *dispatch step*; in that case the detached remote run
+may complete unobserved and its results are abandoned (bb:278 —
+verified leaving only leftover files, no active process). Plan long
+browser runs accordingly and keep the master reachable during
+executions.
+
+### 6.8 pytest runtime
+
+Register **pytest** as a runtime kind (`pytest`) on any Buildbot
+worker (Windows/Linux) or agentless Linux SSH target — the same
+transport contract as Robot. Configure the runtime's **executable
+path** as the target's Python interpreter (`venv/bin/python` on
+POSIX, `Scripts\python.exe` on Windows); execution is pure argv
+(`python -m pytest`), so there is no Bash, PATH, or activation
+dependency and paths containing spaces are safe. Runs stage the
+project under `build/src` and invoke
+`python -m pytest --junitxml Reports/junit.xml -q`; the JUnit
+report feeds the shared normalizer while console output and
+project evidence upload as artifacts on pass *and* fail.
+
+**Prerequisites:** pytest and the test project's Python
+dependencies must be installed in the selected target's Python
+environment (a project venv is the recommended form), and the
+execution account must be able to write the workspace and reach
+the system under test. `pytest-xdist` is optional: when the
+readiness probe finds it on the target, the run form's parallel
+mode can add `-n=N`; without it, parallel dispatch is rejected
+up front rather than silently sequential.
+
+Run forms expose `-k` (keyword expression) and `-m` (marker
+expression) fields. There is no portal browser selector for
+pytest — browsers or drivers belong to the test project and its
+fixtures, exactly as with Robot. A missing `junit.xml` can never
+pass as a zero-test run.
+
+**Check runner readiness** probes — under the real execution
+account — the configured interpreter, pytest version, xdist
+availability, workspace write access, and application
+reachability (when configured). See §12.6 for the full
+step-by-step.
+
+### 6.9 KRE licensing
+
+**Who does what.** TestOrchestrator does not license, activate or
+validate KRE. Katalon does that, and the licence belongs to your
+Katalon organization account. The adapter is *connect-only*: it
+registers an existing KRE installation and invokes it — it never
+installs, downloads, upgrades or licenses KRE
+(`testorchestrator/adapters/kre.py`).
+
+**KRE's side** (per Katalon's documentation — see links): with
+online activation, KRE authenticates with a Katalon API key and
+checks the licence each time it starts; a licence allows one
+active session at a time, so the KRE machine needs outbound HTTPS
+on port 443 to Katalon.
+[Activate Licenses — Katalon Docs](https://docs.katalon.com/katalon-studio/get-started/activate-licenses) ·
+[Katalon Runtime Engine](https://katalon.com/katalon-runtime-engine) ·
+[KRE won't activate with my API key (forum)](https://forum.katalon.com/t/katalon-runtime-engine-kre-wont-activate-with-my-api-key/195385)
+
+**TestOrchestrator's side.**
+
+- **Where the key lives:** on the execution host only, in a
+  **credential file** — a regular `0600` file owned by the account
+  that runs KRE. The runtime's `credential_file` field carries the
+  *path*; the key value is never stored in the portal database on
+  remote topologies, never appears in Buildbot properties, specs,
+  logs or argv — only the file path travels.
+- **Three topologies:** on a *controller-local* runner the portal
+  may resolve a `credential_ref` secret-store entry into a per-run
+  `0600` file (cleaned after the run); on *remote Buildbot workers*
+  and *SSH targets* `credential_ref` is **rejected** (portal-side
+  only) — the administrator places the credential file on the
+  worker/remote host and sets `credential_file` to its path.
+- **How it reaches KRE:** the execution spec invokes
+  `kre_cred_exec.py` (shipped with the product; staged to the remote
+  workdir on SSH targets) with the credential-file path. The wrapper
+  validates the file (regular file, no symlink, owner-only mode,
+  no group/other bits, narrowly-shaped key — our VM acceptance saw
+  it refuse a `0644` file), then execs KRE with `-apiKey=<value>` in
+  the child's argv — the only command-line mechanism KRE offers —
+  and byte-scrubs the value out of the child's stdout/stderr at the
+  source, before Buildbot step capture or portal collection can see
+  it. A pre-supplied `-apiKey` in run flags is rejected: exactly one
+  credential source. `run_invocation` additionally scrubs a
+  `user:pass@` embedded in a remote WebDriver URL the same way.
+- **Concurrency rule:** per execution target,
+  `capacity_limit = min(max_slots, license_slots)` — the declared
+  hardware slots and the **License slots** field set on the runner
+  in Admin → Infrastructure. A floating KRE licence is consumed
+  per concurrent session, so dispatch never exceeds the declared
+  seat count *on that runner*. This is per-runner: there is no
+  cross-machine licence pool and no global seat ledger.
+- **Failure handling:** stdout containing `license` / `licence` /
+  `activation` classifies the run as `error_kind='license'` — the
+  run reports as a normal **failure** with that kind recorded.
+  TestOrchestrator shows it; it does not retry around it and cannot
+  repair the Katalon side.
+
+**Offline licenses.** Katalon also supports an offline licence
+file under the `.katalon/license` folder of the user account that
+runs KRE (see the Katalon activation docs above). TestOrchestrator
+has no code path that installs or manages that file — placing it
+is the operator's job on each execution host, under the account
+the worker runs as. **Offline KRE execution was not tested** in
+this release's evidence set.
+
+**Separate from TestOrchestrator's own licence.** The
+TestOrchestrator licence is an offline Ed25519-signed code checked
+against `release/licence_pubkey.pem` (§12.4) — informational only,
+and unrelated to the Katalon licence.
+
+**Process-list exposure (residual risk).** The only confirmed
+mechanism KRE offers for the activation key is the command line,
+so the key is visible in the child's argv to **any local user on
+the runner host** for the process lifetime — this is broader than
+the service account itself:
+
+- **Linux:** `/proc/<pid>/cmdline` is world-readable
+  (`-r--r--r--`) — every local account, not just same-UID, can
+  read it unless `/proc` is mounted with `hidepid=1` (hides other
+  users' `/proc/<pid>` entries) or `hidepid=2` (also hides them
+  from `/proc` listings; recommended). Note `/proc/<pid>/environ`
+  is owner-only — an environment-variable channel is strictly
+  safer than argv on Linux.
+- **Windows:** command lines are likewise enumerable by local
+  users (WMI `Win32_Process.CommandLine`, `Get-CimInstance`,
+  Process Explorer/`tasklist /v`) — there is no per-user argv
+  hiding; a process argument is not a secret channel.
+- **macOS:** `ps`/sysctl exposes argv to other local users as
+  well; treat argv as public on every supported OS.
+
+It never lands in logs, artifacts, audit or exports (redaction
+above) — the exposure is limited to live local process inspection.
+The code already supports injecting an environment variable
+(`env_extra`), so if Katalon documents a non-argv mechanism for
+your KRE version it should be adopted — on Linux env is strictly
+safer than argv.
+Recommended host hygiene on every runner:
+
+- run the worker under a **dedicated service account** — keeps
+  KRE's argv inside one account's process set;
+- **no shared interactive users** on runner hosts — any local
+  login can read the argv while KRE runs;
+- on Linux mount `/proc` with **`hidepid=2`** where possible —
+  the only mechanism that actually hides other users' argv;
+- **rotate the API key** on a schedule and immediately when an
+  owner leaves or a host is retired.
+
+**Administrator checklist.**
+
+- API key is valid and belongs to the organization that owns the
+  licence (use a placeholder such as `<KATALON-API-KEY>` in
+  runbooks — never a real key).
+- The runner can reach Katalon on outbound 443, including through
+  any configured proxy.
+- **License slots** on each KRE runner does not exceed the
+  licensed concurrent sessions.
+- Treat the key as a secret: keep it out of logs, exports,
+  screenshots and tickets. The dispatch layer redacts it from
+  captured output, but a key pasted into suite scripts or bug
+  reports is outside that protection.
+- Rotate keys when their owner leaves.
+
+**Troubleshooting order** (see also §10): if a run fails at
+activation, check the KRE log, then the key, then the network
+(outbound 443 / proxy), then the organization ID — then whether
+another machine is consuming the same licence's session.
+TestOrchestrator cannot repair a revoked or expired key, a blocked
+network, or a licence in use elsewhere.
+
 
 ## 7. Security and administration
 
@@ -830,6 +1130,45 @@ argon2-hashed; a session-version counter invalidates sessions on
 credential change.
 
 ![User administration](Screenshot-Doc/admin/users.png)
+
+### 7.1a Project access (membership)
+
+Authorization is **role AND membership**: a non-Administrator sees
+and may act only inside explicitly assigned projects. Administrators
+reach every project through the role — no assignment exists (or is
+needed) for them.
+
+- New non-Administrator users start with **no projects** (the Users
+  page flags `none — needs assignment`); new projects are likewise
+  unavailable to non-administrators until assigned.
+- Manage assignments from either side of the same list:
+  **Admin → Users → user → Edit (Project access)** with search,
+  select-all/clear, and the user's role displayed; or
+  **Project → Access** with the inverse user/role matrix.
+- Membership **never grants capabilities beyond the role** — a
+  Tester with project access still cannot reach admin surfaces.
+- Changes take effect on the user's **next protected request** —
+  live sessions and API tokens included; already-running tests are
+  not killed. Pending (queued-but-unlaunched) work is rechecked at
+  the dispatch boundary: if the submitter lost membership, was
+  deactivated, or the API token was revoked, the execution fails
+  with `error_kind=access` and an audit row instead of launching.
+- **Schedules created by a user keep that user's identity**: once
+  their membership is removed, pending scheduled runs block at
+  dispatch the same way — they never become anonymous system jobs.
+  An Administrator can re-own or disable the schedule.
+- User-owned API tokens cannot exceed the owner's *current* role and
+  membership: a `run`-scope token minted by a Tester keeps working
+  only while that Tester is active and assigned; the effective
+  project list is the token's scope ∩ the owner's assignments,
+  evaluated per request.
+- Every grant/revoke is audited (`user.project_access`) with actor,
+  affected user, and before/after assignment lists. Assignments are
+  part of the database and therefore included in backup/restore.
+- **Upgrade note**: users with an explicit prior project list keep
+  it; users who previously had unrestricted (empty) scope see an
+  empty scope after upgrade until an Administrator assigns
+  projects — nothing is silently re-granted.
 
 ### 7.2 Secrets **[verified]**
 
@@ -869,9 +1208,36 @@ tokens for `agent`-mode connections.
 ### 7.5 Logging and sensitive data
 
 Application logs (Admin → Operational Logs) avoid secrets by
-construction — credential values are never written to logs or
-exports. Audit events record administrative actions (logins,
+construction — credential values are redacted **before persistence**,
+so local rows, CSV exports and the optional structured output share
+the same redaction (passwords, tokens, API keys, private/signing/
+licence keys, client secrets, credentials, authorization/cookie/
+bearer values). Audit events record administrative actions (logins,
 config changes, deletions) without payloads.
+
+**CSV export** — both **Admin → Audit** and **Admin → Operational
+Logs** offer *Export CSV* covering **all records matching the current
+filters** (never just the rendered page), against a fixed UTC cutoff,
+in stable order, UTF-8 with headers and spreadsheet-formula
+protection. Exports up to `logs_export_inline_max` stream directly;
+larger ones run as background jobs with a status page and a
+time-limited (mode-0600) download that re-checks the Administrator
+role. Above `logs_export_max_rows` the request is refused — narrow
+the filters. Nothing is ever silently truncated, and every request,
+completion/failure and download is itself audited (filters, count,
+actor, export id — never exported content).
+
+**External logging** — an optional vendor-neutral JSON output feeds
+one schema-versioned NDJSON event per record to a rotating file
+(`logs_json_*` settings / `TO_LOGS_JSON_*` env) or stdout
+(`logs_stdout_enabled`), ready for a customer-managed collector.
+See `docs/external-logging.md` for the schema, rotation/retention
+bounds, delivery guarantees, and the reference OpenTelemetry
+Collector configuration (`deploy/otel-collector.example.yaml`).
+The database stays authoritative; sink failures are counted, never
+hide audit records, and never affect test dispatch. Raw framework
+stdout/stderr is not forwarded — execution output stays in the run
+evidence download.
 
 ## 8. Backup, restore, and upgrades
 
@@ -988,7 +1354,7 @@ diagnostic commands is §21.
 | `cannot resolve '<ref>'` on sync/import | Bad ref/branch on the binding, or a shallow worktree missing the object — re-sync. |
 | Coordinator `/api/v1/workers` → `503` | Coordinator's `--coordinator.advertise` address isn't bound/reachable — advertise an interface address, not a hostname that resolves elsewhere. |
 | Remote run fails staging the workdir | Verify the target's configured workspace root exists and is writable for the worker account — `Test SSH Connection`/`Test runner` reports the failing stage. |
-| Execution `failed` with `Activation failed` in the run log | KRE licence/API key missing on the worker — environment problem, fix on the worker. |
+| Execution `failed` with `Activation failed` in the run log | KRE licence/API key missing on the worker — environment problem, fix on the worker. Full licensing checklist + diagnosis order: §6.9. |
 | `rl_status=failed`, log shows `No module named 'reporting_labs'` | The vendored package is missing from the installed payload — reinstall the package (the installer copies `3rdparty/reporting_labs` and aborts loudly if any required payload file is absent), then **Regenerate**; original artifacts are untouched. |
 | Import says `staging checkout expired` | Staging was cleaned — rerun the preview; pending candidates were not committed. |
 
@@ -1017,7 +1383,8 @@ card):
    Buildbot worker*, or *Agentless Linux SSH* — only the relevant
    fields render.
 2. For remote workers: record the generated **worker name + one-time
-   password** shown once; it is stored only as an encrypted SecretRef.
+   password** shown once in the flash banner (screenshots in §6.2);
+   it is stored only as an encrypted SecretRef.
 3. For SSH: enter host/port/user/credential/workdir, save, then
    **Approve host key** and **Test SSH Connection** until all staged
    checks pass.
@@ -1103,7 +1470,346 @@ from the KRE licence (§4.5 of the User Manual): KRE still requires a
 valid Katalon licence/API key on the worker, and real KRE activation
 failures continue to fail the affected runs.
 
+**Expired and not-yet-valid codes — current behaviour (pending
+confirmation).** Activation validates the *signature and format*
+of a code, not its validity window: an already-expired code and a
+not-yet-valid (future-dated) code are both **accepted and stored**
+at activation time — the success message echoes the declared
+window ("Licence activated … valid `<from>` to `<to>`"). This is
+deliberate for future codes — a renewal can be recorded before its
+window starts, and `status()` never lets it displace a currently
+valid licence. Stored codes are classified for display by
+`status()`: the page shows `expired` / `not-yet-valid` / `valid`
+accordingly, and at expiry of the latest code the state becomes
+`expired` and the login-page notice reappears — still nothing is
+gated. For an expired code, acceptance means it is stored as
+history, not that it grants a valid state. This text records the
+behaviour as implemented; whether an expired code should be
+*rejected* at activation is a product decision pending owner
+confirmation — no code change has been made.
+
 ---
+
+### 12.5 Connect Robot Framework — step by step (worker + SSH)
+
+**Read this first — the two ways to reach a machine.** Every
+framework runtime lives on an *execution target*, and TestOrchestrator
+reaches that target one of two ways:
+
+- **Buildbot worker** — you install the bundled worker agent on the
+  target machine (Windows or Linux). It dials *out* to the controller
+  on TCP 9989, so the target needs no inbound ports. Setup: §12.1 +
+  §6.1/§6.2.
+- **Agentless SSH** — nothing TestOrchestrator-side installs on the
+  target. The controller's own dispatcher logs in over SSH (Linux
+  only), runs the test there, and pulls results back over SFTP.
+  Setup: §12.1 + §6.3 — create the target, approve the pinned host
+  key, and run **Test SSH Connection** until every stage is green.
+
+Either way, the target must exist and show a healthy status on
+**Admin → Infrastructure** before you register any runtime on it.
+
+![Add execution target — SSH fields revealed](Screenshot-Doc/admin/runner-new-ssh.png)
+
+#### 12.5.1 What Robot needs on the target machine
+
+- Python 3.9 or newer (any flavour — system python or a venv; a
+  dedicated venv is the recommended form).
+- Robot Framework installed *in that interpreter*, plus every
+  library the test project imports (SeleniumLibrary,
+  BrowserLibrary, requests, your own helper packages…).
+- For browser tests: the browser and driver the project's
+  libraries expect, installed for the **execution account** (the
+  worker's service account, or the SSH login user).
+- The machine must be able to reach the system under test and
+  write into its workspace directory.
+
+There is no bundled Robot install — provision it yourself on the
+target, once, before registering.
+
+#### 12.5.2 On a Buildbot worker — step by step
+
+1. SSH/RDP into the worker machine **as the account the worker
+   service runs as** (Linux default `to-worker`, or check
+   `systemctl cat to-buildbot-worker | grep User=`).
+2. Create a dedicated venv and install Robot + the project deps:
+
+   ```bash
+   python3 -m venv /opt/robot-venv
+   /opt/robot-venv/bin/pip install --upgrade pip
+   /opt/robot-venv/bin/pip install robotframework \
+       robotframework-seleniumlibrary    # + whatever the project imports
+   /opt/robot-venv/bin/python -m robot --version
+   # expect: Robot Framework 7.x
+   ```
+
+   On a Windows worker, in an elevated PowerShell:
+
+   ```powershell
+   py -3 -m venv C:\to\robot-venv
+   C:\to\robot-venv\Scripts\pip.exe install robotframework
+   C:\to\robot-venv\Scripts\python.exe -m robot --version
+   ```
+
+3. In the portal: **Admin → Infrastructure → Register a test
+   runtime**.
+4. **Runner type** = `Robot Framework (Python)`.
+5. **Name** — a label you will recognise in run dropdowns, e.g.
+   `robot-ci01`.
+6. **Execution location** = *On another machine* → pick your worker
+   in **Remote runner** (e.g. `ci-worker-01`).
+
+   ![Register a test runtime — remote runner picker](Screenshot-Doc/admin/runtime-new-remote.png)
+
+7. **Executable location** — the interpreter path *as it exists on
+   the worker*, e.g. `/opt/robot-venv/bin/python` or
+   `C:\to\robot-venv\Scripts\python.exe`. This is the Python binary,
+   **not** a `robot` script.
+8. **Working directory** — leave empty unless this runtime needs a
+   different workspace root than the worker default.
+9. **Concurrency** — how many Robot runs may execute in parallel on
+   this target (start with `1`).
+10. Apply. The runtime appears under its worker's runtime group on
+    the Infrastructure page.
+11. Click **Check runner readiness** on that runtime row — the
+    probe runs *on the worker, as the worker account*, and reports
+    the interpreter, Robot version, library imports, and workspace
+    writability. Everything green → done.
+
+#### 12.5.3 On an SSH target — step by step
+
+1. Log into the SSH host as the run user (the account you entered
+   as *SSH username* on the target — e.g. `to-runner`).
+2. Same install as 12.5.2 step 2 — a venv owned by (or readable
+   and executable by) the SSH account:
+
+   ```bash
+   python3 -m venv /opt/robot-venv          # or ~to-runner/robot-venv
+   /opt/robot-venv/bin/pip install robotframework robotframework-seleniumlibrary
+   /opt/robot-venv/bin/python -m robot --version
+   ```
+
+3. Portal: **Admin → Infrastructure → Register a test runtime** →
+   Runner type `Robot Framework (Python)`, name (e.g. `robot-ssh01`),
+   **On another machine** → pick the SSH target in **Remote runner**.
+4. **Executable location** = `/opt/robot-venv/bin/python` — the path
+   *on the SSH host*, exactly as `to-runner` would type it.
+5. Apply → **Check runner readiness**. The probe goes through the
+   real SSH/SFTP path — the same session the runs will use — so a
+   green check genuinely proves the route end to end.
+
+#### 12.5.4 What a run does with it
+
+When a user picks this runtime on a suite's **Run** form, the
+project is staged under `build/src` on the target and
+`python -m robot` runs there — `Reports/junit.xml` feeds the
+normal result pipeline; `output.xml`, `log.html`, `report.html`
+and the console log upload as artifacts. The run form's *Robot
+options* fields map to `--test`, `--include`, `--exclude`. If the
+readiness probe is green but a run fails at launch, read the run's
+log first — Robot exit codes 250+ mean the *invocation* was bad
+(suite path, option), not the tests (§6.7).
+
+### 12.6 Connect pytest — step by step (worker + SSH)
+
+The transport setup is identical to Robot (§12.5 preamble — worker
+or SSH target registered and healthy on Admin → Infrastructure).
+Only what you install and register differs.
+
+#### 12.6.1 What pytest needs on the target machine
+
+- Python 3.9+, recommended as a dedicated venv.
+- `pytest` installed in that interpreter, plus the test project's
+  dependencies (`pip install -r requirements.txt` of the project,
+  or your own list).
+- Optional: `pytest-xdist` — only needed if runs should use the
+  parallel `-n` option; without it parallel dispatch is refused.
+- Workspace writable by the execution account; network access from
+  the target to the system under test.
+
+#### 12.6.2 On a Buildbot worker — step by step
+
+1. On the worker host, as the worker service account:
+
+   ```bash
+   python3 -m venv /opt/pytest-venv
+   /opt/pytest-venv/bin/pip install --upgrade pip
+   /opt/pytest-venv/bin/pip install pytest pytest-xdist   # + project deps
+   /opt/pytest-venv/bin/python -m pytest --version
+   ```
+
+   Windows worker:
+
+   ```powershell
+   py -3 -m venv C:\to\pytest-venv
+   C:\to\pytest-venv\Scripts\pip.exe install pytest pytest-xdist
+   C:\to\pytest-venv\Scripts\python.exe -m pytest --version
+   ```
+
+2. Portal → **Admin → Infrastructure → Register a test runtime**.
+3. **Runner type** = `pytest (Python)`; **Name** e.g.
+   `pytest-ci01`; **On another machine** → your worker.
+4. **Executable location** = `/opt/pytest-venv/bin/python` (or the
+   Windows `Scripts\python.exe`) — the interpreter, again.
+5. Concurrency, then Apply → **Check runner readiness** (probes
+   interpreter, pytest version, xdist presence, workspace write).
+
+#### 12.6.3 On an SSH target — step by step
+
+1. As the SSH account on the target host:
+
+   ```bash
+   python3 -m venv /opt/pytest-venv
+   /opt/pytest-venv/bin/pip install pytest pytest-xdist
+   /opt/pytest-venv/bin/python -m pytest --version
+   ```
+
+2. **Register a test runtime** → `pytest (Python)` → **On another
+   machine** → pick the SSH target → **Executable location** =
+   `/opt/pytest-venv/bin/python` on *that* host → Apply →
+   **Check runner readiness** over SSH.
+
+#### 12.6.4 What a run does with it
+
+Runs invoke `python -m pytest --junitxml Reports/junit.xml -q`
+inside the staged project. The run form's *pytest options* map to
+`-k` (keyword expression, e.g. `checkout and not slow`) and `-m`
+(marker expression, e.g. `smoke`). Parallel mode maps to
+`-n=N` and needs xdist probed ok on the target (§6.8). A green
+readiness probe + a failed run = look at the run log: it is the
+test project or its `-k`/`-m` expression, not the plumbing.
+
+### 12.7 Connect Playwright — step by step (worker + SSH)
+
+Transport setup as in §12.5 preamble. Playwright is a **Node.js**
+runtime — the product never installs Node, the framework, or the
+browsers: you provision all three on the target first (§6.6).
+
+#### 12.7.1 What Playwright needs on the target machine
+
+- Node.js (LTS) with `npx` on the execution account's PATH — or
+  remember the full `npx` path for the runtime field.
+- The test project's dependencies — Playwright as a *project*
+  dependency is enough (`npm ci`/`npm install` inside the project
+  checkout, or a global install if you prefer); no agent needed.
+- The browsers: `npx playwright install --with-deps` once per host
+  (`--with-deps` pulls the system libraries — run it as the
+  execution account; on headless Linux hosts this is the step most
+  often missed).
+- Workspace writable by the execution account; the target must
+  reach the application under test.
+
+#### 12.7.2 On a Buildbot worker — step by step
+
+1. On the worker host, as the worker service account:
+
+   ```bash
+   node --version && npx --version        # Node 18+ / 20+ LTS
+   cd /path/to/webshop-tests              # the project's checkout/cache dir
+   npm ci                                  # or: npm install -D @playwright/test
+   npx playwright install --with-deps      # browsers + system deps
+   npx playwright --version
+   ```
+
+   Windows worker: same commands in PowerShell;
+   `npx playwright install` (no `--with-deps` needed on Windows).
+
+2. Portal → **Admin → Infrastructure → Register a test runtime**.
+3. **Runner type** = `Playwright Test (Node.js)`; **Name** e.g.
+   `pw-ci01`; **On another machine** → your worker.
+4. **Executable location** — the `npx` binary *on the worker*
+   (e.g. `/usr/bin/npx`, `C:\Program Files\nodejs\npx.cmd`); leave
+   empty to resolve `npx`/`npx.cmd` from the target's PATH.
+5. Apply → **Check runner readiness** — reports node/npx version,
+   detected Playwright version, browser launch, and (if you set an
+   application URL) whether the browser on the worker can actually
+   reach it. That last check is the one that catches
+   "worker is fine but the app is unreachable from there".
+
+#### 12.7.3 On an SSH target — step by step
+
+1. As the SSH account on the host:
+
+   ```bash
+   node --version && npx --version
+   cd /path/to/project-cache && npm ci
+   npx playwright install --with-deps
+   npx playwright --version
+   ```
+
+   Headless server + a non-root account: `--with-deps` needs sudo
+   for the system packages — run it once with sudo, browsers stay
+   usable for the account afterwards.
+
+2. **Register a test runtime** → `Playwright Test (Node.js)` →
+   **On another machine** → the SSH target → executable = the
+   host's `npx` path (empty = PATH lookup) → Apply →
+   **Check runner readiness** over SSH/SFTP.
+
+#### 12.7.4 What a run does with it
+
+Runs stage the project under `build/src` and invoke
+`npx playwright test --reporter=junit` — the run form's **Browser**
+field must be a Playwright value (`chromium`, `firefox`, `webkit`)
+or *framework default*; KRE-style entries like "Chrome (headless)"
+are rejected at dispatch as a config error, which is correct —
+pick a framework value. *Parallelism* → `parallel N` maps to
+`--workers=N`. JUnit + traces/screenshots/videos upload through
+the standard Reports pipeline (§6.6).
+
+### 12.8 Connect Cypress — step by step (worker + SSH)
+
+Transport setup as in §12.5 preamble. Cypress is the second
+Node.js runtime — same provisioning model as Playwright (§6.6),
+different browser set.
+
+#### 12.8.1 What Cypress needs on the target machine
+
+- Node.js (LTS) with `npx` on PATH.
+- Cypress as a project dependency (`npm ci` / `npm install -D
+  cypress`) — the Cypress binary cache (`~/.cache/Cypress`)
+  populated for the execution account (`npx cypress install` or
+  the first `npx cypress verify` does it).
+- Linux headless hosts: Cypress's system libraries (libgtk, xvfb
+  chain) — the documented distro package list, or the official
+  Cypress docker base image as reference.
+- A browser Cypress supports on that host: Chrome/Chromium,
+  Firefox, Edge, or Electron (bundled).
+- Workspace writable; the target must reach the app under test.
+
+#### 12.8.2 On a Buildbot worker — step by step
+
+1. On the worker host, as the worker service account:
+
+   ```bash
+   node --version && npx --version
+   cd /path/to/project-cache && npm ci
+   npx cypress verify          # downloads+verifies the Cypress binary
+   npx cypress version
+   ```
+
+2. **Admin → Infrastructure → Register a test runtime** →
+   `Cypress E2E (Node.js)` → name e.g. `cy-ci01` → **On another
+   machine** → your worker → executable = worker's `npx` path
+   (empty = PATH) → Apply → **Check runner readiness**.
+
+#### 12.8.3 On an SSH target — step by step
+
+1. As the SSH account: the same `node`/`npx`/`npm ci`/`npx cypress
+   verify` sequence on the SSH host.
+2. **Register a test runtime** → `Cypress E2E (Node.js)` → **On
+   another machine** → the SSH target → `npx` path on that host →
+   Apply → **Check runner readiness**.
+
+#### 12.8.4 What a run does with it
+
+Runs invoke `npx cypress run` inside the staged project with the
+JUnit reporter — per-spec `junit-[hash].xml` files so parallel
+specs never overwrite each other's reports. **Browser** must be a
+Cypress value (`chrome`, `firefox`, `edge`, `electron`,
+`chromium`) or *framework default*. Cypress runs headless on the
+target; videos and screenshots upload as artifacts on failure as
+the project configures them (§6.6).
 
 ## 13. Production deployment checklist
 
@@ -1182,8 +1888,10 @@ flags (one-time, at `install.sh`).
 | `buildbot_endpoint` | Portal → Buildbot REST URL (loopback) | `http://127.0.0.1:8010` | install-provisioned |
 | `buildbot_credential_ref` / `buildbot_username` | Credential reference (secret name) + API user — value lives in **Credentials**, not here | `buildbot-api` / `to-api` | install-provisioned |
 | `buildbot_pb_port` | Worker-facing PB port | `9989` | install-provisioned |
-| `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `false` | **Reporting** |
+| `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `true` | **Reporting** |
 | `logs_retention_days` / `logs_max_rows` | Operational-log pruning bounds | `30` / `20000` | **Reporting** / logs |
+| `logs_export_inline_max` / `logs_export_max_rows` / `logs_export_ttl_minutes` | CSV export: stream-vs-job threshold, hard cap (refused beyond), temp-file lifetime | `10000` / `250000` / `60` | **System** / logs |
+| `logs_json_enabled` / `logs_json_dir` / `logs_json_max_bytes` / `logs_json_max_files` / `logs_stdout_enabled` | Optional structured NDJSON output for external collectors — off until configured | `false` / `""` / `10485760` / `5` / `false` | env `TO_LOGS_JSON_*` / settings |
 | `git_export_repo` / `git_export_credential_ref` / `git_export_ref` | Optional evidence-export target repo + credential ref + branch | `""` / `""` / `main` | **Reporting** |
 
 Unknown keys are rejected (`KeyError`), upgrades never reset these,
@@ -1224,6 +1932,23 @@ worker host except its optional health port (disable with
 What a complete backup contains (§8.1), expanded into an end-to-end
 procedure. **[doc-env — executed: real backup → restored instance
 verified below]**
+
+### 16.0 Portal settings backup & restore (2.6)
+
+System → Backup & restore produces one encrypted
+`.tobackup` per backup — **settings only** (execution history/evidence
+stay with the instance). Administrator-only, recent re-authentication
+required, every action audited. The archive is AES-256-GCM with a
+scrypt-derived key from a user passphrase (min 12 chars, never stored or
+logged — unrecoverable if lost); the secret-store key travels inside the
+encrypted payload so restored credentials decrypt on the new host.
+Fresh installs restore via a one-time, local, time-limited setup token
+(`<instance>/.restore-setup-token`, 0600, 1 h) before setup completes —
+no unauthenticated network restore. Restores are staged
+(upload → validate → preview → confirm → apply → verify), atomic with
+automatic pre-restore safety backup, and revoke all restored sessions
+and API tokens. Full format, exclusions, restore matrix, and the
+clean-machine reinstall procedure: `docs/backup-restore.md`.
 
 ### 16.1 What to capture
 
@@ -1334,6 +2059,49 @@ Not implemented: automatic worker updates, auto-drain on version
 mismatch, re-dispatch of `UNKNOWN` executions — each is a manual,
 audited decision by design.
 
+### 18.1 Retry policy after worker loss
+
+When a worker connection drops mid-run, Buildbot resubmits the
+buildrequest automatically — TestOrchestrator does not allow an
+uncontrolled relaunch. Before any retry build runs, the `prep` step:
+
+1. **Counts the attempt** in a per-execution ledger
+   (`.to_exec_attempt_<id>` in the builddir) and enforces the
+   configured policy — `retry_enabled` (default true) and
+   `max_attempts` (default 3, counting the original launch), settable
+   per run in `run_config`.
+2. **Resolves the prior attempt**: the recorded exec pid is checked
+   against `TO_EXEC_ID` in `/proc/<pid>/environ`. A matching orphan is
+   terminated and its death is **confirmed** (procfs gone) before the
+   build proceeds. A live pid whose marker mismatches or is
+   unreadable blocks the build — no relaunch while the original
+   attempt's liveness is unresolved.
+3. **Blocks** with `TO_RETRY_BLOCKED` (exit 70) on any violation:
+   the execution becomes `UNKNOWN`, keeps its reservations, and
+   appears on the **Reconciliation** queue — never a silent relaunch,
+   never a freed slot.
+
+**Warning — retries can repeat side effects.** Stopping an
+interrupted attempt cannot undo test actions it already performed
+(releases created, emails sent, records written, external systems
+mutated). A retried run may execute some or all of those actions
+again. For suites with non-idempotent side effects, set
+`retry_enabled: false` in the run configuration — an interrupted
+attempt then always lands on Reconciliation for a human decision
+rather than re-running automatically.
+
+**Windows workers never auto-relaunch.** Confirmed-termination of an
+orphaned prior attempt cannot be implemented safely on Windows (no
+`/proc` environ contract), so automatic retry is *disabled* there by
+policy — enforced twice: the exec spec forces
+`retry_enabled=false / max_attempts=1` regardless of run_config, and
+the Windows `prep` step (PowerShell attempt counter,
+`.to_exec_attempt_<id>`) exits 70 with `TO_RETRY_BLOCKED` on ANY
+attempt > 1. An interrupted Windows run therefore becomes `UNKNOWN`
+with reservations held — reconcile it in the portal; the interrupted
+process may need manual termination on the worker host. This is a
+deliberate fail-closed choice, not a missing feature.
+
 ## 19. Credential and certificate lifecycle
 
 | Secret | Lives | Replace/rotate | Restart needed |
@@ -1383,12 +2151,11 @@ execution's evidence export is a different, later operation.
 
 ## 20. Version and upgrade matrix
 
-2.5.1 is the initial public release — there are no earlier deployed
-versions to upgrade from.
-
 | Path | Platform | Evidence | Migrations | Notes |
 |---|---|---|---|---|
 | — → 2.5.1 | Linux | **[verified]** fresh install, same-version reruns, network listener apply/rollback | `db-upgrade` applies; idempotent | reruns preserve Buildbot credentials, `web.env` secrets, certs, and network settings |
+| 2.5.1 → 2.6.0 | Linux | **[verified]** representative upgrade — real 2.5.x data, `flask db upgrade` (the same path the installer's ExecStartPre runs): 7 migrations applied, all pre-existing data preserved | `runtime_kind`, `users.timezone`, resource/queue/CI-API columns created | `notified_at` backfill bug found and fixed during verification (`docs/acceptance-2.6.0.md`) |
+| 2.6.0 → 2.6.0 | Linux | **[verified]** same-version reinstall: stop units → rerun package; payload replaced, data/secrets/certs/units preserved | none | standard patch/refresh path |
 
 Rules for future upgrades: **back up `data/` first** (§16).
 Re-running the installer on the same directories performs the

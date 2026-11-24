@@ -18,7 +18,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Prevent path traversal in artifacts destined for the portal/Git.
-SAFE_KINDS = {"junit", "log", "screenshot", "video", "har", "html", "other"}
 DANGEROUS_MIMES = {"text/html", "image/svg+xml"}  # active content policy
 
 

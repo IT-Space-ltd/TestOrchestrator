@@ -34,11 +34,13 @@
               <li><a href="{{ url_for('system.infrastructure') }}">Workers &amp; runtimes</a></li>
               <li><a href="{{ url_for('system.integrations_page') }}">Infrastructure</a></li>
               <li><a href="{{ url_for('system.secrets') }}">Credentials</a></li>
-              <li><a href="{{ url_for('main.changelog') }}">Changelog</a></li>
-              <li><a href="{{ url_for('system.licence_admin') }}">Licence</a></li>
+              <li><a href="{{ url_for('portal.reconciliation') }}">Reconciliation</a></li>
               <li><a href="{{ url_for('main.audit') }}">Audit</a></li>
               <li><a href="{{ url_for('system.operational_logs') }}">Operational Logs</a></li>
+              <li><a href="{{ url_for('system.backup_page') }}">Backup &amp; restore</a></li>
               <li><a href="{{ url_for('main.notices') }}">Third-party notices &amp; licences</a></li>
+              <li><a href="{{ url_for('main.changelog') }}">Changelog</a></li>
+              <li><a href="{{ url_for('system.licence_admin') }}">Licence</a></li>
             </ul>
           </details>
         </li>
@@ -62,6 +64,7 @@
                 <option value="dark">Dark</option>
               </select>
             </li>
+            <a role="menuitem" href="{{ url_for('auth.account') }}" id="account-menu-item">My account</a>
             <a role="menuitem" href="{{ url_for('main.about') }}" id="about-menu-item">About</a>
           </li>
           <li role="none">
@@ -90,6 +93,7 @@
 </div>
 <script src="{{ url_for('static', filename='js/user-menu.js') }}" defer></script>
 <script src="{{ url_for('static', filename='js/about.js') }}" defer></script>
+<script src="{{ url_for('static', filename='js/ui-inline.js') }}" defer></script>
 {% endif %}
 </body>
 </html>

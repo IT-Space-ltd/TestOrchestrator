@@ -22,12 +22,12 @@ from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
 from ..execution import (DiscoveredItem, Execution, ExecutionState,
-                         ReleaseItem,
+                         ReleaseItem, RuntimeConnection,
                        GitBinding, OutboxEvent,
                          Outcome, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)
 from ..extensions import db
-from ..models import Role, record_audit
+from ..models import Role, User, record_audit
 from ..security import role_required
 from . import portal_bp
 from .. import results as results_mod
@@ -396,6 +396,8 @@ def project_detail(project_id):
                          kind='suite').all()],
         suite_form=suite_form, plain_form=PlainForm(),
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
+        users=(User.query.order_by(User.username).all()
+               if current_user.role.value == "admin" else []),
         executions=Execution.query.filter_by(project_id=project_id)
         .order_by(Execution.created_at.desc()).limit(25).all(),
         discovered=_discovery_summary(project_id),
@@ -406,27 +408,76 @@ def project_detail(project_id):
         bindings_nav=bindings_nav, test_cases=test_cases,
         test_suites=test_suites, test_colls=test_colls,
         suite_exec=suite_exec,
+        # Analytics tab content is only computed when that tab is
+        # requested — keeps ordinary project visits light.
+        **(_project_dashboard_ctx(project)
+           if request.args.get("tab") == "analytics" else {}),
     )
 
 
 # ---------- git bindings ----------
 
-@portal_bp.route("/projects/<project_id>/dashboard")
-@login_required
-def project_dashboard(project_id):
-    """Project reporting dashboard — trends, failures, drill-down.
-    Aggregation in project_dashboard.py; figures in charts.py."""
+@portal_bp.route("/projects/<project_id>/access")
+@role_required(Role.ADMIN)
+def project_access(project_id):
+    """Project → Settings → Access: this project's assigned users
+    with their roles — the inverse view of Users → Project access.
+    Both edit the SAME membership list (User.allowed_projects);
+    Administrator rows show 'through role', not a checkbox."""
+    project = _project_or_404(project_id)
+    users = User.query.order_by(User.username).all()
+    return render_template(
+        "portal/project_access.html", project=project, users=users,
+        plain_form=PlainForm())
+
+
+@portal_bp.route("/projects/<project_id>/access", methods=["POST"])
+@role_required(Role.ADMIN)
+def save_project_access(project_id):
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    wanted = {int(x) for x in request.form.getlist("user_ids")
+              if x.isdigit()}
+    changes = []
+    for u in User.query.filter(User.role != Role.ADMIN).all():
+        before = set(u.assigned_project_ids())
+        after = set(before)
+        if u.id in wanted:
+            after.add(project.id)
+        else:
+            after.discard(project.id)
+        if after != before:
+            u.set_assigned_projects(after)
+            changes.append(
+                f"{u.username}: {sorted(before)} -> {sorted(after)}")
+    if changes:
+        db.session.commit()
+        for c in changes:
+            record_audit(current_user.username,
+                         "user.project_access",
+                         f"{project.name}: {c}")
+        flash(f"Access updated ({len(changes)} change(s)).", "info")
+    else:
+        flash("No changes.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="access"))
+
+
+def _project_dashboard_ctx(project):
+    """Reporting+advanced analytics template context — shared by the
+    standalone dashboard page and the project-detail Analytics tab."""
     from ..charts import (outcome_trend, pass_rate_trend,
                           duration_trend, failure_breakdown)
     from ..project_dashboard import summary
-    project = _project_or_404(project_id)
     days = request.args.get("period", 30, type=int) or 30
     suite = request.args.get("suite", "")
     state = request.args.get("state", "")
     source_ref = request.args.get("source_ref", "")
     environment = request.args.get("environment", "")
+    from .. import usertz as _utz
     data = summary(project.id, days=days, suite=suite, state=state,
-                   source_ref=source_ref, environment=environment)
+                   source_ref=source_ref, environment=environment,
+                   tz=_utz.user_zone(current_user))
     # filter option sets for the controls (authorized project scope)
     refs = sorted({x for (x,) in db.session.query(Execution.source_ref)
                    .filter_by(project_id=project.id)
@@ -434,9 +485,8 @@ def project_dashboard(project_id):
     envs = sorted({x for (x,) in db.session.query(Execution.environment)
                    .filter_by(project_id=project.id)
                    if x})
-    return render_template(
-        "portal/project_dashboard.html",
-        project=project, data=data, days=days,
+    return dict(
+        data=data, days=days,
         fig_outcomes=outcome_trend(data["outcome_trend"]),
         fig_passrate=pass_rate_trend(data["pass_rate"]),
         fig_duration=duration_trend(data["durations"]),
@@ -444,7 +494,168 @@ def project_dashboard(project_id):
         suites=Suite.query.filter_by(project_id=project.id).all(),
         sel_suite=suite, sel_state=state,
         source_refs=refs, environments=envs,
-        sel_source_ref=source_ref, sel_environment=environment)
+        sel_source_ref=source_ref, sel_environment=environment,
+        adv=_proj_adv(project.id, request.args))
+
+
+@portal_bp.route("/projects/<project_id>/dashboard")
+@login_required
+def project_dashboard(project_id):
+    """Project reporting dashboard — trends, failures, drill-down.
+    Aggregation in project_dashboard.py; figures in charts.py.
+    The same content renders in the project-detail Analytics tab."""
+    project = _project_or_404(project_id)
+    return render_template(
+        "portal/project_dashboard.html",
+        project=project, **_project_dashboard_ctx(project))
+
+
+def _proj_adv(project_id: str, args):
+    """Advanced-analytics payload for the project dashboard (docs/
+    analytics-counting.md). Same filters as the page; JSON/CSV served
+    by /projects/<id>/analytics."""
+    from .. import analytics
+    from ..charts import (env_comparison, result_history,
+                          suite_duration_box, first_final_trend,
+                          duration_regression_bars, freshness_heatmap)
+    days = args.get("period", 30, type=int) or 30
+    env_metric = args.get("env_metric") or "case_pass_rate"
+    if env_metric not in ("case_pass_rate", "run_pass_rate",
+                          "median_duration"):
+        env_metric = "case_pass_rate"
+    reg_mode = args.get("reg_mode") or "seconds"
+    if reg_mode not in ("seconds", "percent"):
+        reg_mode = "seconds"
+    from .. import usertz as _utz
+    tz = _utz.user_zone(current_user)
+    data = analytics.project_analytics(
+        project_id, days,
+        suite=args.get("suite", ""),
+        state=args.get("state", ""),
+        source_ref=args.get("source_ref", ""),
+        environment=args.get("environment", ""), tz=tz)
+    return {
+        "data": data, "env_metric": env_metric, "reg_mode": reg_mode,
+        "fig_history": result_history(data["history"]),
+        "fig_durations": suite_duration_box(data["suite_durations"]),
+        "fig_env": env_comparison(
+            data["env_cells"], data["env_suites"], data["env_envs"],
+            env_metric),
+        "fig_first_final": first_final_trend(data["first_final"]),
+        "fig_regression": duration_regression_bars(
+            data["duration_regression"], reg_mode),
+        "fig_freshness": freshness_heatmap(
+            data["evidence_freshness"], data["freshness_suites"],
+            data["freshness_envs"]),
+    }
+
+
+@portal_bp.route("/projects/<project_id>/analytics")
+@login_required
+def project_analytics(project_id):
+    """Advanced-analytics JSON/CSV for the project dashboard —
+    project_allowed() enforced via _project_or_404 (same as page)."""
+    import csv
+    import io
+    from flask import jsonify
+    project = _project_or_404(project_id)
+    adv = _proj_adv(project.id, request.args)
+    if request.args.get("format") == "csv":
+        name = request.args.get("chart", "")
+        d = adv["data"]
+        hist_rows = []
+        for case in d["history"]["cases"]:
+            for run in d["history"]["runs"]:
+                c = d["history"]["cells"].get(case + "|" + run["id"])
+                hist_rows.append({
+                    "case": case, "run": run["label"],
+                    "execution_id": run["id"],
+                    "attempt": run["attempt"],
+                    "status": c["status"] if c else "",
+                    "duration_s": c["duration"] if c else ""})
+        dur_rows = [{"suite": s["suite"], "duration_s": v,
+                     "execution_id": eid}
+                    for s in d["suite_durations"]
+                    for v, eid in zip(s["durations"], s["executions"])]
+        env_rows = [
+            {"suite": c["suite"], "environment": c["env"],
+             "runs": c["runs"], "runs_passed": c["runs_passed"],
+             "run_pass_rate": c["run_pass_rate"],
+             "case_pass_rate": c["case_pass_rate"],
+             "case_total": c["case_total"],
+             "median_duration_s": c["median_duration"]}
+            for c in d["env_cells"]]
+        reg_rows = [
+            {"suite": r["suite"],
+             "current_median_s": r["current_median_s"],
+             "baseline_median_s": r["baseline_median_s"],
+             "current_n": r["current_n"],
+             "baseline_n": r["baseline_n"],
+             "delta_s": r["delta_s"], "delta_pct": r["delta_pct"],
+             "insufficient": r["insufficient"]}
+            for r in d["duration_regression"]]
+        fresh_rows = [
+            {"suite": r["suite"], "environment": r["env"],
+             "state": r["state"], "age_s": r["age_s"],
+             "last_execution_id": r["last_execution_id"],
+             "last_finished_at_utc": r["last_finished_at"],
+             "last_finished_at_local": r["last_finished_at_local"],
+             "outcome": r["outcome"],
+             "beyond_window": r["beyond_window"]}
+            for r in d["evidence_freshness"]]
+        rows_map = {
+            "history": (["case", "run", "execution_id", "attempt",
+                         "status", "duration_s"], hist_rows),
+            "suite_durations": (["suite", "duration_s",
+                                 "execution_id"], dur_rows),
+            "environment": (["suite", "environment", "runs",
+                             "runs_passed", "run_pass_rate",
+                             "case_pass_rate", "case_total",
+                             "median_duration_s"], env_rows),
+            "first_final": (["day", "total", "first_passed",
+                             "final_passed", "retried", "excluded"],
+                            d["first_final"]),
+            "duration_regression": (
+                ["suite", "current_median_s", "baseline_median_s",
+                 "current_n", "baseline_n", "delta_s", "delta_pct",
+                 "insufficient"], reg_rows),
+            "evidence_freshness": (
+                ["suite", "environment", "state", "age_s",
+                 "last_execution_id", "last_finished_at_utc",
+                 "last_finished_at_local", "outcome",
+                 "beyond_window"], fresh_rows),
+        }
+        if name not in rows_map:
+            return jsonify({"error": "unknown chart"}), 404
+        header, rows = rows_map[name]
+        zone = d.get("timezone", "UTC")
+        buf = io.StringIO()
+        w = csv.DictWriter(buf, fieldnames=header + ["tz"],
+                           extrasaction="ignore")
+        w.writeheader()
+        for r in rows:
+            w.writerow({**r, "tz": zone})
+        return Response(buf.getvalue(), mimetype="text/csv",
+                        headers={"Content-Disposition":
+                                 f"attachment; filename={name}.csv"})
+    return jsonify({"generated_at": adv["data"]["generated_at"],
+                    "generated_at_local":
+                        adv["data"]["generated_at_local"],
+                    "timezone": adv["data"]["timezone"],
+                    "period_days": adv["data"]["period_days"],
+                    "tables": adv["data"],
+                    "charts": {"history": json.loads(adv["fig_history"]),
+                               "durations": json.loads(
+                                   adv["fig_durations"]),
+                               "env": json.loads(adv["fig_env"]),
+                               "first_final": json.loads(
+                                   adv["fig_first_final"]),
+                               "regression": json.loads(
+                                   adv["fig_regression"]),
+                               "freshness": json.loads(
+                                   adv["fig_freshness"])},
+                    "env_metric": adv["env_metric"],
+                    "reg_mode": adv["reg_mode"]})
 
 
 @portal_bp.route("/projects/<project_id>/bindings", methods=["POST"])
@@ -697,6 +908,83 @@ def suite_detail(suite_id):
         workers=runners, runtimes=runtimes)
 
 
+def _history_matrix(exs):
+    """Case × execution matrix from a chronological execution list —
+    rows keyed by case_ref (source identity, not display name)."""
+    from ..execution import TestResult
+    ids = [e.id for e in exs]
+    rows = (TestResult.query.filter(TestResult.execution_id.in_(ids))
+            .all() if ids else [])
+    cases = {}
+    for r in rows:
+        cell = cases.get(r.case_ref)
+        if cell is None:
+            cell = cases[r.case_ref] = {
+                "ref": r.case_ref, "name": r.case_name or r.case_ref,
+                "cells": {}, "statuses": set(), "unresolved": False}
+        cell["cells"][r.execution_id] = r.status.value
+        cell["statuses"].add(r.status.value)
+        cell["unresolved"] = cell["unresolved"] or r.unresolved
+    for c in cases.values():
+        c["flaky"] = "passed" in c["statuses"] and \
+            len(c["statuses"] - {"skipped"}) > 1
+        c["always_failing"] = bool(c["statuses"]) and \
+            c["statuses"] <= {"failed", "error"}
+    return sorted(cases.values(),
+                  key=lambda c: (not c["flaky"],
+                                 not c["always_failing"],
+                                 c["name"].lower()))
+
+
+_TERMINAL_FOR_MATRIX = [ExecutionState.COMPLETED,
+                        ExecutionState.FAILED,
+                        ExecutionState.CANCELED]
+
+
+@portal_bp.route("/suites/<suite_id>/matrix")
+@login_required
+def suite_matrix(suite_id):
+    """Case × execution history matrix (§8). A flake shows as a mixed
+    row, a persistent regression as a uniformly-failing one. Skips
+    stay visible as skips; unresolved rows are marked, not guessed."""
+    suite = db.session.get(Suite, suite_id)
+    if suite is None:
+        abort(404)
+    _project_or_404(suite.project_id)
+    exs = (Execution.query.filter(
+        Execution.suite_id == suite_id,
+        Execution.state.in_(_TERMINAL_FOR_MATRIX))
+        .order_by(Execution.created_at.desc(), Execution.id.desc())
+        .limit(15).all())
+    exs = [e for e in reversed(exs)
+           if current_user.project_allowed(e.project_id or "")]
+    return render_template(
+        "portal/suite_matrix.html", suite=suite, item=None,
+        executions=exs, cases=_history_matrix(exs))
+
+
+@portal_bp.route("/discovered/<item_id>/matrix")
+@login_required
+def discovered_matrix(item_id):
+    """Same matrix for a repository-discovered suite/collection —
+    its own run history (flake + regression view)."""
+    from ..execution import DiscoveredItem
+    item = db.session.get(DiscoveredItem, item_id)
+    if item is None:
+        abort(404)
+    _project_or_404(item.project_id)
+    exs = (Execution.query.filter(
+        Execution.source_item_id == item_id,
+        Execution.state.in_(_TERMINAL_FOR_MATRIX))
+        .order_by(Execution.created_at.desc(), Execution.id.desc())
+        .limit(15).all())
+    exs = [e for e in reversed(exs)
+           if current_user.project_allowed(e.project_id or "")]
+    return render_template(
+        "portal/suite_matrix.html", suite=None, item=item,
+        executions=exs, cases=_history_matrix(exs))
+
+
 # ---------- executions ----------
 
 @portal_bp.route("/discovered/<item_id>")
@@ -747,12 +1035,31 @@ def run_discovered(item_id):
     binding = db.session.get(GitBinding, item.binding_id)
     run_config = {
         "profile": request.form.get("execution_profile") or "default",
+        "browser": request.form.get("browser_type", "").strip(),
         "runner_id": request.form.get("runner_id", "").strip(),
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "timeout_seconds":
             int(request.form.get("timeout_seconds") or 0),
+        "queue_timeout_seconds":
+            int(request.form.get("queue_timeout_seconds") or 0),
+        "parallel":
+            min(max(int(request.form.get("parallel") or 0), 0), 64),
+        "parallel_mode": request.form.get("parallel_mode", "").strip(),
+        "shard_index": int(request.form.get("shard_index") or 0),
+        "shard_total": int(request.form.get("shard_total") or 0),
         "suite_path": item.path,
+        "robot_test": request.form.get("robot_test", "").strip(),
+        "robot_include": request.form.get("robot_include", "").strip(),
+        "robot_exclude": request.form.get("robot_exclude", "").strip(),
+        "pytest_keyword": request.form.get("pytest_keyword", "").strip(),
+        "pytest_markers": request.form.get("pytest_markers", "").strip(),
         "collection": item.kind == "collection",
+        # Checkbox contract: hidden "0" + checkbox "on". Absent key
+        # (non-form clients) = default enabled; present without "on"
+        # = explicitly disabled.
+        "retry_enabled": ("retry_enabled" not in request.form) or
+            ("on" in request.form.getlist("retry_enabled")),
+        "max_attempts": int(request.form.get("max_attempts") or 3),
     }
     try:
         ex = dispatch.create_execution(
@@ -768,6 +1075,81 @@ def run_discovered(item_id):
     flash(f"Execution {ex.id[:8]} queued for "
           f"{item.kind} {item.path!r}.", "info")
     return redirect(url_for("portal.execution_detail", execution_id=ex.id))
+
+
+@portal_bp.route("/discovered/<item_id>/partition", methods=["POST"])
+@role_required(*RUN_ROLES)
+def partition_discovered(item_id):
+    """Preview or submit a partitioned unit run.
+
+    mode=preview resolves the manifest and renders the assignment;
+    mode=run freezes it into the unit children and queues them. The
+    preview is advisory — the run re-resolves and re-validates
+    everything server-side."""
+    from ..execution import DiscoveredItem
+    item = db.session.get(DiscoveredItem, item_id)
+    if item is None or item.kind not in ("suite", "collection"):
+        abort(404)
+    _project_or_404(item.project_id)
+    PlainForm().validate_on_submit()
+    binding = db.session.get(GitBinding, item.binding_id)
+    rt = db.session.get(RuntimeConnection,
+                        request.form.get("runtime_id", "").strip())
+    if rt is None or not rt.enabled:
+        flash("Select a runtime for the partition run.", "error")
+        return redirect(url_for("portal.discovered_detail",
+                                item_id=item.id))
+    kind = rt.runtime_kind or "kre"
+    try:
+        n = int(request.form.get("unit_count") or 0)
+        run_config = {
+            "runtime_id": rt.id,
+            "runner_id": request.form.get("runner_id", "").strip(),
+            "browser": request.form.get("browser_type", "").strip(),
+            "timeout_seconds":
+                int(request.form.get("timeout_seconds") or 0),
+            "queue_timeout_seconds":
+                int(request.form.get("queue_timeout_seconds") or 0),
+            "suite_path": item.path,
+            "collection": item.kind == "collection",
+        }
+        if kind == "cypress":
+            specs = dispatch.discover_cypress_specs(
+                binding, sha=binding.last_synced_sha or "",
+                spec_pattern=request.form.get("spec_pattern", ""),
+                exclude_pattern=request.form.get("exclude_pattern", ""),
+                selection=[x for x in request.form.get(
+                    "selected_specs", "").splitlines() if x.strip()])
+            units = dispatch.partition_units(specs, n, "spec group",
+                                             "specs")
+        elif kind == "playwright":
+            units = dispatch.playwright_shard_units(n)
+        else:
+            raise dispatch.DispatchError(
+                f"partitioned runs support playwright and cypress "
+                f"runtimes (got {kind!r})")
+        if request.form.get("mode") == "preview":
+            return render_template(
+                "portal/partition_preview.html", item=item,
+                units=units, runtime=rt, form=request.form,
+                plain_form=PlainForm())
+        run_config.update({
+            "release_id": request.form.get("release_id") or None})
+        parent, exs = dispatch.create_unit_run(
+            current_user.username, units, binding=binding,
+            release_id=(request.form.get("release_id") or None),
+            source_sha=binding.last_synced_sha if binding else "",
+            run_config=run_config, source_item=item)
+    except dispatch.DispatchError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("portal.discovered_detail",
+                                item_id=item.id))
+    record_audit(current_user.username, "execution.unit_run_queued",
+                 parent.id)
+    flash(f"Unit run {parent.id[:8]} queued — {len(exs)} units "
+          f"dispatch independently through capacity.", "info")
+    return redirect(url_for("portal.execution_detail",
+                            execution_id=parent.id))
 
 
 @portal_bp.route("/executions/<execution_id>/delete",
@@ -1043,9 +1425,12 @@ def executions():
     q = Execution.query
     # visibility scoping at the QUERY level (not post-page filtering) —
     # the page count and totals stay accurate for scoped users.
-    allowed_projects = json.loads(current_user.allowed_projects or "[]")
-    if allowed_projects:
-        q = q.filter(Execution.project_id.in_(allowed_projects))
+    # Non-admins see ONLY their assigned projects — an empty
+    # membership list correctly yields an empty list, not 'all'.
+    member_ids = None
+    if current_user.role != Role.ADMIN:
+        member_ids = current_user.assigned_project_ids()
+        q = q.filter(Execution.project_id.in_(member_ids))
     args = request.args
     if args.get("q", "").strip():
         q = q.filter(Execution.id.startswith(args["q"].strip()[:32]))
@@ -1066,25 +1451,102 @@ def executions():
         q = q.filter(Execution.runner_id == args["runner_id"])
     if args.get("schedule_id", ""):
         q = q.filter(Execution.schedule_id == args["schedule_id"])
+    if args.get("suite_id", ""):
+        q = q.filter(Execution.suite_id == args["suite_id"])
+    if args.get("environment", ""):
+        env = args["environment"]
+        q = q.filter(Execution.environment.is_(None)
+                     if env == "__none__" else
+                     Execution.environment == env)
+    if args.get("role", "") in ("parent", "unit"):
+        q = q.filter(Execution.role == args["role"])
+    elif args.get("role", "") == "dispatch":
+        # dispatchable attempts — every role that owns a process
+        q = q.filter(Execution.role.in_(("", "unit")))
+    if args.get("final", "") == "1":
+        # Exact drill-through: only the final resolved attempt of each
+        # logical run (retry chains resolved via analytics — the same
+        # semantics the advanced-analytics cells count). Chains resolve
+        # over the user's whole visible scope, not just this page.
+        from .. import analytics as _an
+        scope = Execution.query
+        if member_ids is not None:
+            scope = scope.filter(
+                Execution.project_id.in_(member_ids))
+        runs = _an.resolve_logical_runs(scope.limit(50000).all())
+        final_ids = [r["final"].id for r in runs if r["final"]]
+        q = q.filter(Execution.id.in_(final_ids))
+    activity_mode = (args.get("activity") in ("submitted", "started")
+                     and args.get("dow") is not None
+                     and args.get("hour") is not None)
+    if activity_mode:
+        # Exact drill-through for the activity heatmap: logical runs
+        # whose submitted time (head created_at) or first-execution
+        # start (earliest member started_at) falls in this UTC
+        # weekday×hour bucket, inside the chart's period window
+        # (from_date/to_date bound the BUCKET timestamp here, not the
+        # row's created_at, so the listed cohort equals the count).
+        # Retries/units never inflate — the run's resolved attempt (or
+        # head when unresolved) is shown.
+        from .. import analytics as _an
+        dow, hour = int(args["dow"]), int(args["hour"])
+        scope = Execution.query
+        if member_ids is not None:
+            scope = scope.filter(
+                Execution.project_id.in_(member_ids))
+        mode = args["activity"]
+        # from_date/to_date are LOCAL-day bounds in the viewer's zone;
+        # bucket weekday/hour are also local — consistent with the
+        # heatmap cells that generated this URL.
+        from .. import usertz as _utz
+        _tzv = _utz.user_zone(current_user)
+        try:
+            lo, hi = _utz.local_day_bounds(
+                args.get("from_date") or None,
+                args.get("to_date") or None, _tzv)
+        except ValueError:
+            lo = hi = None
+        ids = []
+        for r in _an.resolve_logical_runs(scope.limit(50000).all()):
+            if mode == "submitted":
+                t = r["head"].created_at
+            else:
+                t = min((m.started_at for m in r["members"]
+                         if m.started_at), default=None)
+            if t is None:
+                continue
+            if t.tzinfo is None:
+                from datetime import timezone as _tz
+                t = t.replace(tzinfo=_tz.utc)
+            if (lo and t < lo) or (hi and t >= hi):
+                continue
+            lt = t.astimezone(_tzv)
+            if lt.weekday() == dow and lt.hour == hour:
+                ids.append((r["final"] or r["head"]).id)
+        q = q.filter(Execution.id.in_(ids))
     if args.get("origin", "") in ("live", "imported"):
         q = q.filter(Execution.origin == args["origin"])
     if args.get("framework", ""):
         q = q.filter(Execution.framework == args["framework"])
-    if args.get("from_date", ""):
+    if not activity_mode and (args.get("from_date")
+                              or args.get("to_date")):
+        # Date filters are the viewer's local calendar days — the
+        # entered bounds convert to UTC instants before querying
+        # (a local "today" is not the UTC day boundary).
+        from .. import usertz as _utz
         try:
-            q = q.filter(Execution.created_at >=
-                         datetime.strptime(args["from_date"],
-                                           "%Y-%m-%d"))
+            _lo, _hi = _utz.local_day_bounds(
+                args.get("from_date") or None,
+                args.get("to_date") or None,
+                _utz.user_zone(current_user))
         except ValueError:
-            pass
-    if args.get("to_date", ""):
-        try:
-            q = q.filter(Execution.created_at <
-                         datetime.strptime(args["to_date"],
-                                           "%Y-%m-%d")
-                         + timedelta(days=1))
-        except ValueError:
-            pass
+            _lo = _hi = None
+        if _lo is not None:
+            q = q.filter(Execution.created_at
+                         >= _lo.replace(tzinfo=None))
+        if _hi is not None:
+            q = q.filter(Execution.created_at
+                         < _hi.replace(tzinfo=None))
     page = max(1, int(args.get("page", 1) or 1))
     per = 50
     total = q.count()
@@ -1102,14 +1564,113 @@ def executions():
         states=[s.value for s in ExecutionState],
         outcomes=[o.value for o in Outcome],
         frameworks=sorted({e.framework for e in
-                           Execution.query.with_entities(
+                           q.with_entities(
                                Execution.framework).distinct()}),
-        projects=Project.query.order_by(Project.name).all(),
+        projects=[p for p in
+                  Project.query.order_by(Project.name).all()
+                  if current_user.project_allowed(p.id)],
         runners=_R.query.order_by(_R.name).all(),
-        schedules=Schedule.query.order_by(Schedule.name).all(),
+        suites=[s for s in Suite.query.order_by(Suite.name).all()
+                if current_user.project_allowed(s.project_id)],
+        environments=sorted({e for (e,) in
+                             q.with_entities(
+                                 Execution.environment).distinct()
+                             if e}),
+        schedules=[s for s in
+                   Schedule.query.order_by(Schedule.name).all()
+                   if current_user.project_allowed(s.project_id)],
         plain_form=PlainForm(),
         can_run=current_user.role.value in
         ("admin", "test_manager", "tester"))
+
+
+@portal_bp.route("/reconciliation")
+@role_required(Role.ADMIN, Role.TEST_MANAGER)
+def reconciliation():
+    """Ambiguous-execution queue (§7/A06).
+
+    Every row here either holds runner capacity in an uncertain state
+    or needs operator attention before its resources can be trusted:
+
+    - UNKNOWN — original process may still be alive; slot+procs stay
+      charged until an admin confirms it stopped (resolve on detail).
+    - CANCEL_REQUESTED — cancel in flight; may be racing a submission
+      with no persisted Buildbot id (must NOT be force-resolved).
+    - non-terminal with an expired lease — inside the ambiguity window
+      before the lease sweep marks them UNKNOWN.
+
+    Each row shows the capacity it holds (bb slot + open reservations)
+    and how stale its heartbeat/lease is — never a silent stall."""
+    from ..execution import ResourceReservation, Runner
+    now = utcnow()
+
+    from datetime import timezone as _tz
+
+    def _aware(dt):
+        # SQLite returns tz-naive datetimes; treat them as UTC before
+        # comparing against the tz-aware `now`.
+        return dt if dt is None or dt.tzinfo else dt.replace(tzinfo=_tz.utc)
+    now_sql = now.replace(tzinfo=None)   # stored values are naive UTC
+    ambiguous = (Execution.query.filter(
+        Execution.state.in_([ExecutionState.UNKNOWN,
+                             ExecutionState.CANCEL_REQUESTED]))
+        .order_by(Execution.created_at).all())
+    expired_lease = (Execution.query.filter(
+        Execution.state.notin_([
+            ExecutionState.COMPLETED, ExecutionState.FAILED,
+            ExecutionState.CANCELED, ExecutionState.UNKNOWN,
+            ExecutionState.CANCEL_REQUESTED, ExecutionState.QUEUED]),
+        Execution.lease_expires_at.isnot(None),
+        Execution.lease_expires_at < now_sql).all())
+    rows = []
+    for ex in ambiguous + expired_lease:
+        if not current_user.project_allowed(ex.project_id or ""):
+            continue
+        resv = ResourceReservation.query.filter_by(
+            execution_id=ex.id, released_at=None).all()
+        runner = db.session.get(Runner, ex.runner_id) \
+            if ex.runner_id else None
+        rows.append({
+            "ex": ex, "runner": runner, "reservations": resv,
+            "lease_age_s": ((now - _aware(ex.lease_expires_at))
+                            .total_seconds()
+                            if ex.lease_expires_at
+                            and _aware(ex.lease_expires_at) < now else 0),
+            "heartbeat_age_s": ((now - _aware(ex.heartbeat_at))
+                                .total_seconds()
+                                if ex.heartbeat_at else None),
+        })
+    # Orphaned evidence dirs — top-level dirs under managed roots no
+    # Execution row owns (crashed confirms, deletion races). Listed
+    # only; removal is the explicit admin action below.
+    from .. import evidence
+    try:
+        orphan_dirs = [str(d) for d in evidence.find_orphans()]
+    except Exception:
+        orphan_dirs = []
+    return render_template("portal/reconciliation.html", rows=rows,
+                           orphan_dirs=orphan_dirs,
+                           plain_form=PlainForm())
+
+
+@portal_bp.route("/reconciliation/prune-orphans", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def prune_orphan_evidence():
+    """Remove orphaned evidence dirs — explicit admin action.
+    prune_orphans re-guards every path at delete time (managed-root
+    containment, no symlinks, no live references); it can only ever
+    touch application-owned roots."""
+    PlainForm().validate_on_submit()
+    from .. import evidence
+    res = evidence.prune_orphans(dry_run=False)
+    record_audit(current_user.username, "evidence.orphans_pruned",
+                 json.dumps({"removed": res["removed"]}))
+    if res["removed"]:
+        flash(f"Removed {len(res['removed'])} orphaned evidence "
+              f"dir(s).", "info")
+    else:
+        flash("No orphaned evidence dirs to remove.", "info")
+    return redirect(url_for("portal.reconciliation"))
 
 
 @portal_bp.route("/executions/bulk-cancel", methods=["POST"])
@@ -1511,8 +2072,7 @@ def run_release(release_id):
                                                  if src else "")}}),
             config_json=json.dumps({
                 "profile": request.form.get("profile", "default"),
-                "browser": request.form.get("browser",
-                                           "Chrome (headless)"),
+                "browser": request.form.get("browser", ""),
                 "runner_id": request.form.get("runner_id", ""),
                 "runtime_id": request.form.get("runtime_id", ""),
                 "timeout_seconds": 3600}),
@@ -1587,19 +2147,29 @@ def launch_execution(suite_id):
         kre_options["retry"] = min(3, retry_n)
     run_config = {
         "profile": request.form.get("execution_profile") or "default",
-        "browser": request.form.get("browser_type") or "Chrome (headless)",
+        "browser": request.form.get("browser_type", "").strip(),
         "remote_webdriver_url":
             request.form.get("remote_webdriver_url", "").strip(),
         "remote_webdriver_type":
             request.form.get("remote_webdriver_type", "").strip(),
         "timeout_seconds":
             int(request.form.get("timeout_seconds") or 0),
+        "queue_timeout_seconds":
+            int(request.form.get("queue_timeout_seconds") or 0),
+        "parallel":
+            min(max(int(request.form.get("parallel") or 0), 0), 64),
+        "parallel_mode": request.form.get("parallel_mode", "").strip(),
+        "shard_index": int(request.form.get("shard_index") or 0),
+        "shard_total": int(request.form.get("shard_total") or 0),
         # Explicit execution target ("" = auto). Re-validated at
         # dispatch — never falls back to another target.
         "runner_id": request.form.get("runner_id", "").strip(),
         "source_item": request.form.get("source_item", "").strip(),
         "runtime_id": request.form.get("runtime_id", "").strip(),
         "kre_options": kre_options,
+        "retry_enabled": ("retry_enabled" not in request.form) or
+            ("on" in request.form.getlist("retry_enabled")),
+        "max_attempts": int(request.form.get("max_attempts") or 3),
     }
     # Resolve the submitted discovered item SERVER-SIDE: kind comes
     # from the record — never trust a submitted type flag.
@@ -1636,11 +2206,25 @@ def execution_detail(execution_id):
         counts[r.status.value] = counts.get(r.status.value, 0) + 1
         unresolved += 1 if getattr(r, "unresolved", False) else 0
     from .. import settings as settings_mod
+    units = []
+    actual_concurrency = 0
+    if ex.role == "parent":
+        units = sorted(
+            Execution.query.filter_by(parent_id=ex.id).all(),
+            key=lambda e: e.unit_index or 0)
+        from ..execution import ExecutionState as _ES
+        active = (_ES.DISPATCHED, _ES.PREPARING, _ES.RUNNING,
+                  _ES.COLLECTING, _ES.NORMALIZING)
+        actual_concurrency = sum(
+            1 for u in units if u.state in active)
+    parent = (db.session.get(Execution, ex.parent_id)
+              if ex.parent_id else None)
     return render_template(
         "portal/execution_detail.html", ex=ex, counts=counts,
         plain_form=PlainForm(), can_edit=can_edit,
-        unresolved=unresolved,
-        rl_enabled=settings_mod.get("reportinglabs_enabled", False))
+        unresolved=unresolved, units=units, parent=parent,
+        actual_concurrency=actual_concurrency,
+        rl_enabled=settings_mod.get("reportinglabs_enabled", True))
 
 
 @portal_bp.route("/executions/<execution_id>/cancel", methods=["POST"])
@@ -2071,9 +2655,10 @@ def create_schedule(project_id):
             interval_minutes=interval if kind == "interval" else None,
             next_run_at=run_at, enabled=True,
             overlap_policy=form.overlap_policy.data or "allow",
+            misfire_policy=form.misfire_policy.data or "late",
             run_config_json=json.dumps({
                 "profile": form.execution_profile.data or "default",
-                "browser": form.browser_type.data or "Chrome (headless)",
+                "browser": form.browser_type.data or "",
                 "remote_webdriver_url":
                     (form.remote_webdriver_url.data or "").strip(),
                 "remote_webdriver_type":

@@ -17,13 +17,21 @@
   <input type="radio" name="ptabs" id="tab-schedexec" class="tab-input" {% if request.args.get("tab") in ("schedexec","schedules","executions") %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-inventory" class="tab-input" {% if request.args.get("tab")=="inventory" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-bindings" class="tab-input" {% if request.args.get("tab")=="bindings" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-access" class="tab-input" {% if request.args.get("tab")=="access" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-analytics" class="tab-input" {% if request.args.get("tab")=="analytics" %}checked{% endif %}>
   <nav class="tab-bar">
     <label for="tab-dash">Dashboard</label>
+    <a class="tsub tsub-analytics"
+       href="{{ url_for('portal.project_detail',
+                        project_id=project.id, tab='analytics') }}">Analytics</a>
     <label for="tab-releases">Releases</label>
     <label for="tab-test">Test</label>
     <label for="tab-schedexec">Schedules-Executions</label>
     <label for="tab-inventory">Inventory</label>
     <label for="tab-bindings">Git bindings</label>
+    {% if current_user.role.value == "admin" %}
+    <label for="tab-access">Access</label>
+    {% endif %}
   </nav>
 
 <!-- ============ PLANS ============ -->
@@ -69,7 +77,7 @@
     <tr><td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}">{{ e.target_path or (e.suite.name if e.suite else "—") }}</a></td>
       <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
       <td><code>{{ (e.source_sha or "—")[:12] }}</code></td>
-      <td>{{ (e.started_at|string)[:16] }}</td></tr>
+      <td>{{ e.started_at|localtime_short }}</td></tr>
     {% endfor %}
   </tbody></table>
   {% else %}<p class="muted">No executions yet.</p>{% endif %}
@@ -81,7 +89,7 @@
       · {{ discovered.binding.discovery_status }}{% endif %}</p>
   <div class="card release-overview">
     <div class="card-head"><h3>Releases</h3>
-      <a class="muted" href="#" onclick="document.getElementById('tab-releases').checked=true;return false">View all releases</a></div>
+      <a class="muted" href="#" data-check-radio="tab-releases">View all releases</a></div>
     <p class="muted">Current release state — not date-filtered.
       {{ active_releases|length }} active · {{ overdue_active|length }} overdue · {{ undated_active|length }} undated</p>
     {% if dated_active %}
@@ -166,8 +174,8 @@
               <code class="muted">{{ c.item.path }}</code>
               <span class="muted">· {{ c.repo }}</span></td>
             <td>—</td>
-            <td>{{ c.stats.last.strftime('%Y-%m-%d') if c.stats and c.stats.last else '—' }}</td>
-            <td>{{ c.item.created_at.strftime('%Y-%m-%d') if c.item.created_at else '—' }}</td>
+            <td>{{ c.stats.last|localdate if c.stats and c.stats.last else '—' }}</td>
+            <td>{{ c.item.created_at|localdate }}</td>
             <td>{{ c.stats.execs if c.stats else '—' }}</td>
             <td>{{ c.stats.avg_dur ~ 's' if c.stats and c.stats.avg_dur is not none else '—' }}</td>
             <td>{{ c.stats.flakiness ~ '%' if c.stats else '—' }}</td>
@@ -194,7 +202,7 @@
             <td><a href="{{ url_for('portal.discovered_detail', item_id=i.id) }}"><strong>{{ i.name }}</strong></a>
               {% if i.dynamic %}<span class="badge warn">dynamic</span>{% endif %}</td>
             <td><code class="muted">{{ i.path }}</code></td>
-            <td>{{ i.created_at.strftime('%Y-%m-%d') if i.created_at else '—' }}</td>
+            <td>{{ i.created_at|localdate }}</td>
             <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
             <td>{% if can_author and not i.dynamic %}
               <a class="button ghost sm" href="{{ url_for('portal.author_item', item_id=i.id) }}">Edit</a>{% endif %}</td>
@@ -212,7 +220,7 @@
         <tr><td><a href="{{ url_for('portal.suite_detail', suite_id=s.id) }}">{{ s.name }}</a> v{{ s.version }}</td>
             <td><code class="muted">app</code></td>
             <td>—</td>
-            <td>{{ se.ex.finished_at.strftime('%Y-%m-%d') if se and se.ex and se.ex.finished_at else '—' }}</td>
+            <td>{{ se.ex.finished_at|localdate if se and se.ex and se.ex.finished_at else '—' }}</td>
             <td>{% if se and se.ex %}<span class="st st-p">{{ se.cnt.passed }}</span>{% else %}—{% endif %}</td>
             <td>{% if se and se.ex %}<span class="st st-f">{{ se.cnt.failed }}</span>{% else %}—{% endif %}</td>
             <td>{% if se and se.ex %}<span class="st st-e">{{ se.cnt.error }}</span>{% else %}—{% endif %}</td>
@@ -234,7 +242,7 @@
           <tr>
             <td><a href="{{ url_for('portal.discovered_detail', item_id=i.id) }}"><strong>{{ i.name }}</strong></a></td>
             <td><code class="muted">{{ i.path }}</code></td>
-            <td>{{ i.created_at.strftime('%Y-%m-%d') if i.created_at else '—' }}</td>
+            <td>{{ i.created_at|localdate }}</td>
             <td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td>
             <td>{% if can_author %}
               <a class="button ghost sm" href="{{ url_for('portal.author_item', item_id=i.id) }}">Edit</a>{% endif %}</td>
@@ -264,13 +272,13 @@
           {% for x in s.targets() %}<span class="badge {{ x.kind }}">{{ x.kind }} · {{ x.path }}</span> {% endfor %}
         {% else %}{{ s.suite.name if s.suite else "(missing)" }}{% endif %}</td>
         <td>{{ s.kind }}{% if s.kind == "interval" %} ({{ s.interval_minutes }} min){% endif %}</td>
-        <td>{{ s.next_run_at or "—" }}</td>
+        <td>{{ s.next_run_at|localtime_short }}</td>
         <td>{{ "yes" if s.enabled else "no" }}{% if s.overlap_policy == "skip" %} <span class="badge">no-overlap</span>{% endif %}</td>
         {% if can_edit %}
         <td>
           {% if can_run and s.enabled %}
           <form method="post" action="{{ url_for('portal.run_schedule_now', schedule_id=s.id) }}" class="inline"
-                onsubmit="return confirm('Trigger this schedule now?');">
+                data-confirm="Trigger this schedule now?">
             {{ plain_form.csrf_token }}
             <input type="hidden" name="submit_token"
                    value="{{ s.id }}-{{ range(10**9,10**10)|random }}">
@@ -318,7 +326,11 @@
           runs through the configured profile/worker/runtime.</small></div>
       <div class="hidden-field">{{ schedule_form.target_id() }}</div>
       <div class="field">{{ schedule_form.kind.label }} {{ schedule_form.kind() }}</div>
-      <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}</div>
+      <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}
+        <small class="muted">Schedule execution zone is UTC — the
+          schedule fires at the entered UTC instant regardless of your
+          display preference ({{ TZ_NAME() }}); upcoming runs on this
+          page are shown in {{ TZ_NAME() }}.</small></div>
       <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes() }}</div>
       <div class="field">{{ schedule_form.execution_profile.label }} {{ schedule_form.execution_profile() }}</div>
       <div class="field">{{ schedule_form.browser_type.label }} {{ schedule_form.browser_type() }}</div>
@@ -459,7 +471,7 @@
         <td>{{ e.state.value }}</td><td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
         <td>{{ e.git_state.value }}</td>
         <td>{{ e.created_by }}</td>
-        <td>{{ e.started_at or "—" }}</td>
+        <td>{{ e.started_at|localtime_short }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -607,6 +619,20 @@
   </details>
   {% endif %}
 </section>
+
+{% if request.args.get("tab") == "analytics" %}
+<section class="tab-panel card" id="panel-analytics">
+  <h2>Analytics</h2>
+  {% include "portal/_project_analytics_body.html" %}
+</section>
+{% endif %}
+
+{% if current_user.role.value == "admin" %}
+<section class="tab-panel card" id="panel-access">
+  <h2>Access</h2>
+  {% include "portal/_project_access_panel.html" %}
+</section>
+{% endif %}
 
 </div>
 <script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>

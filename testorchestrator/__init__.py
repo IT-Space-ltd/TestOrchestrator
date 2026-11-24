@@ -96,6 +96,19 @@ def create_app(config_object=Config) -> Flask:
     app.jinja_env.filters["regex_replace"] = (
         lambda s, p, r: _re.sub(p, r, str(s)))
 
+    # Per-user display zone: event instants render in the signed-in
+    # user's saved IANA zone with a numeric offset (never a `Z`).
+    from . import usertz as _utz
+    app.jinja_env.filters["localtime"] = (
+        lambda dt: _utz.fmt_local(dt, _utz.request_tz()) or "—")
+    app.jinja_env.filters["localtime_short"] = (
+        lambda dt: _utz.fmt_local(dt, _utz.request_tz(),
+                                  seconds=False) or "—")
+    app.jinja_env.filters["localdate"] = (
+        lambda dt: _utz.fmt_local_date(dt, _utz.request_tz()) or "—")
+    app.jinja_env.globals["TZ_NAME"] = _utz.request_tz_name
+    app.jinja_env.globals["UTC_ISO"] = _utz.utc_iso
+
     app.wsgi_app = TrustedProxyFix(
         app.wsgi_app, app.config["TRUSTED_PROXY_IPS"]
     )
@@ -106,11 +119,14 @@ def create_app(config_object=Config) -> Flask:
     from .main import main_bp
     from .system import system_bp
     from .portal import portal_bp
+    from .api import api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
     app.register_blueprint(system_bp)
     app.register_blueprint(portal_bp)
+    app.register_blueprint(api_bp)
+    csrf.exempt(api_bp)
     from .system.setup_routes import setup_bp
     app.register_blueprint(setup_bp)
 
@@ -137,12 +153,40 @@ def create_app(config_object=Config) -> Flask:
 
     install_gates(app)
 
+    # Log-export temp files from a previous life: mark stale jobs and
+    # remove their files + orphaned .part fragments at startup, so a
+    # crashed writer never leaves protected exports lying around.
+    try:
+        with app.app_context():
+            from . import logexport
+            logexport.purge_expired()
+    except Exception:
+        pass  # pre-migration DBs — next request retries anyway
+
+    # Fresh-install restore token + staged-restore cleanup: the token is
+    # issued only while the system has no users (one-time, local file,
+    # time-limited); expired staged uploads are removed on boot so a
+    # restart cannot leave them behind.
+    try:
+        with app.app_context():
+            from . import backup as _backup
+            _backup.cleanup_staging(app)
+            _backup.ensure_setup_token(app)
+            # A crash mid-restore leaves the SQLite transaction rolled
+            # back by the DB itself — clearing the gate is always safe.
+            _backup._exit_maintenance(app)
+    except Exception:
+        pass
+
     # ---- licence status (informational only) ----
     # The application licence is NOT an enforcement gate: every route and
     # operation works regardless of licence state. The only visible effect
     # of an absent/invalid licence is the "This version is not supported"
     # notice rendered on the login page (auth/routes.py).
-    app.config.setdefault("MAX_CONTENT_LENGTH", 64 * 1024)
+    # Bounded upload ceiling — settings-restore .tobackup uploads are the
+    # only portal file upload; 8 MiB is far above any realistic settings
+    # payload (backup.py enforces its own tighter parse bounds).
+    app.config.setdefault("MAX_CONTENT_LENGTH", 8 * 1024 * 1024)
 
     @app.route("/licence")
     def licence_status_page():
@@ -405,6 +449,26 @@ def register_cli(app: Flask) -> None:
                 raise click.ClickException(
                     f"Buildbot health check failed: {exc}")
             click.echo(f"health: masters={info.get('masters')}")
+
+    @app.cli.command("diag")
+    @click.option("--root", default="",
+                  help="install root to compare payload tree against "
+                       "(default: cwd)")
+    def diag(root):
+        """Deployed-revision diagnostic: the exact code this process
+        imported vs the payload tree deploys write to. Catches the
+        stale-tree mismatch where a deployment is a no-op for the
+        running services — run this before recording acceptance
+        evidence."""
+        import json as _json
+        from . import deploy_info
+        info = deploy_info.diagnose(Path(root) if root else None)
+        click.echo(_json.dumps(info, indent=2))
+        if info["mismatch"]:
+            raise click.ClickException(
+                "deployed-revision mismatch — running code is NOT the "
+                "payload tree; sync both trees and restart before "
+                "recording evidence")
 
     @app.cli.command("network-rollback")
     def network_rollback():

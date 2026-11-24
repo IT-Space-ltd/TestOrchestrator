@@ -39,12 +39,18 @@ TERMINAL_STATES = (
     ExecutionState.CANCELED,
 )
 DEFAULT_PERIOD_DAYS = 14
-CHART_DAYS = 14
 MAX_DASHBOARD_PROJECTS = 50   # labelled preview; full list is /projects
 
 
-def _day_key(dt) -> str:
-    return dt.strftime("%Y-%m-%d") if dt else ""
+def _day_key(dt, tz=None) -> str:
+    """Local calendar-day key for the viewer (tz=None → UTC)."""
+    if not dt:
+        return ""
+    from .usertz import _aware_utc
+    aware = _aware_utc(dt)
+    if tz is not None:
+        aware = aware.astimezone(tz)
+    return aware.strftime("%Y-%m-%d")
 
 
 def _aware(dt):
@@ -53,6 +59,8 @@ def _aware(dt):
 
 
 def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
+    from . import usertz as _utz
+    tz = _utz.user_zone(user)
     now = utcnow()
     since = _aware(now - timedelta(days=period_days))
     now_n = _aware(now)
@@ -112,6 +120,9 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
             "description": p.description,
             "latest_finished_at":
                 term[0].finished_at.isoformat() if term else None,
+            "latest_finished_at_local":
+                _utz.fmt_local(term[0].finished_at, tz,
+                               seconds=False) if term else None,
             "latest_outcome": term[0].outcome.value if term else None,
             "active": len(act),
             "queued": sum(1 for e in act
@@ -122,6 +133,10 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
             "next_run_at": (sched_by_project[p.id][0].next_run_at
                             .isoformat()
                             if sched_by_project.get(p.id) else None),
+            "next_run_at_local":
+                (_utz.fmt_local(sched_by_project[p.id][0].next_run_at,
+                                tz, seconds=False)
+                 if sched_by_project.get(p.id) else None),
         })
 
     recent = sorted(
@@ -130,12 +145,12 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
         reverse=True)[:10]
 
     # Charts: per-day terminal counts for the selected period.
-    days = [(_day_key(now - timedelta(days=period_days - 1 - i)), 0, 0, 0)
+    days = [(_day_key(now - timedelta(days=period_days - 1 - i), tz), 0, 0, 0)
             for i in range(period_days)]
     idx = {d[0]: i for i, d in enumerate(days)}
     series = []
     for e in terminal_period:
-        k = _day_key(e.finished_at)
+        k = _day_key(e.finished_at, tz)
         if k in idx:
             days[idx[k]] = (
                 k,
@@ -150,7 +165,7 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
     dur = {}
     for e in terminal_period:
         if e.started_at and e.finished_at:
-            k = _day_key(e.finished_at)
+            k = _day_key(e.finished_at, tz)
             sec = (e.finished_at - e.started_at).total_seconds()
             dur.setdefault(k, []).append(sec)
     dur_series = [{"day": k, "seconds": round(sum(v)/len(v), 1)}
@@ -171,6 +186,8 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
 
     return {
         "generated_at": now.isoformat(),
+        "generated_at_local": _utz.fmt_local(now, tz),
+        "timezone": getattr(tz, "key", str(tz)),
         "period_days": period_days,
         "metrics": {
             "projects_total": len(projects),
@@ -188,6 +205,9 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
             "schedules_upcoming": len(upcoming),
             "next_schedule_at": (upcoming[0].next_run_at.isoformat()
                                  if upcoming else None),
+            "next_schedule_at_local":
+                (_utz.fmt_local(upcoming[0].next_run_at, tz)
+                 if upcoming else None),
         },
         "projects": rows[:MAX_DASHBOARD_PROJECTS],
         "projects_total_rows": len(rows),
@@ -200,8 +220,12 @@ def snapshot(user, period_days: int = DEFAULT_PERIOD_DAYS) -> dict:
             "outcome": e.outcome.value,
             "created_at": e.created_at.isoformat()
                           if e.created_at else None,
+            "created_at_local": _utz.fmt_local(e.created_at, tz,
+                                             seconds=False),
             "finished_at": e.finished_at.isoformat()
                            if e.finished_at else None,
+            "finished_at_local": _utz.fmt_local(e.finished_at, tz,
+                                              seconds=False),
             "created_by": e.created_by,
         } for e in recent],
         "chart_outcomes": series,

@@ -1,8 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Executions · TestOrchestrator{% endblock %}
+{% block content_class %}content-wide{% endblock %}
 {% block content %}
 <p><a class="button ghost sm" href="{{ url_for('portal.projects') }}">← Back to projects</a></p>
 <h1>Executions</h1>
+{% if current_user.is_admin or current_user.role.value == 'test_manager' %}
+<p><a class="button secondary sm" href="{{ url_for('portal.reconciliation') }}">Reconciliation queue</a>
+<span class="muted">— ambiguous executions holding runner capacity</span></p>
+{% endif %}
 
 <form method="get" class="filter-bar card">
   <div class="field"><label for="q">ID prefix</label>
@@ -29,10 +34,25 @@
       <option value="{{ o }}" {% if filters.get('outcome')==o %}selected{% endif %}>{{ o }}</option>
       {% endfor %}
     </select></div>
+  <div class="field"><label for="suite_id">Suite</label>
+    <select name="suite_id" id="suite_id">
+      <option value="">All suites</option>
+      {% for s in suites %}
+      <option value="{{ s.id }}" {% if filters.get('suite_id')==s.id %}selected{% endif %}>{{ s.name }}</option>
+      {% endfor %}
+    </select></div>
+  <div class="field"><label for="environment">Environment</label>
+    <select name="environment" id="environment">
+      <option value="">All</option>
+      <option value="__none__" {% if filters.get('environment')=='__none__' %}selected{% endif %}>(unset)</option>
+      {% for e in environments %}
+      <option value="{{ e }}" {% if filters.get('environment')==e %}selected{% endif %}>{{ e }}</option>
+      {% endfor %}
+    </select></div>
   <div class="field"><label for="runner_id">Worker</label>
     <select name="runner_id" id="runner_id">
       <option value="">All workers</option>
-      {% for r in workers %}
+      {% for r in runners %}
       <option value="{{ r.id }}" {% if filters.get('runner_id')==r.id %}selected{% endif %}>{{ r.name }}</option>
       {% endfor %}
     </select></div>
@@ -43,10 +63,10 @@
       <option value="{{ sc.id }}" {% if filters.get('schedule_id')==sc.id %}selected{% endif %}>{{ sc.name }}</option>
       {% endfor %}
     </select></div>
-  <div class="field"><label for="from_date">From</label>
+  <div class="field"><label for="from_date">From <small class="muted">({{ TZ_NAME() }})</small></label>
     <input type="date" name="from_date" id="from_date"
            value="{{ filters.get('from_date','') }}"></div>
-  <div class="field"><label for="to_date">To</label>
+  <div class="field"><label for="to_date">To <small class="muted">({{ TZ_NAME() }})</small></label>
     <input type="date" name="to_date" id="to_date"
            value="{{ filters.get('to_date','') }}"></div>
   <div class="field"><label for="origin">Origin</label>
@@ -70,7 +90,7 @@
 
 {% if executions %}
 <form method="post" action="{{ url_for('portal.bulk_cancel_executions') }}"
-      onsubmit="return confirm('Request cancellation for the selected executions?');">
+      data-confirm="Request cancellation for the selected executions?">
   {{ plain_form.csrf_token }}
   <input type="hidden" name="ret" value='{{ page_args|tojson|safe }}'>
 <table class="data-table">
@@ -92,11 +112,11 @@
         {% if e.origin == "imported" %}<span class="badge imported" title="imported from repository results">imported</span>{% endif %}</td>
       <td>{{ e.project.name if e.project }}</td>
       <td>{{ e.snapshot().get('suite_name', '') }}</td>
-      <td><span class="badge {{ e.state.value }}">{{ e.state.value }}</span></td>
+      <td><span class="badge {{ e.state.value }}"{% if e.wait_reason %} title="{{ e.wait_reason }}"{% endif %}>{{ e.state.value }}</span>{% if e.wait_reason %}<br><small class="muted">{{ e.wait_reason[:80] }}</small>{% endif %}</td>
       <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
       <td>{{ e.runner.name if e.runner else "—" }}</td>
       <td>{{ e.schedule.name if e.schedule else "—" }}</td>
-      <td>{{ (e.created_at|string)[:16] }}</td>
+      <td>{{ e.created_at|localtime_short }}</td>
       <td>{{ e.created_by }}</td>
     </tr>
     {% endfor %}

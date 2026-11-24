@@ -13,39 +13,71 @@
   {% endfor %}
 {% endwith %}
 <div class="card-grid">
-  <a class="card link-card" href="{{ url_for('system.network') }}">
-    <h2>Server &amp; security</h2>
-    <p class="muted">Reachable address, HTTPS certificate, and ports —
-    validated before apply.</p></a>
-  <a class="card link-card" href="{{ url_for('system.infrastructure') }}">
-    <h2>KRE installations &amp; execution machines</h2>
-    <p class="muted">Register local and remote KRE installations,
-    download the Windows worker installer, check status.</p></a>
-  <a class="card link-card" href="{{ url_for('system.secrets') }}">
-    <h2>Source control &amp; credentials</h2>
-    <p class="muted">Named secrets referenced by bindings and runtimes —
-    values never shown.</p></a>
-  <a class="card link-card" href="{{ url_for('system.reporting_page') }}">
-    <h2>Reports, storage &amp; retention</h2>
-    <p class="muted">Report generation (bundled JRE auto-detected),
-    publication, storage, retention.</p></a>
-  <a class="card link-card" href="{{ url_for('system.users') }}">
-    <h2>Users &amp; access</h2>
-    <p class="muted">Accounts, roles, activation.</p></a>
-  <a class="card link-card" href="{{ url_for('system.system_health') }}">
-    <h2>System health &amp; services</h2>
-    <p class="muted">Status of application services, guarded restart,
-    recovery guidance.</p></a>
+  <a class="card link-card hub" href="{{ url_for('system.network') }}">
+    <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3l7 3v5c0 4.5-3 8.5-7 10-4-1.5-7-5.5-7-10V6l7-3z"/><path d="M9 12l2 2 4-4"/>
+    </svg>
+    <span class="hub-text">
+      <h2>Server &amp; security</h2>
+      <p class="muted">Reachable address, HTTPS certificate, and ports —
+      validated before apply.</p></span></a>
+  <a class="card link-card hub" href="{{ url_for('system.infrastructure') }}">
+    <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01"/>
+    </svg>
+    <span class="hub-text">
+      <h2>KRE installations &amp; execution machines</h2>
+      <p class="muted">Register local and remote KRE installations,
+      download the Windows worker installer, check status.</p></span></a>
+  <a class="card link-card hub" href="{{ url_for('system.secrets') }}">
+    <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="8" cy="14" r="4"/><path d="M10.8 11.2L19 3m-3 3l2.5 2.5M15 8l2.5 2.5"/>
+    </svg>
+    <span class="hub-text">
+      <h2>Source control &amp; credentials</h2>
+      <p class="muted">Named secrets referenced by bindings and runtimes —
+      values never shown.</p></span></a>
+  <a class="card link-card hub" href="{{ url_for('system.reporting_page') }}">
+    <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 15v-3M12 15v-5M15 15v-2"/>
+    </svg>
+    <span class="hub-text">
+      <h2>Reports, storage &amp; retention</h2>
+      <p class="muted">Report generation (bundled JRE auto-detected),
+      publication, storage, retention.</p></span></a>
+  <a class="card link-card hub" href="{{ url_for('system.users') }}">
+    <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <circle cx="9" cy="8" r="3.5"/><path d="M3.5 20c.5-3.5 2.8-5.5 5.5-5.5s5 2 5.5 5.5"/><circle cx="17" cy="9" r="2.5"/><path d="M16.5 14.6c2.4.3 3.6 2 4 4.4"/>
+    </svg>
+    <span class="hub-text">
+      <h2>Users &amp; access</h2>
+      <p class="muted">Accounts, roles, activation.</p></span></a>
+  <a class="card link-card hub" href="{{ url_for('system.system_health') }}">
+    <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M3 12h4l2.5-6 4 12 2.5-6H21"/>
+    </svg>
+    <span class="hub-text">
+      <h2>System health &amp; services</h2>
+      <p class="muted">Status of application services, guarded restart,
+      recovery guidance.</p></span></a>
+  <details class="card adv-card">
+    <summary>
+      <svg class="card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M14.7 6.3a4.5 4.5 0 0 0-6 6L4 17l3 3 4.7-4.7a4.5 4.5 0 0 0 6-6l-2.6 2.6-2.5-.6-.6-2.5z"/>
+      </svg>
+      <span class="hub-text">
+        <h2>Advanced / diagnostics</h2>
+        <p class="muted">Component-level overrides, integrations, audit
+        &amp; notices.</p></span></summary>
+    <ul>
+      <li><a href="{{ url_for('system.integrations_page') }}">Integrations
+        (git export)</a> — orchestrator settings are managed
+        here; defaults are derived automatically.</li>
+      <li><a href="{{ url_for('main.audit') }}">Audit</a>,
+          <a href="{{ url_for('main.changelog') }}">Changelog</a>,
+          <a href="{{ url_for('main.notices') }}">Notices &amp;
+          licences</a></li>
+    </ul>
+  </details>
 </div>
-<details class="card"><summary class="muted">Advanced / diagnostics —
-  component-level overrides</summary>
-  <ul>
-    <li><a href="{{ url_for('system.integrations_page') }}">Integrations
-      (git export)</a> — orchestrator settings are managed
-      here; defaults are derived automatically.</li>
-    <li><a href="{{ url_for('main.audit') }}">Audit</a>,
-        <a href="{{ url_for('main.changelog') }}">Changelog</a>,
-        <a href="{{ url_for('main.notices') }}">Notices &amp; licences</a></li>
-  </ul>
-</details>
 {% endblock %}

@@ -212,4 +212,3 @@ def ensure_internal_worker_credentials(app) -> int:
     if adopted:
         db.session.commit()
     return adopted
-    return True

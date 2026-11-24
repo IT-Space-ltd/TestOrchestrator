@@ -215,6 +215,11 @@ def main():
     _stamp = tempfile.NamedTemporaryFile(
         "w", suffix=".json", delete=False, encoding="utf-8")
     json.dump(stamped, _stamp); _stamp.close()
+    # tempfile defaults to 0600; tar.add preserves it, and the
+    # installer's copy2 keeps it — leaving release.json unreadable by
+    # the service account on a root install (found by the VM install
+    # row). Public metadata: ship world-readable.
+    Path(_stamp.name).chmod(0o644)
     name = f"testorchestrator-{meta['version']}-{plat}" \
         + (f"-frozen-{commit}" if args.frozen else "")
     OUT.mkdir(exist_ok=True)

@@ -1,0 +1,719 @@
+"""Advanced-analytics aggregation — fixture-verified calculations,
+membership scoping, endpoint auth, and empty/sparse datasets
+(docs/analytics-counting.md)."""
+
+import json
+from datetime import timedelta
+
+from testorchestrator import analytics
+from testorchestrator.extensions import db
+from testorchestrator.execution import (CaseStatus, Execution,
+                                        ExecutionState, Outcome,
+                                        Project, Suite, TestResult,
+                                        utcnow)
+from testorchestrator.models import User
+from tests.conftest import login
+
+
+def _seed(name="P1"):
+    p = Project(name=name, description="d")
+    db.session.add(p)
+    db.session.flush()
+    s = Suite(project_id=p.id, name=f"{name}-suite")
+    db.session.add(s)
+    db.session.flush()
+    return p, s
+
+
+def _ex(p, s, state, outcome, days_ago=0, wait_s=60, run_s=120,
+        attempt=1, retry_of="", role="", env=None):
+    e = Execution(project_id=p.id, suite_id=s.id if s else None,
+                  state=state, outcome=outcome, created_by="t",
+                  role=role, environment=env)
+    e.snapshot_json = json.dumps(
+        {"suite_name": s.name if s else "",
+         "attempt": attempt, "retry_of": retry_of})
+    e.created_at = utcnow() - timedelta(days=days_ago,
+                                       seconds=wait_s + run_s)
+    e.started_at = e.created_at + timedelta(seconds=wait_s)
+    e.finished_at = e.started_at + timedelta(seconds=run_s)
+    db.session.add(e)
+    db.session.flush()
+    return e
+
+
+def _result(ex, name, status, ref="", duration=1.0):
+    r = TestResult(execution_id=ex.id, case_name=name,
+                   case_ref=ref or name, status=status,
+                   duration_s=duration)
+    db.session.add(r)
+    return r
+
+
+class _AllProjects:
+    def project_allowed(self, _):
+        return True
+
+
+class _NoProjects:
+    def project_allowed(self, _):
+        return False
+
+
+# ----------------------------------------------------------- resolution
+
+
+class TestLogicalRunResolution:
+    def test_retry_chain_resolves_to_final_attempt(self, app):
+        with app.app_context():
+            p, s = _seed()
+            head = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED,
+                       attempt=1)
+            retry = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                        attempt=2, retry_of=head.id)
+            db.session.commit()
+            runs = analytics.resolve_logical_runs(
+                Execution.query.all())
+            assert len(runs) == 1
+            assert runs[0]["head"].id == head.id
+            assert runs[0]["final"].id == retry.id
+            assert runs[0]["retries"] == 1
+
+    def test_units_never_count_as_logical_runs(self, app):
+        with app.app_context():
+            p, s = _seed()
+            parent = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                         role="parent")
+            u1 = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                     role="unit")
+            u1.parent_id = parent.id
+            u2 = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED,
+                     role="unit")
+            u2.parent_id = parent.id
+            db.session.commit()
+            runs = analytics.resolve_logical_runs(
+                Execution.query.all())
+            assert len(runs) == 1
+            assert runs[0]["head"].id == parent.id
+
+    def test_inflight_chain_resolves_to_last_terminal(self, app):
+        with app.app_context():
+            p, s = _seed()
+            head = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED)
+            r2 = _ex(p, s, ExecutionState.RUNNING, Outcome.NONE,
+                     attempt=2, retry_of=head.id)
+            r2.finished_at = None
+            db.session.commit()
+            runs = analytics.resolve_logical_runs(
+                Execution.query.all())
+            assert len(runs) == 1
+            assert runs[0]["final"].id == head.id
+
+
+# ------------------------------------------------------------- main agg
+
+
+class TestMainAnalytics:
+    def test_project_outcome_comparison_final_outcome(self, app):
+        with app.app_context():
+            p1, s1 = _seed("A")
+            p2, s2 = _seed("B")
+            _ex(p1, s1, ExecutionState.COMPLETED, Outcome.PASSED)
+            head = _ex(p1, s1, ExecutionState.COMPLETED,
+                       Outcome.FAILED)
+            _ex(p1, s1, ExecutionState.COMPLETED, Outcome.PASSED,
+                attempt=2, retry_of=head.id)   # chain → 1 passed run
+            _ex(p2, s2, ExecutionState.FAILED, Outcome.NONE)
+            db.session.commit()
+            d = analytics.main_analytics(_AllProjects(), 30)
+            rows = {r["project"]: r for r in d["project_outcomes"]}
+            assert rows["A"]["passed"] == 2
+            assert rows["A"]["failed"] == 0   # resolved, not counted
+            assert rows["B"]["none"] == 1
+
+    def test_first_vs_final_same_cohort(self, app):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            head = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED)
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                attempt=2, retry_of=head.id)
+            db.session.commit()
+            d = analytics.main_analytics(_AllProjects(), 30)
+            assert len(d["first_final"]) == 1
+            row = d["first_final"][0]
+            assert row["total"] == 2
+            assert row["first_passed"] == 1   # one head passed
+            assert row["final_passed"] == 2   # both resolve passed
+            assert row["retried"] == 1
+
+    def test_queue_wait_median_and_p95(self, app):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                wait_s=60)
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                wait_s=120)
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                wait_s=300)
+            db.session.commit()
+            d = analytics.main_analytics(_AllProjects(), 30)
+            assert len(d["queue_wait"]) == 1
+            row = d["queue_wait"][0]
+            assert row["n"] == 3
+            assert row["median"] == 120.0
+            assert row["p95"] == 300.0
+            assert d["turnaround"][0]["median"] == 240.0
+
+    def test_membership_empty_means_empty_not_all(self, app):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            db.session.commit()
+            d = analytics.main_analytics(_NoProjects(), 30)
+            assert d["project_outcomes"] == []
+            assert d["first_final"] == []
+            assert d["queue_wait"] == []
+
+
+# ---------------------------------------------------------- project agg
+
+
+class TestProjectAnalytics:
+    def test_history_cells_case_by_run(self, app):
+        with app.app_context():
+            p, s = _seed()
+            e1 = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                     days_ago=1)
+            e2 = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED)
+            _result(e1, "CaseA", CaseStatus.PASSED)
+            _result(e2, "CaseA", CaseStatus.FAILED)
+            _result(e2, "CaseB", CaseStatus.PASSED)
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30, suite=s.id)
+            h = d["history"]
+            assert len(h["runs"]) == 2
+            assert set(h["cases"]) == {"CaseA", "CaseB"}
+            assert h["cells"]["CaseA|" + e1.id]["status"] == "passed"
+            assert h["cells"]["CaseA|" + e2.id]["status"] == "failed"
+            assert "CaseB|" + e1.id not in h["cells"]  # absent, not skipped
+
+    def test_history_case_prefix_without_suite_filter(self, app):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            _result(e, "CaseA", CaseStatus.PASSED)
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30, suite="")
+            assert d["history"]["cases"] == [s.name + ":CaseA"]
+            d2 = analytics.project_analytics(p.id, 30, suite=s.id)
+            assert d2["history"]["cases"] == ["CaseA"]
+
+    def test_env_comparison_metrics(self, app):
+        with app.app_context():
+            p, s = _seed()
+            e1 = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                     env="linux", run_s=100)
+            e2 = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED,
+                     env="windows", run_s=300)
+            _result(e1, "A", CaseStatus.PASSED)
+            _result(e2, "A", CaseStatus.FAILED)
+            _result(e2, "B", CaseStatus.SKIPPED)   # excluded denominator
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            cells = {(c["suite"], c["env"]): c
+                     for c in d["env_cells"]}
+            lin = cells[(s.name, "linux")]
+            win = cells[(s.name, "windows")]
+            assert lin["run_pass_rate"] == 100.0
+            assert win["run_pass_rate"] == 0.0
+            assert lin["case_pass_rate"] == 100.0
+            assert win["case_pass_rate"] == 0.0  # skipped excluded
+            assert lin["median_duration"] == 100.0
+            assert win["median_duration"] == 300.0
+            assert "(unset)" not in d["env_envs"]
+
+    def test_unset_environment_labeled(self, app):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            _result(e, "A", CaseStatus.PASSED)
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            assert "(unset)" in d["env_envs"]
+
+    def test_suite_duration_logical_runs(self, app):
+        with app.app_context():
+            p, s = _seed()
+            parent = _ex(p, s, ExecutionState.COMPLETED,
+                         Outcome.PASSED, role="parent", run_s=400)
+            u = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    role="unit", run_s=100)
+            u.parent_id = parent.id
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            assert len(d["suite_durations"]) == 1
+            assert d["suite_durations"][0]["durations"] == [400.0]
+            # the unit shard is not a second sample
+            assert len(d["suite_durations"][0]["durations"]) == 1
+
+    def test_empty_dataset(self, app):
+        with app.app_context():
+            p, s = _seed()
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            assert d["history"]["cases"] == []
+            assert d["suite_durations"] == []
+            assert d["env_cells"] == []
+            m = analytics.main_analytics(_AllProjects(), 30)
+            assert m["project_outcomes"] == []
+
+
+# ------------------------------------------------------------- endpoints
+
+
+class TestAnalyticsEndpoints:
+    def test_main_analytics_json_and_csv(self, app, client):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            db.session.commit()
+        login(client, "admin")
+        r = client.get("/dashboard/analytics")
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["charts"]["comparison"]["data"]
+        assert payload["tables"]["project_outcomes"][0]["passed"] == 1
+        r = client.get("/dashboard/analytics?format=csv"
+                       "&chart=first_final")
+        assert r.status_code == 200
+        assert "text/csv" in r.content_type
+        assert b"first_passed" in r.data
+        r = client.get("/dashboard/analytics?format=csv&chart=bogus")
+        assert r.status_code == 404
+
+    def test_project_analytics_scoped_by_membership(self, app, client):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            _result(e, "A", CaseStatus.PASSED)
+            other = Project(name="Other")
+            db.session.add(other)
+            tester = User.query.filter_by(username="tester").first()
+            tester.set_assigned_projects([p.id])
+            pid, oid = p.id, other.id
+            db.session.commit()
+        login(client, "tester")
+        r = client.get(f"/projects/{pid}/analytics")
+        assert r.status_code == 200
+        assert r.get_json()["charts"]["history"]["data"]
+        # a project the tester is NOT a member of → not authorized
+        r = client.get(f"/projects/{oid}/analytics")
+        assert r.status_code in (403, 404)
+
+    def test_analytics_requires_login(self, app, client):
+        r = client.get("/dashboard/analytics")
+        assert r.status_code in (302, 401, 403)
+
+
+# -------------------------------------------------------- closeout (GA)
+
+
+class TestFilterConsistency:
+    """Each page filter narrows aggregation + CSV consistently."""
+
+    def test_suite_and_environment_filters(self, app):
+        with app.app_context():
+            p, s1 = _seed("P1")
+            s2 = Suite(project_id=p.id, name="P1-other")
+            db.session.add(s2)
+            db.session.flush()
+            e1 = _ex(p, s1, ExecutionState.COMPLETED, Outcome.PASSED,
+                     env="linux")
+            e2 = _ex(p, s2, ExecutionState.COMPLETED, Outcome.FAILED,
+                     env="windows")
+            _result(e1, "A", CaseStatus.PASSED)
+            _result(e2, "A", CaseStatus.FAILED)
+            db.session.commit()
+            base = analytics.project_analytics(p.id, 30)
+            assert len(base["history"]["runs"]) == 2
+            only_s1 = analytics.project_analytics(p.id, 30, suite=s1.id)
+            assert len(only_s1["history"]["runs"]) == 1
+            assert only_s1["history"]["runs"][0]["id"] == e1.id
+            assert len(only_s1["suite_durations"]) == 1
+            # env filter → single env column, no silent merge
+            only_lin = analytics.project_analytics(
+                p.id, 30, environment="linux")
+            assert only_lin["env_envs"] == ["linux"]
+            assert all(c["env"] == "linux"
+                       for c in only_lin["env_cells"])
+
+    def test_period_filter_window(self, app):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                days_ago=2)
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                days_ago=40)
+            db.session.commit()
+            assert len(analytics.project_analytics(
+                p.id, 7)["history"]["runs"]) == 1
+            assert len(analytics.project_analytics(
+                p.id, 90)["history"]["runs"]) == 2
+
+
+class TestDrillDownExactness:
+    """final=1 must return exactly the contributing resolved attempts."""
+
+    def test_final_filter_shows_only_resolved_attempts(self, app,
+                                                       client):
+        with app.app_context():
+            p, s = _seed()
+            head = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED)
+            retry = _ex(p, s, ExecutionState.COMPLETED,
+                        Outcome.PASSED, attempt=2, retry_of=head.id)
+            solo = _ex(p, s, ExecutionState.FAILED, Outcome.NONE)
+            pid, retry_id, head_id = p.id, retry.id, head.id
+            db.session.commit()
+        login(client, "admin")
+        r = client.get(f"/executions?project_id={pid}"
+                       f"&outcome=passed&final=1")
+        assert r.status_code == 200
+        body = r.get_data(as_text=True)
+        assert retry_id[:8] in body       # the resolved attempt
+        assert head_id[:8] not in body    # the superseded head is not
+        # role=dispatch excludes parents from the queue cohort
+        r = client.get("/executions?role=dispatch")
+        assert r.status_code == 200
+
+    def test_drill_url_carries_final_flag(self, app):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            db.session.commit()
+            from testorchestrator.charts import project_outcome_bars
+            d = analytics.main_analytics(_AllProjects(), 30)
+            fig = json.loads(project_outcome_bars(
+                d["project_outcomes"], "count"))
+            url = fig["data"][0]["customdata"][0]
+            assert "final=1" in url and f"project_id={p.id}" in url
+
+
+class TestRevocation:
+    def test_revoked_membership_denies_next_request(self, app, client):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            _result(e, "A", CaseStatus.PASSED)
+            pid = p.id
+            tester = User.query.filter_by(username="tester").first()
+            tester.set_assigned_projects([pid])
+            db.session.commit()
+        login(client, "tester")
+        assert client.get(f"/projects/{pid}/analytics").status_code \
+            == 200
+        with app.app_context():  # revoke while session stays alive
+            tester = User.query.filter_by(username="tester").first()
+            tester.set_assigned_projects([])
+            db.session.commit()
+        r = client.get(f"/projects/{pid}/analytics")
+        assert r.status_code in (403, 404)
+        # main analytics silently scopes out too — no stale data
+        r = client.get("/dashboard/analytics")
+        assert r.status_code == 200
+        assert r.get_json()["tables"]["project_outcomes"] == []
+
+
+# --------------------------------------------------------- Group B (GB)
+
+
+class TestActivityHeatmap:
+    """Day-of-week × hour activity — each logical run once; retries and
+    unit shards never inflate; never-started excluded from 'started'."""
+
+    def test_submitted_vs_started_dedup(self, app):
+        with app.app_context():
+            p, s = _seed()
+            head = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED)
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                attempt=2, retry_of=head.id)
+            parent = _ex(p, s, ExecutionState.COMPLETED,
+                         Outcome.PASSED, role="parent")
+            u = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    role="unit")
+            u.parent_id = parent.id
+            db.session.commit()
+            d = analytics.main_analytics(_AllProjects(), 30)
+            sub = sum(r["count"] for r in d["activity_submitted"])
+            st = sum(r["count"] for r in d["activity_started"])
+            # 2 logical runs (chain counts once; parent+unit counts once)
+            assert sub == 2 and st == 2
+            # started buckets keyed on the member's earliest start
+            for r in d["activity_started"]:
+                assert 0 <= r["dow"] <= 6 and 0 <= r["hour"] <= 23
+
+    def test_never_started_excluded_from_started(self, app):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.QUEUED, Outcome.NONE)
+            e.started_at = e.finished_at = None   # enqueued, never ran
+            db.session.commit()
+            d = analytics.main_analytics(_AllProjects(), 30)
+            assert sum(r["count"] for r in d["activity_submitted"]) == 1
+            assert sum(r["count"] for r in d["activity_started"]) == 0
+
+    def test_drilldown_exact_cohort(self, app, client):
+        with app.app_context():
+            p, s = _seed()
+            head = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED)
+            retry = _ex(p, s, ExecutionState.COMPLETED,
+                        Outcome.PASSED, attempt=2, retry_of=head.id)
+            # another run submitted a different hour
+            other = _ex(p, s, ExecutionState.COMPLETED,
+                        Outcome.PASSED)
+            other.created_at = head.created_at + timedelta(hours=5)
+            other.started_at = other.created_at + timedelta(seconds=60)
+            other.finished_at = other.started_at + timedelta(
+                seconds=120)
+            hid, rid = head.id, retry.id
+            dow = head.created_at.weekday()
+            hour = head.created_at.hour
+            db.session.commit()
+        login(client, "admin")
+        r = client.get(f"/executions?activity=submitted&dow={dow}"
+                       f"&hour={hour}")
+        body = r.get_data(as_text=True)
+        # resolved attempt (retry) shown exactly once; head not listed
+        assert rid[:8] in body
+        assert hid[:8] not in body
+
+
+class TestDurationRegression:
+    def test_medians_delta_and_ranking(self, app):
+        with app.app_context():
+            p, s = _seed()
+            # current period: 3 runs 100s; baseline: 3 runs 50s
+            for _ in range(3):
+                _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=2, run_s=100)
+            for _ in range(3):
+                _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=32, run_s=50)
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            rows = d["duration_regression"]
+            assert len(rows) == 1
+            r = rows[0]
+            assert r["current_median_s"] == 100.0
+            assert r["baseline_median_s"] == 50.0
+            assert r["delta_s"] == 50.0
+            assert r["delta_pct"] == 100.0
+            assert r["insufficient"] is False
+            assert d["regression_baseline"]["to"] == \
+                d["regression_baseline"]["current_from"]
+
+    def test_missing_baseline_is_na(self, app):
+        with app.app_context():
+            p, s = _seed()
+            for _ in range(3):
+                _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=2, run_s=100)
+            db.session.commit()
+            r = analytics.project_analytics(
+                p.id, 30)["duration_regression"][0]
+            assert r["baseline_median_s"] is None
+            assert r["delta_s"] is None
+            assert r["delta_pct"] is None
+
+    def test_zero_baseline_pct_is_na(self, app):
+        with app.app_context():
+            p, s = _seed()
+            for _ in range(3):
+                _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=32, run_s=0)
+            for _ in range(3):
+                _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=2, run_s=100)
+            db.session.commit()
+            r = analytics.project_analytics(
+                p.id, 30)["duration_regression"][0]
+            assert r["baseline_median_s"] == 0.0
+            assert r["delta_pct"] is None
+
+    def test_insufficient_samples_flagged(self, app):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                days_ago=2, run_s=100)
+            for _ in range(3):
+                _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=32, run_s=50)
+            db.session.commit()
+            r = analytics.project_analytics(
+                p.id, 30)["duration_regression"][0]
+            assert r["insufficient"] is True
+
+    def test_cross_window_chain_not_double_counted(self, app):
+        with app.app_context():
+            p, s = _seed()
+            head = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED,
+                       days_ago=31, run_s=50)
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                attempt=2, retry_of=head.id, days_ago=2, run_s=100)
+            for _ in range(3):     # pad current samples
+                _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=2, run_s=100)
+            for _ in range(2):     # pad baseline samples
+                _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=32, run_s=50)
+            db.session.commit()
+            r = analytics.project_analytics(
+                p.id, 30)["duration_regression"][0]
+            # baseline has the 2 solos only — the retried chain's
+            # final attempt finished in the current window
+            assert r["baseline_n"] == 2
+            assert r["current_n"] == 4
+
+    def test_parent_wallclock_not_summed_units(self, app):
+        with app.app_context():
+            p, s = _seed()
+            parent = _ex(p, s, ExecutionState.COMPLETED,
+                         Outcome.PASSED, role="parent", run_s=400)
+            u = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    role="unit", run_s=100)
+            u.parent_id = parent.id
+            for _ in range(2):
+                _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=2, run_s=400)
+            db.session.commit()
+            r = analytics.project_analytics(
+                p.id, 30)["duration_regression"][0]
+            assert r["current_median_s"] == 400.0  # not 400+100
+
+
+class TestEvidenceFreshness:
+    def test_failing_result_is_usable_evidence(self, app):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.FAILED,
+                    env="linux")
+            _result(e, "A", CaseStatus.FAILED)
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            rows = {(r["suite"], r["env"]): r
+                    for r in d["evidence_freshness"]}
+            cell = rows[(s.name, "linux")]
+            assert cell["state"] == "fresh"   # failure still counts
+            assert cell["outcome"] == "failed"
+            assert cell["last_execution_id"] == e.id
+
+    def test_old_evidence_beyond_window_not_never(self, app):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    days_ago=60, env="linux")
+            _result(e, "A", CaseStatus.PASSED)
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            rows = {(r["suite"], r["env"]): r
+                    for r in d["evidence_freshness"]}
+            cell = rows[(s.name, "linux")]
+            assert cell["state"] == "stale"     # older than 7d
+            assert cell["beyond_window"] is True  # disclosed lookup
+            assert cell["state"] != "never"
+
+    def test_never_only_for_configured_combo(self, app):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED,
+                    env="linux")
+            _result(e, "A", CaseStatus.PASSED)
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            # suite exists in config, env linux exists in history —
+            # no (suite, windows) row because windows was never used
+            envs = {r["env"] for r in d["evidence_freshness"]}
+            assert envs == {"linux"}
+            # and the configured suite does appear for its known env
+            states = {r["state"] for r in d["evidence_freshness"]}
+            assert states == {"fresh"}
+
+    def test_no_results_means_no_evidence(self, app):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.FAILED, Outcome.NONE, env="linux")
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            rows = {(r["suite"], r["env"]): r
+                    for r in d["evidence_freshness"]}
+            # env linux IS known (execution exists) and suite IS
+            # configured — no usable result → never observed
+            assert rows[(s.name, "linux")]["state"] == "never"
+
+    def test_empty_project(self, app):
+        with app.app_context():
+            p, s = _seed()
+            db.session.commit()
+            d = analytics.project_analytics(p.id, 30)
+            # suite configured but no environments in history →
+            # no combos at all (never invented)
+            assert d["evidence_freshness"] == []
+            assert d["duration_regression"] == []
+            assert d["first_final"] == []
+
+
+class TestGroupBEndpoints:
+    def test_main_json_activity_and_csv(self, app, client):
+        with app.app_context():
+            p, s = _seed()
+            _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            db.session.commit()
+        login(client, "admin")
+        r = client.get("/dashboard/analytics?activity=started")
+        assert r.status_code == 200
+        payload = r.get_json()
+        assert payload["act_mode"] == "started"
+        assert "activity" in payload["charts"]
+        r = client.get("/dashboard/analytics?format=csv"
+                       "&chart=activity")
+        assert r.status_code == 200
+        assert b"dow" in r.data and b"hour" in r.data
+
+    def test_project_json_new_sections_and_csv(self, app, client):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            _result(e, "A", CaseStatus.PASSED)
+            pid = p.id
+            db.session.commit()
+        login(client, "admin")
+        r = client.get(f"/projects/{pid}/analytics")
+        assert r.status_code == 200
+        payload = r.get_json()
+        for key in ("first_final", "regression", "freshness"):
+            assert key in payload["charts"]
+        for chart in ("first_final", "duration_regression",
+                      "evidence_freshness"):
+            r = client.get(f"/projects/{pid}/analytics?format=csv"
+                           f"&chart={chart}")
+            assert r.status_code == 200, chart
+
+    def test_revoked_csv_denied(self, app, client):
+        with app.app_context():
+            p, s = _seed()
+            e = _ex(p, s, ExecutionState.COMPLETED, Outcome.PASSED)
+            _result(e, "A", CaseStatus.PASSED)
+            pid = p.id
+            tester = User.query.filter_by(username="tester").first()
+            tester.set_assigned_projects([pid])
+            db.session.commit()
+        login(client, "tester")
+        with app.app_context():
+            tester = User.query.filter_by(username="tester").first()
+            tester.set_assigned_projects([])
+            db.session.commit()
+        for chart in ("first_final", "duration_regression",
+                      "evidence_freshness"):
+            r = client.get(f"/projects/{pid}/analytics?format=csv"
+                           f"&chart={chart}")
+            assert r.status_code in (403, 404), chart

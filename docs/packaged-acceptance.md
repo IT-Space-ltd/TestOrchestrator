@@ -1,0 +1,309 @@
+# Final packaged acceptance procedure — 2.6.0
+
+Runs only after all implementation milestones and the Windows worker
+matrix pass on the **packaged** build. Synced-working-tree evidence
+(the `/tmp/to251d` runs throughout `acceptance-2.6.0.md`) is
+development evidence — this procedure is the only source of
+clean-package claims. Every artifact is SHA-256'd and every run
+records the exact commit + `deployed_rev`.
+
+## 1. Build
+
+1. Clean checkout of the release commit; `git status` empty;
+   record `git rev-parse HEAD`.
+2. Build all packages (Linux bundle, Linux worker script, Windows
+   controller installer, Windows worker installer) via
+   `build-scripts/` per `docs/build.md`.
+3. Record every artifact name + SHA-256 in the ledger.
+4. Install on **clean** hosts/VMs — no reused data dir, no reused
+   worker. Existing-data behavior is covered separately by the
+   upgrade row (§4).
+
+## 2. Eight-combination smoke matrix
+
+The agreed matrix is **framework × execution target** — 4 frameworks
+× (Linux worker, Linux SSH, Windows worker) = 8 required cells.
+Controller operating-system support is a SEPARATE dimension covered
+by §4/§5 (install + upgrade on each controller package), not by this
+matrix — describing it as a controller-OS matrix would claim
+coverage it does not test.
+
+| Framework | Linux PB worker | Linux SSH target | Windows PB worker |
+|---|---|---|---|
+| Playwright | required | required | not newly claimed |
+| Cypress | required | required | not newly claimed |
+| Robot Framework | required | required | **required** |
+| pytest | required | required | **required** |
+
+"Not newly claimed" = Playwright/Cypress on Windows were already
+exercised on the Windows worker path in earlier acceptance and are
+not re-gated here; Robot+pytest on Windows are the release-critical
+new claims and map to kit rows W1–W4.
+
+Each cell: install → register/probe → run one fast suite → verify
+COMPLETED + normalized results + sealed manifest + artifact
+downloads + `deployed_rev` attribution. A cell blocked by an
+unavailable host is recorded **BLOCKED**, never silently dropped —
+the matrix is accepted only when all 8 required cells are PASS or an
+explicit waiver is recorded in the ledger.
+
+## 3. Parallel + recovery re-verification on the package
+
+Re-run the Stage-5 core on packaged builds (not the dev tree):
+
+- Two concurrent executions on one runner — slot-builders both
+  claimed, overlap proven by build timestamps.
+- pytest-xdist / Playwright-workers / Pabot parallel runs.
+- Parent/child: mixed pass+fail aggregation; cancel running +
+  queued child (queued child never launches).
+- Worker PB loss mid-run: attempt 2 counted + env-verified orphan
+  resolution + `TO_RETRY_BLOCKED` path where applicable; master
+  restart; SSH-session loss — all three distinct.
+- `retry_enabled=false` + `max_attempts=1`: the resubmit is blocked,
+  execution → UNKNOWN on the reconciliation queue.
+- Windows worker PB loss: the resubmitted build is BLOCKED by the
+  PowerShell prep counter (`TO_RETRY_BLOCKED`, exit 70) — no second
+  CLI launch on the worker; execution → UNKNOWN (kit row W6).
+- Paths containing spaces: at least one Windows run under a
+  workspace/workdir with spaces (`C:\TO Work\…`) completes.
+- Service-account readiness: the Windows worker service runs under
+  its service account and a run completes without interactive
+  login.
+
+## 4. Upgrade + restore on packages
+
+- Install 2.5.1 package, seed executions/history/schedules/secrets,
+  upgrade in place to 2.6.0 (`toctl db-upgrade` runs at service
+  start): all rows preserved, `notified_at` backfilled, boot clean.
+- Membership after upgrade: users with prior explicit
+  `allowed_projects` keep them; previously-unrestricted users are
+  flagged `none — needs assignment` on the Users page (the review
+  workflow) — no silent mass-grant.
+- `toctl backup` → `recover` to a scratch dir: member count, table
+  counts equal, symlink members restore, instance boots.
+- Restore preserves assignments: restore a backup taken after
+  configuring memberships; verify each user's `allowed_projects`
+  survives and enforcement still applies.
+- `flask diag` (deployed-revision) run pre-acceptance to prove the
+  packaged tree is what the services import.
+
+## 5. Security regression on the package
+
+- Report serving sandboxed; manifest paths root-contained.
+- Secret material: nothing plaintext in snapshots/audits/logs;
+  API tokens SHA-256'd; webhook HMAC via SecretRef.
+- CSRF: all mutating portal routes covered; `/api/v1` bearer-exempt
+  only.
+- RBAC: project scoping + role gates on the new surfaces
+  (reconciliation, matrix, API tokens, webhooks).
+- Project membership on the package — two projects × two
+  same-role non-admin users with different assignments:
+  - Direct object/API/artifact access denied cross-project;
+    project-filtered lists (projects page, executions list +
+    filter dropdowns, dashboard, matrices) show only assigned
+    data.
+  - API tokens bounded by the owner's **current** permissions —
+    token scope ∩ owner role ∩ owner membership, re-evaluated
+    every request; deactivated owner → 401.
+  - Revocation before queued/scheduled dispatch: pending work
+    whose submitter lost membership fails `error_kind='access'`
+    (audited `execution.access_blocked`) instead of launching;
+    schedule-fired runs carry creator identity so a revoked
+    creator's schedule stops producing runs.
+  - Existing-session and live-log access after revocation:
+    denied on the next protected request without logout (no
+    persistent log streams exist — every log/artifact request is
+    rechecked, so revocation covers them per-request).
+  - Restore preserves assignments (§4 row): each user's
+    `allowed_projects` survives backup→restore and enforcement
+    still applies.
+  - Legacy-user review workflow: users page flags unassigned
+    non-admins ("none — needs assignment"); Administrator keeps
+    global access throughout, no silent re-grant.
+  - Regression cases that must stay green:
+    `test_pending_work_blocked_when_access_revoked`,
+    `test_schedule_created_runs_blocked_after_creator_revoked`,
+    `test_token_bounded_by_owner_membership`,
+    `test_token_membership_revocation_applies_next_request`,
+    `test_revocation_takes_effect_without_logout` —
+    `tests/test_project_access.py` (17 tests).
+
+## 5a. Logging + exports on the package
+
+- **CSV export** — Admin → Audit and Admin → Operational Logs each
+  export *all* records matching the current filters (time range,
+  search, category, severity, actor, project, execution,
+  correlation — where applicable) at a fixed UTC cutoff in stable
+  order; the page shows the matching count and the job page shows
+  scope/filters/count/expiry. UTF-8 headers + explicit `Z`
+  timestamps; commas, quotes, Unicode and multiline values round-trip;
+  `= + - @ <tab>` leading cells are `'`‑prefixed (formula-injection
+  protection beyond quoting).
+- **Bounds** — `logs_export_inline_max` streams inline; larger exports
+  run as background jobs writing `0600` files that expire after
+  `logs_export_ttl_minutes`; `logs_export_max_rows` refuses loudly —
+  never a silent truncation. Interrupted jobs mark `failed`.
+- **Authorization** — both views, export creation, job status and
+  downloads are Administrator-only; download re-checks role + expiry;
+  revocation denies subsequent access (`tests/test_log_exports.py`).
+- **Audit** — every export request, completion/failure and download
+  writes an audit event with filters, count, actor, export id — never
+  exported contents.
+- **Redaction** — secrets are redacted *before persistence*; the same
+  redaction covers local rows, CSV and JSON output
+  (`test_secrets_redacted_before_persistence_everywhere`,
+  `test_redact_details_nested_keys`).
+- **Structured output** — `logs_json_enabled` produces one
+  `to.log.event/1.0` NDJSON event per record in a size/rotation-bounded
+  file (and/or stdout via `logs_stdout_enabled`); disabled by default;
+  sink failures counted (`dropped`) and stdlib-logged, never raised
+  into `emit()` or dispatch
+  (`test_json_output_*`, `test_concurrent_writers_produce_valid_lines`,
+  `test_json_output_failure_never_breaks_emit`).
+- **Collector handoff** — `deploy/otel-collector.example.yaml`
+  ingestion verified by the local test-collector check
+  (`test_local_test_collector_ingests`): JSON parse, timestamp +
+  severity mapping, correlation fields preserved, dedup on
+  `event_id`.
+- **Category separation** — audit (`audit-*`) and operational (`op-*`)
+  exports/events stay distinct; execution stdout/stderr is not
+  forwarded (evidence download only).
+- **Windows check** — during the W-matrix, re-run the export + JSON
+  output rows on the Windows controller (path handling, file modes,
+  rotation).
+
+## 5b. Time-zone data (`tzdata`) on the package
+
+Pinning `tzdata` and resolving wheels is the build plan — these rows
+prove the installed package actually carries a usable IANA database
+and degrades safely without one. Each row is recorded with commit,
+package SHA-256 and `deployed_rev` like every other acceptance row.
+
+- **Windows installer — zone database present.** On the installed
+  Windows controller, run its bundled Python:
+  `python -c "from zoneinfo import ZoneInfo; print(ZoneInfo('Europe/Budapest'), ZoneInfo('Asia/Kolkata'))"`
+  — both must load from the installed package (not the host zoneinfo,
+  which Windows lacks). Failure is BLOCKED, not waived.
+- **Linux package — zone database present.** Same check against the
+  installed Linux controller package's interpreter. `tzdata` is
+  bundled, so the check must pass even on a minimal container host
+  without `/usr/share/zoneinfo`.
+- **Missing-database degradation.** With the zone database made
+  unreachable (e.g. `TZPATH` pointed at an empty directory and no
+  `tzdata` importable): service log shows the explicit
+  `usertz` warning, every timestamp renders as UTC (`+00:00`), and
+  login + dashboards keep working — no 500s. Source-level proof:
+  `test_missing_database_falls_back_with_diagnostic` /
+  `test_display_survives_missing_zone_db` (the packaged row repeats
+  it on the real install).
+- **Windows W-kit** — kit row **W16** exercises the feature end-to-end
+  on the Windows controller (zone selection, localized display,
+  local-day filtering, CSV columns) — see
+  `windows-acceptance-kit.md`.
+
+## 6. Exit criteria
+
+- All 8 matrix cells PASS (or waived with reason in the ledger).
+- Windows W-matrix complete (windows-acceptance-kit.md).
+- Full unit suite green on the release commit (result recorded
+  separately from earlier runs).
+- Every acceptance row carries: commit, package SHA-256,
+  execution/build ids, deployed_rev.
+- `docs/acceptance-2.6.0.md` updated; PR remains **draft** until
+  human sign-off. Passing this procedure does not authorize merge.
+
+## Appendix — proposed environment for the service-level rows
+
+The service-level file-mode and journal rows need real
+`systemd`-installed services. Proposal (needs approval before any
+of it happens):
+
+**Target:** a disposable VM (or a systemd-enabled container such
+as `jrei/systemd-ubuntu`) on this host — never the host itself.
+
+**Install:** the `testorchestrator-…-linux-x86_64.run` installer
+with `--service-user testorchestrator`, which creates:
+`to-web` (Cheroot HTTPS), `to-waitress` (internal WSGI), the
+buildbot master/worker units, plus the instance/data directories
+with installer-set ownership and modes.
+
+**Checks the rows would then run:**
+- unit files exist under `/etc/systemd/system/` with `0644 root:root`,
+  `WantedBy`/`After` ordering correct, `ExecStart` paths exist;
+- data/instance dirs are `0750`/`0700` owned by the service user,
+  `secret.key` `0600`, no world-readable secret-bearing file;
+- `systemctl start` order brings the stack up green; `journalctl -u`
+  shows the expected startup lines and **no secret material** in
+  the journal;
+- `systemctl stop`/`restart` leaves no orphan processes; a
+  reboot-equivalent (`systemd` restart of the container) re-arms
+  services cleanly.
+
+**Cleanup:** the VM/container is destroyed afterward; nothing is
+installed on the host. Verification = `systemctl list-units | grep
+to-` returns empty on the host, and `/opt/testorchestrator`
+does not exist there.
+
+**What this does NOT cover:** the `.run` installer on the real
+host `/opt` path (same reason — needs root) and Windows service
+behavior (W-rows stay blocked on the Windows host).
+
+## VM plan (VM3 — written before any VM row, awaiting tool confirmation)
+
+**Host prerequisites measured:** /dev/kvm + 24 vmx flags ✓; 220 GB
+free disk ✓; **3.6 GB MemAvailable — below the 4 GB bar** (marginal;
+a 4G VM is at the edge). No multipass/qemu/lxd/incus/virt-install;
+snapd present — `snap install multipass` would add: the snap +
+mounts under `/var/lib/snapd`, daemon
+`snap.multipass.multipassd.service`, bridge `mpqemubr0` + NAT/dnsmasq,
+`snap/bin/multipass`. **Awaiting one confirmation** (or a lighter
+2 GB VM variant by owner approval).
+
+**Planned VM (on confirmation):**
+- `multipass launch lts --name to-accept --cpus 2 --memory 4G
+  --disk 20G` (or 2G if RAM stays marginal — owner decides).
+- Image: Ubuntu LTS (exact release recorded via `multipass info`).
+- Throwaway ed25519 SSH key in `/tmp/to-accept-key` (outside repo,
+  deleted at cleanup); SSH only from this host.
+- Users: `ubuntu` (default) + `testorchestrator` service user created
+  by the installer.
+- Directories: `/opt/testorchestrator` (payload), instance/config
+  dirs per installer defaults.
+- Ports: 22 (host-only), 8443/8444 app, 9989 PB, 8010 buildbot WWW —
+  all inside the VM only.
+- Packages inside VM: `openssh-server` (needed for V7), nothing else
+  beyond installer deps.
+- Rows V1–V9 run inside; tarball sha256 verified against ledger
+  before install; final-head package after F2.
+- **Cleanup (VM10/VM11):** `multipass stop to-accept`,
+  `multipass delete to-accept --purge`, delete `/tmp/to-accept-key*`,
+  verify no VM/image/bridge residue on the host; snap removal only
+  if separately approved.
+
+## VM8 fallback results (executed — no host-level change)
+
+`systemd-analyze verify` on the 5 shipped units generated by the
+installer in `/tmp/to26-final-config/`: **all clean** (the only
+output was a warning on an unrelated host unit `teamviewerd`).
+
+User-level service `to-web-scratch.service` (scratch prefix,
+`systemd --user` — user session only, not host PID 1):
+
+| Row (fallback scope) | Result |
+|---|---|
+| Unit verify ×5 | PASS — all units parse, no errors |
+| enable | PASS — wants-symlink created under `default.target.wants` |
+| start | PASS — `active (running)`, portal `200` on :38445 |
+| stop | PASS — `inactive`, portal down |
+| restart | PASS — `active`, portal `200` |
+| kill -9 recovery | PASS — `Restart=on-failure` restarted in ~4 s, portal `200` |
+| File modes (scratch) | `secret.key`/`secrets.json`/CA key/TLS key `0600`; `web.env` `640`; `certs/` `700`; db `644` — root/service-user modes remain VM rows |
+| Journal | lifecycle lines reach journal; **0** secret/`apiKey` strings |
+
+**Still blocked (exact boundary):** `/opt` root install (V1), shipped
+unit lifecycle as system units (V2 system-level), service-user
+ownership modes (V3 root), system journal scoping (V4),
+uninstall→reinstall→restore (V5), 2.5.1-copy upgrade on systemd
+(V6), OpenSSH `sshd` interop (V7 — no `sshd` binary on host), §5
+live sweep + Linux matrix on a managed stack (V8), full suite from
+the *installed* package (V9). All need the VM (or approved host tool).

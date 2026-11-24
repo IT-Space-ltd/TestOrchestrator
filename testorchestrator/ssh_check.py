@@ -17,6 +17,7 @@ workdir.
 """
 from __future__ import annotations
 
+import shlex
 import socket
 from dataclasses import dataclass, field
 
@@ -134,7 +135,7 @@ def check_target(runner, runtimes=None) -> CheckResult:
         # Verify the presented key against the pinned fingerprint
         # AGAIN at connect time — the earlier probe and this session
         # could be answered differently by a MITM.
-        alg2, fp2 = _fingerprint(transport.get_remote_server_key())
+        _alg2, fp2 = _fingerprint(transport.get_remote_server_key())
         if fp2 != stored:
             transport.close()
             return res.fail(
@@ -156,8 +157,8 @@ def check_target(runner, runtimes=None) -> CheckResult:
         probe = f"{workdir}/.to-write-test"
         chan = transport.open_session(timeout=15)
         chan.exec_command(
-            f"mkdir -p {workdir!r} && touch {probe!r} && "
-            f"rm -f {probe!r}")
+            f"mkdir -p {shlex.quote(workdir)} && touch {shlex.quote(probe)} && "
+            f"rm -f {shlex.quote(probe)}")
         err = chan.makefile_stderr("rb").read().decode(
             "utf-8", "replace")
         if chan.recv_exit_status() != 0:
@@ -175,7 +176,7 @@ def check_target(runner, runtimes=None) -> CheckResult:
             if not exe:
                 continue
             chan = transport.open_session(timeout=10)
-            chan.exec_command(f"test -x {exe!r}")
+            chan.exec_command(f"test -x {shlex.quote(exe)}")
             ok = chan.recv_exit_status() == 0
             chan.close()
             if not ok:

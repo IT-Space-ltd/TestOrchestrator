@@ -28,12 +28,15 @@ cryptography==50.0.2
 # opt-in fallback using bundled/host git via subprocess)
 dulwich==1.2.21
 requests==2.34.2
-paramiko==2.12.0
+paramiko==3.5.1
 urllib3==2.8.0
 certifi==2026.10.23
 charset-normalizer==3.5.2
 idna==3.20
 plotly==7.1.0
+# IANA zone data for zoneinfo — required on hosts without a system
+# zone database (Windows embed; Linux uses /usr/share/zoneinfo).
+tzdata==2026.6
 # reporting-labs==0.1.14 is vendored in-repo at 3rdparty/reporting_labs
 # (MIT) — imported from the source tree via the app's vendored-source
 # bootstrap, never downloaded at install time.

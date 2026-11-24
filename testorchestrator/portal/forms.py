@@ -5,8 +5,17 @@ from wtforms.validators import DataRequired, Length, Optional
 
 from ..adapters.kre import SUPPORTED_BROWSERS
 
-BROWSER_CHOICES = [(m["label"], m["label"])
-                   for m in SUPPORTED_BROWSERS.values()]
+BROWSER_CHOICES = ([(m["label"], m["label"])
+                    for m in SUPPORTED_BROWSERS.values()]
+                   # Node-runtime browsers (Playwright --project /
+                   # Cypress --browser) + framework default.
+                   + [("", "framework default (Playwright/Cypress)"),
+                      ("chromium", "chromium"),
+                      ("firefox", "firefox"),
+                      ("webkit", "webkit (Playwright)"),
+                      ("chrome", "chrome (Cypress)"),
+                      ("edge", "edge (Cypress)"),
+                      ("electron", "electron (Cypress)")])
 
 
 class ProjectForm(FlaskForm):
@@ -34,12 +43,6 @@ class SuiteForm(FlaskForm):
     description = TextAreaField("Description", validators=[Optional()])
     binding_id = StringField("Source binding", validators=[Optional()])
     case_refs = SelectMultipleField("Test cases", validators=[Optional()])
-
-
-class PlanForm(FlaskForm):
-    name = StringField("Plan name", validators=[DataRequired(), Length(max=128)])
-    description = TextAreaField("Description", validators=[Optional()])
-    parallelism = IntegerField("Max parallel executions", default=1)
 
 
 class ScheduleForm(FlaskForm):
@@ -72,6 +75,10 @@ class ScheduleForm(FlaskForm):
         "Overlap", choices=[("allow", "Allow overlap"),
                             ("skip", "Skip if previous run active")],
         default="allow")
+    misfire_policy = SelectField(
+        "Missed fire", choices=[("late", "Run once late"),
+                                ("skip", "Skip if past interval")],
+        default="late")
 
 
 class PlainForm(FlaskForm):

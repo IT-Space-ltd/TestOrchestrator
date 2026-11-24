@@ -13,9 +13,18 @@ def _aw(dt):
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
+def _lday(dt, tz=None) -> str:
+    aware = _aw(dt)
+    if tz is not None:
+        aware = aware.astimezone(tz)
+    return aware.date().isoformat()
+
+
 def summary(project_id: str, days: int = 30, suite: str = "",
             state: str = "", source_ref: str = "",
-            environment: str = "") -> dict:
+            environment: str = "", tz=None) -> dict:
+    """`tz` = viewer's display zone — per-day chart buckets group by
+    the user's local calendar day (UTC when not passed)."""
     since = _aw(datetime.now(timezone.utc) - timedelta(days=days))
     q = Execution.query.filter_by(project_id=project_id)
     if suite:
@@ -41,7 +50,7 @@ def summary(project_id: str, days: int = 30, suite: str = "",
     # outcome trend: per-day terminal executions
     by_day = {}
     for e in exes:
-        d = _aw(e.finished_at).date().isoformat()
+        d = _lday(e.finished_at, tz)
         row = by_day.setdefault(d, {"day": d, "passed": 0,
                                     "failed": 0, "error": 0,
                                     "skipped": 0})
@@ -52,7 +61,7 @@ def summary(project_id: str, days: int = 30, suite: str = "",
     pr_by_day = {}
     durations = []
     for e in exes:
-        d = _aw(e.finished_at).date().isoformat()
+        d = _lday(e.finished_at, tz)
         pr = pr_by_day.setdefault(d, {"day": d, "passed": 0,
                                       "failed": 0, "error": 0,
                                       "skipped": 0})
@@ -61,7 +70,7 @@ def summary(project_id: str, days: int = 30, suite: str = "",
                 pr[r.status] += 1
         if e.started_at and e.finished_at:
             durations.append({
-                "day": _aw(e.finished_at).date().isoformat(),
+                "day": _lday(e.finished_at, tz),
                 "seconds": (_aw(e.finished_at)
                             - _aw(e.started_at)).total_seconds()})
 

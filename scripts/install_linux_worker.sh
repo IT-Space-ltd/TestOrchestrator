@@ -61,9 +61,27 @@ done
 [ -s "$PASSWD_FILE" ] || { echo "passwd file empty: $PASSWD_FILE — put the one-time worker password issued by the portal on its first line" >&2; exit 2; }
 
 command -v python3 >/dev/null || { echo "python3 >=3.10 required" >&2; exit 2; }
-python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" || { echo "python3 >=3.10 required (bundled wheels cover 3.10-3.12)" >&2; exit 2; }
 if [ "$ONLINE" -eq 0 ] && [ ! -d "$WHEELS" ]; then
   echo "offline wheels dir missing: $WHEELS (or pass --online)" >&2; exit 2
+fi
+# Supported interpreter range. Offline installs are bound to the ABI
+# tags of the bundled wheels (cp3XX) — derive the range from them so it
+# tracks what actually ships; fall back to the known 3.10-3.12 set.
+MIN_MINOR=10 MAX_MINOR=12
+if [ "$ONLINE" -eq 0 ]; then
+  TAGS="$(ls "$WHEELS" | grep -oE 'cp3[0-9]+' | sed 's/cp3//' | sort -un || true)"
+  if [ -n "$TAGS" ]; then
+    MIN_MINOR="$(echo "$TAGS" | head -1)"
+    MAX_MINOR="$(echo "$TAGS" | tail -1)"
+  fi
+fi
+if ! python3 -c "import sys; sys.exit(0 if sys.version_info[0] == 3 and $MIN_MINOR <= sys.version_info[1] <= $MAX_MINOR else 1)"; then
+  if [ "$ONLINE" -eq 0 ]; then
+    echo "python3 3.$MIN_MINOR-3.$MAX_MINOR required — bundled wheels carry only those ABI tags (found: $(python3 --version 2>&1))" >&2
+    exit 2
+  else
+    echo "warning: python3 $(python3 --version 2>&1) outside 3.$MIN_MINOR-3.$MAX_MINOR — online resolution will compile sdists" >&2
+  fi
 fi
 
 # Dedicated least-privilege account — never reuse root or a login user.

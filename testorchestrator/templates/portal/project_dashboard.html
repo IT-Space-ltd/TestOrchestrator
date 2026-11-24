@@ -1,98 +1,10 @@
 {% extends "base.html" %}
+{% block content_class %}content-wide{% endblock %}
 {% block content %}
-<div class="card"><h1>{{ project.name }} — Dashboard</h1>
-  <form method="get" class="filter-bar">
-    <label>Period
-      <select name="period">
-        {% for d in [7, 14, 30, 90] %}
-        <option value="{{ d }}" {% if d == days %}selected{% endif %}>{{ d }}d</option>
-        {% endfor %}
-      </select></label>
-    <label>Suite
-      <select name="suite"><option value="">all</option>
-        {% for s in suites %}<option value="{{ s.id }}"
-          {% if s.id == sel_suite %}selected{% endif %}>{{ s.name }}</option>{% endfor %}
-      </select></label>
-    <label>Status
-      <select name="state"><option value="">all</option>
-        {% for s in ["completed", "failed", "canceled"] %}
-        <option value="{{ s }}" {% if s == sel_state %}selected{% endif %}>{{ s }}</option>{% endfor %}
-      </select></label>
-    <label>Source ref
-      <select name="source_ref"><option value="">all</option>
-        <option value="__none__" {% if sel_source_ref == '__none__' %}selected{% endif %}>(unavailable)</option>
-        {% for r in source_refs %}
-        <option value="{{ r }}" {% if r == sel_source_ref %}selected{% endif %}>{{ r }}</option>{% endfor %}
-      </select></label>
-    <label>Environment
-      <select name="environment"><option value="">all</option>
-        <option value="__none__" {% if sel_environment == '__none__' %}selected{% endif %}>(unavailable)</option>
-        {% for e in environments %}
-        <option value="{{ e }}" {% if e == sel_environment %}selected{% endif %}>{{ e }}</option>{% endfor %}
-      </select></label>
-    <button type="submit">Apply</button>
-  </form>
+<div class="card"><h1>{{ project.name }} — Analytics
+  <a class="button ghost sm" style="float:right"
+     href="{{ url_for('portal.project_detail',
+                      project_id=project.id, tab='analytics') }}">← Project</a></h1>
+{% include "portal/_project_analytics_body.html" %}
 </div>
-
-<div class="metric-grid">
-  <div class="metric"><strong>{{ data.total }}</strong><span>terminal executions ({{ data.period_days }}d)</span></div>
-  <div class="metric"><strong>{{ data.outcome_trend|sum(attribute='passed') }}</strong><span>passed</span></div>
-  <div class="metric"><strong>{{ data.outcome_trend|sum(attribute='failed') }}</strong><span>failed</span></div>
-  <div class="metric"><strong>{{ data.failures|length }}</strong><span>distinct failing cases</span></div>
-</div>
-
-<div class="dash-2col">
-  <section class="card"><h2>Outcome trend — executions/day</h2>
-    <p class="muted"><small>Units: execution attempts (each attempt
-    counts once; reruns are separate attempts).</small></p>
-    {% if fig_outcomes != 'null' %}<div data-plotly-fig="{{ fig_outcomes }}"></div>
-    {% else %}<p class="muted">No outcome data.</p>{% endif %}</section>
-  <section class="card"><h2>Pass rate % — test cases/day</h2>
-    <p class="muted"><small>Units: parsed test-case results.
-    Passed / (passed + failed + error); skipped cases are excluded
-    from the denominator and shown separately.</small></p>
-    {% if fig_passrate != 'null' %}<div data-plotly-fig="{{ fig_passrate }}"></div>
-    {% else %}<p class="muted">No parsed results.</p>{% endif %}</section>
-  <section class="card"><h2>Duration (s) — completed executions</h2>
-    <p class="muted"><small>Terminal executions only.</small></p>
-    {% if fig_duration != 'null' %}<div data-plotly-fig="{{ fig_duration }}"></div>
-    {% else %}<p class="muted">No duration data.</p>{% endif %}</section>
-  <section class="card"><h2>Top failing cases — across runs</h2>
-    <p class="muted"><small>Distinct test-case identities; failures
-    accumulate across executions in the period.</small></p>
-    {% if fig_failures != 'null' %}<div data-plotly-fig="{{ fig_failures }}"></div>
-    {% else %}<p class="muted">No failures.</p>{% endif %}</section>
-</div>
-
-<section class="card"><h2>Recent executions</h2>
-  <table class="data-table">
-    <thead><tr><th>ID</th><th>Worker</th><th>Engine</th><th>SHA</th>
-      <th>State</th><th>Outcome</th><th>Duration</th><th>Report</th></tr></thead>
-    <tbody>
-      {% for e in data.executions %}
-      <tr><td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
-        <td>{{ e.runtime.runner.name if e.runtime and e.runtime.runner else "—" }}</td>
-        <td>{{ e.runtime.name if e.runtime else "—" }}</td>
-        <td><code>{{ (e.source_sha or "")[:8] }}</code></td>
-        <td>{{ e.state.value }}</td>
-        <td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
-        <td>{{ "%.0fs"|format((e.finished_at - e.started_at).total_seconds()) if e.started_at and e.finished_at else "—" }}</td>
-        <td>{{ e.report_status }}</td></tr>
-      {% else %}<tr><td colspan="5" class="muted">No executions.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  <section class="card"><h2>Failing cases — evidence</h2>
-    <p class="muted"><small>Links to logs/artifacts for the top
-    recurring failures in the period.</small></p>
-    <table class="data-table"><thead><tr><th>Case</th>
-      <th>Failures</th><th>Latest execution</th></tr></thead><tbody>
-      {% for f in data.failures %}
-      <tr><td>{{ f.case }}</td><td>{{ f.count }}</td>
-        <td><a href="{{ url_for('portal.execution_detail', execution_id=data.executions[0].id) }}">evidence</a></td></tr>
-      {% else %}<tr><td colspan="3" class="muted">No failures.</td></tr>
-      {% endfor %}</tbody></table></section>
-
-<script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
-<script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 {% endblock %}

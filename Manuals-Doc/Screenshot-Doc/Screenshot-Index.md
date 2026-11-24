@@ -1,7 +1,22 @@
-# Screenshot Index — TestOrchestrator 2.5.x
+# Screenshot Index — TestOrchestrator 2.6.0
 
-- **Provenance:** all frames were captured from the **released 2.5.0
-  codebase** during documentation work — no pre-release frames remain.
+- **Provenance (2.6.0 recapture):** essentially the full set was
+  recaptured from the **2.6.0 codebase** (head `46822493`) — all
+  `admin/` page frames and `install-*` frames against a seeded
+  documentation instance + a fresh-install instance; all `user/`
+  frames as the Test Manager `manager`. The two mermaid diagrams
+  (`architecture-diagram`, `dataflow-diagram`) were re-rendered
+  from updated `.mmd` sources covering KRE + Node.js + Python
+  runtimes on both transports.
+- **Retained 2.5.x frames (not recaptured):**
+  `admin/storage-layout.png` and `admin/evidence-prune.png` are
+  command-output renders — the instance layout and `toctl
+  evidence-prune` are unchanged in 2.6.0;
+  `user/import-preview-duplicates.png` — the import preview page
+  was not restyled in 2.6.0 and reproducing a seeded multi-candidate
+  preview adds no visual information. `user/login*.png` show the
+  genuine missing-licence notice (informational only, login is
+  never blocked, Admin Manual §12.4).
 - **Captured:** Chromium headless at 1440×900 against two live
   instances: a **fresh install** (bootstrap state, `install-*` frames)
   and a **populated instance** carrying real project/execution history.
@@ -42,17 +57,19 @@
 | `project-dashboard.png` | Project overview (tabs: Dashboard, Releases, Test, Schedules-Executions, Inventory, Git bindings) |
 | `import-new.png` | Historical-result import form (binding, revision, result directory) |
 | `import-preview-duplicates.png` | Import preview: resolved commit, `duplicate` decisions with matched executions, collection-grouping warning |
-| `discovered-suite-run.png` | Suite item: member cases + Run form (profile, release, worker, runtime, timeout); authoring-disabled notice |
+| `discovered-suite-run.png` | Suite item (`smoke.robot`): Run form — profile, release, worker, runtime picker, browser, Robot/pytest option fields (2.6.0) |
+| `project-inventory.png` | Project Inventory tab: discovered suite items across frameworks (2.6.0) |
 | `discovered-collection.png` | Test-suite collection item |
 | `execution-history.png` | Executions list with full filter bar (imported + live origins, outcomes) |
 | `execution-detail-imported.png` | Imported execution: provenance (importer, repo, commit, source path, parser), 4 results incl. supplemented suite |
 | `execution-detail-failed.png` | Imported rerun with one failed case (`<failure>` message) |
 | `execution-detail-live.png` | Live worker run (fixture KRE): worker, run id, runtime, results |
-| `execution-rlabs.png` | reportingLabs generated report (4 passed, environment card) |
+| `execution-rlabs.png` | reportingLabs generated report document (3 passed, environment card) — generated live on the 2.6.0 doc instance |
 | `suite-new.png` | New suite form: name, description, source binding, two-panel case selector (6 selected) |
 | `suite-detail.png` | Suite detail: ordered entries, version/hash, run controls |
 | `release-new.png` | New release form: name, description, start/target dates |
-| `release-detail.png` | Release detail: scope table (1 suite + 1 collection), `not yet executed` states, scopeable-only picker |
+| `release-detail.png` | Release detail: scope table (suite + collection items) (2.6.0) |
+| `release-list.png` | Project Releases tab: release list + Create release disclosure (2.6.0) |
 | `schedule-new.png` | New schedule form: target selector, kind, UTC first run, interval, profile/browser/runner/runtime/overlap |
 | `schedules.png` | Schedules list: next run, enabled toggle, run-now, edit |
 | `about.png` | About page |
@@ -65,18 +82,24 @@
 | `health.png` | Health & services status |
 | `network.png` | Network & certificates configuration |
 | `users.png` | User administration: roles, temp-password reset, deactivate, create |
-| `infrastructure.png` | Workers table (runner, mode, slots, agent, drain) + KRE installations (remote executable, `Remote — not verified`) |
+| `infrastructure.png` | Execution targets table (local / Buildbot worker / Agentless SSH incl. pinned host-key fingerprint) + test-runtime groups per target (2.6.0) |
 | `secrets.png` | Credentials: named secret references, system-managed coordinator credential — values never shown |
 | `integrations.png` | Integrations configuration |
 | `logs.png` | Operational logs |
 | `audit.png` | Audit events |
 | `changelog.png` | Changelog view |
-| `runner-new.png` | Add worker form: name, description, OS/arch, connection mode, workspace, slots, allowed projects |
-| `runtime-new.png` | Register-KRE form: execution location, remote runner, worker label, executable/workspace paths, credentials, concurrency |
+| `runner-new.png` | Add execution target form: name, type radios (This host / Buildbot worker / Agentless Linux SSH), OS/arch (2.6.0) |
+| `runner-new-ssh.png` | Add-target form with *Agentless Linux SSH* selected — SSH host/port/user/workdir/secret fields revealed (2.6.0; previously dead under CSP) |
+| `runner-new-worker.png` | Add-target form with *Buildbot worker* selected — name, OS/arch, workspace, slots, allowed projects (2.6.0) |
+| `worker-installers.png` | Remote worker installers card — Windows .exe + Linux bundle rows with SHA-256 + corresponding source (2.6.0) |
+| `worker-issue-password.png` | Flash banner showing the generated one-time Buildbot worker password after Manage ▾ → Issue password (2.6.0) |
+| `worker-install-help.png` | Terminal render — real `install_linux_worker.sh --help` output: usage, flags, uninstall |
+| `runtime-new.png` | Register-a-test-runtime form: Runner type dropdown (KRE / Playwright / Cypress / Robot / pytest), name, execution location (2.6.0) |
+| `runtime-new-remote.png` | Same form with *On another machine* — remote-runner picker, executable/workspace paths, credential fields (2.6.0) |
 | `user-new.png` | Create user form: username, display name, role radios, temporary password |
 | `licence.png` | Licence administration: status, activated-licence table, add-code field — informational status display; demonstration licence only |
 | `login-unsupported.png` | Login page with no valid application licence — exact notice *"This version is not supported"*, form fully usable |
-| `install-transcript.png` | Terminal: checksum verification, package extraction, `install.sh` run — payload/data/config paths, worker-asset staging, offline venvs, Buildbot master + worker provisioning, unit enablement, readiness check |
+| `install-transcript.png` | Terminal render of real 2.6.0 package output — checksum OK + `--dry-run` enumeration (payload/data/config paths, units, readiness) |
 | `install-bootstrap.png` | First sign-in — forced bootstrap-password replacement ("Set your password") |
 | `install-dashboard.png` | Fresh install — dashboard at first login, no data yet |
 | `install-users.png` | Fresh install — user list containing only the bootstrap Admin |

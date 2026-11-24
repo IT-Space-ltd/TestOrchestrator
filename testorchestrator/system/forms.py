@@ -3,7 +3,7 @@ from flask_wtf.file import FileAllowed, FileField, FileRequired
 from wtforms import (BooleanField, IntegerField, PasswordField, RadioField,
                      SelectMultipleField, StringField, TextAreaField)
 from wtforms.validators import (DataRequired, Length, NumberRange,
-                                Optional)
+                                Optional, ValidationError)
 
 
 class AddressForm(FlaskForm):
@@ -76,6 +76,14 @@ class ApplyForm(FlaskForm):
     pass
 
 
+def _iana_zone(form, field):
+    from ..usertz import valid_zone
+    if not valid_zone((field.data or "").strip()):
+        raise ValidationError(
+            "Unknown time zone — pick an IANA name such as "
+            "Europe/Budapest or UTC.")
+
+
 class UserForm(FlaskForm):
     """Admin user management (§16): create accounts and reset temporary
     passwords; mandatory first change applies to both."""
@@ -88,10 +96,24 @@ class UserForm(FlaskForm):
                  ("tester", "Tester"), ("po", "PO")],
         default="tester",
     )
+    timezone = StringField(
+        "Display time zone",
+        validators=[Optional(), Length(max=64), _iana_zone],
+        default="UTC",
+        description="IANA zone name — the shown offset varies by date.")
     temporary_password = PasswordField(
         "Temporary password",
         validators=[DataRequired(), Length(min=12)],
     )
+
+
+class UserTimezoneForm(FlaskForm):
+    """Admin → Users → Edit → display time zone (audited; does not
+    touch role or project membership)."""
+    timezone = StringField(
+        "Display time zone",
+        validators=[DataRequired(), Length(max=64), _iana_zone],
+        description="IANA zone name — the shown offset varies by date.")
 
 
 class ResetForm(FlaskForm):
@@ -170,7 +192,7 @@ class RuntimeForm(FlaskForm):
     runner_id = StringField("Worker", validators=[DataRequired()])
     executable_path = StringField(
         "KRE path on the selected worker",
-        validators=[DataRequired(), Length(max=512)],
+        validators=[Optional(), Length(max=512)],
     )
     git_ssh_key_path = StringField(
         "Worker-side SSH key path (for ssh:// bindings)",
@@ -188,3 +210,41 @@ class RuntimeForm(FlaskForm):
                     "spec carries this path only — the worker's "
                     "resolver reads the value at exec time.")
     concurrency = IntegerField("Concurrency", default=1)
+
+
+class BackupCreateForm(FlaskForm):
+    """Create an encrypted settings backup — passphrase encrypts the
+    archive, password re-authenticates the acting admin."""
+    passphrase = PasswordField(
+        "Backup passphrase",
+        validators=[DataRequired(), Length(min=12, max=256)],
+        description="Min 12 characters — encrypts the archive; "
+                    "unrecoverable if lost.")
+    confirm = PasswordField(
+        "Confirm passphrase", validators=[DataRequired()])
+    password = PasswordField(
+        "Your password (re-authentication)", validators=[Optional()])
+
+
+class RestoreStageForm(FlaskForm):
+    backup_file = FileField(
+        "Backup file (.tobackup)",
+        validators=[FileRequired(), FileAllowed(["tobackup"])])
+    passphrase = PasswordField(
+        "Backup passphrase", validators=[DataRequired()])
+    credential = PasswordField(
+        "Your password / fresh-install setup token",
+        validators=[DataRequired()])
+
+
+class RestoreApplyForm(FlaskForm):
+    staged_id = StringField("", validators=[DataRequired()])
+    mode = RadioField(
+        "Restore mode", validators=[DataRequired()],
+        choices=[("fresh", "Restore into a fresh installation"),
+                 ("replace", "Replace current configuration")])
+    passphrase = PasswordField(
+        "Backup passphrase", validators=[DataRequired()])
+    credential = PasswordField(
+        "Your password / fresh-install setup token",
+        validators=[DataRequired()])

@@ -7,7 +7,8 @@ audited without secrets, and recoverable via previous_good_config.
 import os
 import re
 import sys
-from datetime import datetime, timezone
+import json
+from datetime import datetime, timedelta, timezone
 
 from flask import (Response, abort, current_app, flash, redirect,
                    render_template, request, send_file, url_for)
@@ -26,7 +27,7 @@ from ..security import role_required
 from . import system_bp
 from .forms import (AddressForm, ApplyForm, GenerateCertForm, ImportCertForm,
                     PortsForm, ResetForm, RunnerForm, RuntimeForm, SecretForm,
-                    UserForm)
+                    UserForm, UserTimezoneForm)
 
 
 def _context():
@@ -308,11 +309,133 @@ def reporting_page():
 @system_bp.route("/integrations")
 @role_required(Role.ADMIN)
 def integrations_page():
-    """Subsystem-separated integration config (Git evidence export).
-    Each section is its own labelled card; secrets are referenced by
-    name only."""
-    return render_template("system/integrations.html",
-                           settings=settings_mod.all_settings())
+    """Subsystem-separated integration config (Git evidence export,
+    CI API tokens, webhook endpoints). Each section is its own
+    labelled card; secrets are referenced by name only."""
+    from ..execution import ApiToken, Project, WebhookEndpoint
+    return render_template(
+        "system/integrations.html",
+        settings=settings_mod.all_settings(),
+        api_tokens=ApiToken.query.order_by(ApiToken.created_at).all(),
+        webhooks=WebhookEndpoint.query.order_by(
+            WebhookEndpoint.created_at).all(),
+        projects=Project.query.order_by(Project.name).all())
+
+
+@system_bp.route("/integrations/tokens", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_api_token():
+    """Mint a CI bearer credential. The plaintext token is shown ONCE
+    via flash — only its SHA-256 is stored; loss means re-mint."""
+    import hashlib
+    import json as _json
+    import secrets as _secrets
+    from ..execution import ApiToken
+    name = (request.form.get("name") or "").strip()
+    scope = request.form.get("scope") or "read"
+    if not name or scope not in ("read", "run"):
+        flash("Token name and a valid scope (read|run) are required.",
+              "error")
+        return redirect(url_for("system.integrations_page"))
+    projects = _json.dumps(request.form.getlist("project_ids"))
+    token = "to_" + _secrets.token_hex(24)
+    row = ApiToken(name=name, scope=scope, allowed_projects=projects,
+                   token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                   created_by=current_user.username)
+    db.session.add(row)
+    db.session.commit()
+    record_audit(current_user.username, "api.token.created",
+                 f"{name} scope={scope}")
+    flash(f"API token for {name!r} — store it now, it will not be "
+          f"shown again: {token}", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/tokens/<token_id>/revoke",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def revoke_api_token(token_id):
+    from ..execution import ApiToken, utcnow
+    row = db.session.get(ApiToken, token_id)
+    if row is None:
+        abort(404)
+    if row.revoked_at is None:
+        row.revoked_at = utcnow()
+        db.session.commit()
+        record_audit(current_user.username, "api.token.revoked", row.name)
+        flash(f"Token {row.name!r} revoked.", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/webhooks", methods=["POST"])
+@role_required(Role.ADMIN)
+def create_webhook():
+    """Subscribe a URL to execution-state notifications. The optional
+    HMAC key is generated into the encrypted secret store — the
+    endpoint row only references its name."""
+    import json as _json
+    import secrets as _secrets
+    from ..execution import WebhookEndpoint
+    from .. import secrets_store
+    name = (request.form.get("name") or "").strip()
+    url = (request.form.get("url") or "").strip()
+    events = ",".join(e.strip().lower() for e in
+                      (request.form.get("events") or "").split(",")
+                      if e.strip()) or "completed,failed,canceled"
+    if not name or not url.startswith(("http://", "https://")):
+        flash("Webhook name and an http(s) URL are required.", "error")
+        return redirect(url_for("system.integrations_page"))
+    ep = WebhookEndpoint(
+        name=name, url=url, events=events,
+        project_scope=_json.dumps(request.form.getlist("project_ids")),
+        created_by=current_user.username)
+    db.session.add(ep)
+    db.session.flush()
+    if request.form.get("sign"):
+        ref = f"webhook-{ep.id[:12]}"
+        secrets_store.store_secret(current_app, ref, "webhook",
+                                   _secrets.token_hex(32))
+        ep.secret_ref = ref
+    db.session.commit()
+    record_audit(current_user.username, "webhook.endpoint.created",
+                 f"{name} -> {url} events={events}")
+    flash(f"Webhook {name!r} created.", "info")
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/webhooks/<endpoint_id>/toggle",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def toggle_webhook(endpoint_id):
+    from ..execution import WebhookEndpoint
+    ep = db.session.get(WebhookEndpoint, endpoint_id)
+    if ep is None:
+        abort(404)
+    ep.enabled = not ep.enabled
+    db.session.commit()
+    record_audit(current_user.username,
+                 "webhook.endpoint." + ("enabled" if ep.enabled
+                                        else "disabled"), ep.name)
+    return redirect(url_for("system.integrations_page"))
+
+
+@system_bp.route("/integrations/webhooks/<endpoint_id>/delete",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def delete_webhook(endpoint_id):
+    from ..execution import WebhookEndpoint
+    from .. import secrets_store
+    ep = db.session.get(WebhookEndpoint, endpoint_id)
+    if ep is None:
+        abort(404)
+    if ep.secret_ref:
+        secrets_store.delete_secret(ep.secret_ref)
+    db.session.delete(ep)
+    db.session.commit()
+    record_audit(current_user.username, "webhook.endpoint.deleted",
+                 ep.name)
+    flash(f"Webhook {ep.name!r} deleted.", "info")
+    return redirect(url_for("system.integrations_page"))
 
 
 @system_bp.route("/integrations/save", methods=["POST"])
@@ -370,12 +493,9 @@ def reporting_save():
     return redirect(url_for("system.reporting_page"))
 
 
-@system_bp.route("/logs")
-@role_required(Role.ADMIN)
-def operational_logs():
-    """Admin -> Operational Logs — structured events, filters, live
-    tail, bounded export. Separate from the Audit trail."""
-    from .. import logs
+def _op_log_filters():
+    """Current Operational Logs filters — shared by the page, pagination
+    and export so the exported scope always matches the view."""
     filters = {
         "severity": request.args.get("severity") or None,
         "component": request.args.get("component") or None,
@@ -386,17 +506,81 @@ def operational_logs():
         "correlation_id": request.args.get("corr") or None,
         "q": request.args.get("q") or None,
     }
+    from .. import usertz as _utz
+    for bound in ("since", "until"):
+        raw = (request.args.get(bound) or "").strip()
+        if raw:
+            if len(raw) == 10:
+                # local calendar day → UTC instant (viewer zone)
+                try:
+                    lo, hi = _utz.local_day_bounds(raw, raw,
+                                                   _utz.request_tz())
+                    filters[bound] = (lo if bound == "since"
+                                      else hi).replace(tzinfo=None)
+                except ValueError:
+                    pass
+                continue
+            try:
+                filters[bound] = datetime.fromisoformat(raw)
+            except ValueError:
+                pass
+    return filters
+
+
+# Filter key -> query-string parameter name (page, pagination, export).
+_OP_FILTER_PARAMS = {
+    "severity": "severity", "component": "component",
+    "category": "category", "project_id": "project",
+    "execution_id": "execution", "worker_id": "worker",
+    "correlation_id": "corr", "q": "q",
+    "since": "since", "until": "until",
+}
+
+
+def _op_filter_qs(filters: dict) -> str:
+    from urllib.parse import urlencode
+    pairs = {}
+    for key, param in _OP_FILTER_PARAMS.items():
+        v = filters.get(key)
+        if v in (None, ""):
+            continue
+        pairs[param] = v.isoformat() if hasattr(v, "isoformat") else v
+    return urlencode(pairs)
+
+
+@system_bp.route("/logs")
+@role_required(Role.ADMIN)
+def operational_logs():
+    """Admin -> Operational Logs — structured events, filters, live
+    tail, CSV export of ALL matching rows. Separate from Audit."""
+    from .. import logs
+    filters = _op_log_filters()
     page = request.args.get("page", 1, type=int) or 1
     paged = logs.query(filters).paginate(
         page=page, per_page=50, error_out=False)
     components = [r[0] for r in
                   db.session.query(logs.OperationalLog.component)
                   .distinct()]
+    from .. import log_output
+    sink = log_output.status() if _sink_enabled() else None
     return render_template("system/operational_logs.html",
                            rows=paged.items, page=paged,
-                           filters=filters, components=components,
+                           filters=filters, filter_qs=_op_filter_qs(filters),
+                           components=components,
                            severities=logs.SEVERITIES,
-                           categories=logs.CATEGORIES)
+                           categories=logs.CATEGORIES,
+                           sink_status=sink)
+
+
+def _sink_enabled() -> bool:
+    """Is any structured-output sink configured? (health row only shows
+    when relevant — counters are per-process, see external-logging.md)"""
+    from .. import settings as _sm
+    try:
+        return bool(_sm.get("logs_json_enabled") or
+                    _sm.get("logs_stdout_enabled"))
+    except Exception:
+        return False
 
 
 @system_bp.route("/logs/tail")
@@ -417,7 +601,10 @@ def operational_logs_tail():
                     logs.OperationalLog.occurred_at)
         except ValueError:
             pass
+    from .. import usertz as _utz
+    _tzv = _utz.request_tz()
     rows = [{"id": r.id, "ts": r.occurred_at.isoformat(),
+             "ts_local": _utz.fmt_local(r.occurred_at, _tzv),
              "severity": r.severity, "component": r.component,
              "category": r.category, "project": r.project_id,
              "execution": r.execution_id, "worker": r.worker_id,
@@ -425,45 +612,115 @@ def operational_logs_tail():
              "message": logs.redact(r.message)}
             for r in q.limit(200)]
     return {"rows": rows,
-            "generated_at": datetime.now(timezone.utc).isoformat()}
+            "timezone": _utz.request_tz_name(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at_local": _utz.fmt_local(
+                datetime.now(timezone.utc), _tzv)}
 
 
 @system_bp.route("/logs/export")
 @role_required(Role.ADMIN)
 def operational_logs_export():
-    """Bounded filtered export — JSONL or CSV, secrets redacted,
-    CSV-escape-safe. Export action is audited (no log content)."""
-    from .. import logs
+    """Export ALL rows matching the current filters — inline CSV/JSONL
+    when bounded, a background job for large exports. Audited with
+    filters + count (never content); nothing is silently truncated."""
+    from .. import logexport
+    from .. import usertz as _utz
     from ..models import record_audit
     fmt = request.args.get("format", "csv")
     if fmt not in ("csv", "jsonl"):
         fmt = "csv"
-    filters = {
-        "severity": request.args.get("severity") or None,
-        "component": request.args.get("component") or None,
-        "category": request.args.get("category") or None,
-        "q": request.args.get("q") or None,
-    }
-    rows = logs.query(filters).limit(10000).all()
-    record_audit(current_user.username, "logs.export",
-                 f"{fmt} {len(rows)} rows")
-    mime = ("application/x-ndjson" if fmt == "jsonl"
-            else "text/csv")
-    return Response(logs.export(rows, fmt),
-                    mimetype=mime,
-                    headers={"Content-Disposition":
-                             f"attachment; filename=oplog.{fmt}"})
+    filters = _op_log_filters()
+    try:
+        mode, job, count, cutoff, max_id = logexport.request_export(
+            "operational", filters, current_user.username,
+            tz_name=_utz.request_tz_name())
+    except logexport.TooManyRowsError as exc:
+        record_audit(current_user.username, "logs.export.denied",
+                     f"operational export refused: {exc}")
+        flash(f"Export refused: {exc}. Narrow the filters.", "error")
+        return redirect(url_for("system.operational_logs",
+                                **request.args))
+    except logexport.BusyError:
+        flash("Another large export is still running — retry shortly.",
+              "error")
+        return redirect(url_for("system.operational_logs",
+                                **request.args))
+    record_audit(
+        current_user.username, "logs.export",
+        f"operational {fmt} export: {count} rows, cutoff "
+        f"{cutoff.isoformat()}, filters {json.dumps(filters, default=str)}"
+        + (f", job {job.id}" if job else ""))
+    if mode == "job":
+        return redirect(url_for("system.log_export_status",
+                                job_id=job.id))
+    fname = logexport.export_filename("operational", "inline", cutoff)
+    app = current_app._get_current_object()
+    if fmt == "jsonl":
+        return Response(
+            logexport.stream_jsonl(app, "operational", filters, cutoff,
+                                   max_id),
+            mimetype="application/x-ndjson",
+            headers={"Content-Disposition":
+                     f"attachment; filename={fname}l"})
+    return Response(
+        logexport.stream_csv(app, "operational", filters, cutoff, max_id,
+                             tz_name=_utz.request_tz_name()),
+        mimetype="text/csv; charset=utf-8",
+        headers={"Content-Disposition":
+                 f"attachment; filename={fname}"})
+
+
+@system_bp.route("/log-exports/<job_id>")
+@role_required(Role.ADMIN)
+def log_export_status(job_id):
+    """Export-job status — scope, count, download when ready."""
+    from .. import logexport
+    logexport.purge_expired()
+    job = logexport.get_job(job_id)
+    if job is None:
+        abort(404)
+    return render_template("system/log_export.html", job=job)
+
+
+@system_bp.route("/log-exports/<job_id>/download")
+@role_required(Role.ADMIN)
+def log_export_download(job_id):
+    """Protected download — Administrator role rechecked by the
+    decorator, job must be complete and unexpired."""
+    from .. import logexport
+    from ..models import record_audit
+    logexport.purge_expired()
+    job = logexport.get_job(job_id)
+    if job is None:
+        abort(404)
+    expires = job.expires_at
+    if expires is not None and expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    if job.status != "done" or expires < datetime.now(timezone.utc):
+        abort(410)
+    path = logexport.job_file(job)
+    if path is None:
+        abort(404)
+    record_audit(current_user.username, "logs.export.download",
+                 f"{job.kind} export {job.id[:8]}: {job.row_count} rows")
+    return send_file(path, mimetype="text/csv",
+                     as_attachment=True, download_name=job.file_name)
 
 
 @system_bp.route("/users")
 @role_required(Role.ADMIN)
 def users():
     from ..models import User
+    from ..execution import Project
     record_audit(current_user.username, "page.users")
+    from ..usertz import tz_choice_groups
     return render_template(
         "system/users.html",
         users=User.query.order_by(User.username).all(),
-        form=UserForm(), reset_form=ResetForm(), apply_form=ApplyForm())
+        projects=Project.query.order_by(Project.name).all(),
+        form=UserForm(), reset_form=ResetForm(), apply_form=ApplyForm(),
+        tz_groups=tz_choice_groups(), tz_row_form=UserTimezoneForm())
 
 
 @system_bp.route("/users", methods=["POST"])
@@ -480,12 +737,22 @@ def create_user():
             username=username,
             display_name=form.display_name.data or "",
             role=Role(form.role.data),
+            timezone=(form.timezone.data or "UTC").strip(),
             must_change_password=True,  # mandatory first change (§16)
         )
         user.set_password(form.temporary_password.data)
+        if user.role != Role.ADMIN:
+            from ..execution import Project
+            valid = {p.id for p in
+                     Project.query.with_entities(Project.id).all()}
+            user.set_assigned_projects(
+                {pid for pid in request.form.getlist("project_ids")
+                 if pid in valid})
         db.session.add(user)
         db.session.commit()
-        record_audit(current_user.username, "user.created", username)
+        record_audit(current_user.username, "user.created",
+                     f"{username} ({len(user.assigned_project_ids())} "
+                     "projects assigned)")
         flash(f"User {username} created; first login requires a password "
               "change.", "info")
     return redirect(url_for("system.users"))
@@ -531,6 +798,112 @@ def deactivate_user(user_id):
     db.session.commit()
     record_audit(current_user.username, "user.deactivated", user.username)
     return redirect(url_for("system.users"))
+
+
+@system_bp.route("/users/<int:user_id>/delete", methods=["POST"])
+@role_required(Role.ADMIN)
+def delete_user(user_id):
+    """Remove the account row. Executions/audit refer to usernames, not
+    user ids, so history stays intact. Guards: never your own account,
+    never the last active Admin."""
+    from ..models import User
+    ApplyForm().validate_on_submit()
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    if user.id == current_user.id:
+        flash("Cannot delete your own account.", "error")
+        return redirect(url_for("system.users"))
+    if user.role == Role.ADMIN:
+        others = User.query.filter(
+            User.role == Role.ADMIN, User.is_active, User.id != user.id
+        ).count()
+        if others == 0:
+            flash("Cannot delete the last active Admin.", "error")
+            return redirect(url_for("system.users"))
+    name = user.username
+    db.session.delete(user)
+    db.session.commit()
+    record_audit(current_user.username, "user.deleted", name)
+    flash(f"User {name} deleted.", "info")
+    return redirect(url_for("system.users"))
+
+
+@system_bp.route("/users/<int:user_id>/access")
+@role_required(Role.ADMIN)
+def user_access(user_id):
+    """Admin → Users → Edit → Project access: one user's project
+    membership, edited as a checked list. Administrators are shown
+    'all projects through role' — no ineffective deny controls."""
+    from ..models import User
+    from ..execution import Project
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    projects = Project.query.order_by(Project.name).all()
+    return render_template(
+        "system/user_access.html", u=user, projects=projects,
+        assigned=set(user.assigned_project_ids()),
+        apply_form=ApplyForm())
+
+
+@system_bp.route("/users/<int:user_id>/access", methods=["POST"])
+@role_required(Role.ADMIN)
+def save_user_access(user_id):
+    from ..models import User
+    from ..execution import Project
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    ApplyForm().validate_on_submit()
+    if user.role == Role.ADMIN:
+        flash("Administrators access all projects through the role "
+              "— nothing to assign.", "info")
+        return redirect(url_for("system.user_access", user_id=user.id))
+    before = set(user.assigned_project_ids())
+    valid = {p.id for p in Project.query.with_entities(
+        Project.id).all()}
+    after = {pid for pid in
+             request.form.getlist("project_ids") if pid in valid}
+    user.set_assigned_projects(after)
+    db.session.commit()
+    record_audit(
+        current_user.username, "user.project_access",
+        f"{user.username}: {sorted(before)} -> {sorted(after)}")
+    flash(f"Project access for {user.username} saved "
+          f"({len(after)} assigned).", "info")
+    if request.form.get("next") == "users":
+        return redirect(url_for("system.users"))
+    return redirect(url_for("system.user_access", user_id=user.id))
+
+
+@system_bp.route("/users/<int:user_id>/timezone", methods=["POST"])
+@role_required(Role.ADMIN)
+def save_user_timezone(user_id):
+    """Change a user's display zone — audited; touches neither the
+    role nor project memberships."""
+    from ..models import User
+    user = db.session.get(User, user_id)
+    if user is None:
+        abort(404)
+    form = UserTimezoneForm()
+    if form.validate_on_submit():
+        new = form.timezone.data.strip()
+        old = user.timezone or "UTC"
+        if new != old:
+            user.timezone = new
+            db.session.commit()
+            record_audit(current_user.username, "user.timezone",
+                         f"{user.username}: {old} -> {new}")
+            flash(f"Display time zone for {user.username} set to "
+                  f"{new}.", "info")
+    else:
+        for errs in form.errors.values():
+            for e in errs:
+                flash(str(e), "error")
+    if request.form.get("next") == "users":
+        return redirect(url_for("system.users"))
+    return redirect(url_for("system.user_access", user_id=user.id))
 
 
 # ---------- credentials (§12) ----------
@@ -1085,6 +1458,11 @@ def _pb_endpoint_hints() -> list:
 
 def _render_infrastructure(runner_form, runtime_form):
     from ..execution import Runner, RuntimeConnection
+    try:
+        from .. import runner_readiness
+        runner_readiness.poll_all_pending()
+    except Exception:
+        pass  # readiness reconcile must never break the page
     from ..execution import Project
     runner_form.allowed_projects.choices = [
         (p.id, p.name) for p in Project.query.all()]
@@ -1155,6 +1533,11 @@ def create_runner():
         (p.id, p.name) for p in Project.query.all()]
     if form.validate_on_submit():
         kind = form.target_type.data or "local"
+        if Runner.query.filter_by(
+                name=form.name.data.strip()).first() is not None:
+            flash("An execution target with that name already "
+                  "exists.", "error")
+            return redirect(url_for("system.infrastructure"))
         runner = Runner(
             name=form.name.data.strip(),
             description=form.description.data or "",
@@ -1484,7 +1867,13 @@ def create_runtime():
             os_arch="local",
             max_slots=4)
         db.session.add(_runner); db.session.flush()
-    if form.validate_on_submit():
+    _kind = (request.form.get("runtime_kind") or "kre").strip()[:16]
+    if _kind not in ("kre", "playwright", "cypress", "robot", "pytest"):
+        _kind = "kre"
+    kre_missing_path = (
+        _kind in ("kre", "robot", "pytest")
+        and not (form.executable_path.data or "").strip())
+    if form.validate_on_submit() and not kre_missing_path:
         db.session.add(RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
@@ -1498,6 +1887,7 @@ def create_runtime():
             credential_file=(form.credential_file.data or "").strip(),
 
             concurrency=form.concurrency.data or 1,
+            runtime_kind=_kind,
         ))
         db.session.commit()
         record_audit(current_user.username, "runtime.registered",
@@ -1508,6 +1898,11 @@ def create_runtime():
             for k, v in form.errors.items())
         if errs:
             flash(f"Runtime not registered — {errs}", "error")
+        if kre_missing_path:
+            flash("KRE and Robot runtimes require the executable "
+                  "path on the selected worker (KRE binary or "
+                  "Python interpreter).", "error")
+        if errs or kre_missing_path:
             from ..execution import Project as _P
             runner_form = RunnerForm()
             runner_form.allowed_projects.choices = [
@@ -1553,6 +1948,39 @@ def probe_runtime(runtime_id):
     return redirect(url_for("system.infrastructure"))
 
 
+@system_bp.route("/infrastructure/runtimes/<runtime_id>/readiness",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def runtime_readiness(runtime_id):
+    """Check runner readiness on the TARGET — submits the probe on the
+    runtime's own builder under the run account (§2.6.0-3). Installs
+    nothing, runs no tests. The result lands in last_diagnostic on the
+    next poll — the infrastructure page polls pending probes."""
+    from ..execution import RuntimeConnection
+    from .. import runner_readiness
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    if (rt.runtime_kind or "kre") == "kre" \
+            or not rt.runner or rt.runner.connection_mode == "local":
+        flash("Runner readiness applies to Playwright/Cypress/Robot "
+              "runtimes on remote targets — KRE uses the local "
+              "executable probe instead.", "error")
+        return redirect(url_for("system.infrastructure"))
+    if runner_readiness.pending(rt):
+        flash("A readiness check is already running for this "
+              "runtime.", "info")
+        return redirect(url_for("system.infrastructure"))
+    ok, msg = runner_readiness.submit(
+        rt, request.form.get("app_url", ""),
+        required_libs=request.form.get("required_libs", ""))
+    flash(f"Readiness check submitted (run {msg}) — the result "
+          "appears here once the probe completes."
+          if ok else f"Readiness check failed to submit: {msg}",
+          "info" if ok else "error")
+    record_audit(current_user.username, "runtime.readiness", rt.name)
+    return redirect(url_for("system.infrastructure"))
 
 
 @system_bp.route("/runners/<runner_id>/edit", methods=["POST"])
@@ -1576,6 +2004,9 @@ def edit_runner(runner_id):
     ms = request.form.get("max_slots")
     if ms:
         runner.max_slots = int(ms)
+    mp = request.form.get("max_procs")
+    if mp is not None:
+        runner.max_procs = int(mp) if mp.strip() else None
     ls = request.form.get("license_slots")
     if ls is not None:
         runner.license_slots = int(ls) if ls.strip() else None
@@ -1646,8 +2077,10 @@ def edit_runtime(runtime_id):
     rt.description = request.form.get("description", rt.description)
     ep = request.form.get("executable_path")
     wr = request.form.get("workspace_root")
-    probe_changed = (ep is not None and ep != rt.executable_path) or (
-        wr is not None and wr != rt.workspace_root)
+    rn = request.form.get("runner_id")
+    probe_changed = ((ep is not None and ep != rt.executable_path) or (
+        wr is not None and wr != rt.workspace_root) or (
+        rn is not None and rn != (rt.runner_id or "")))
     if ep is not None:
         rt.executable_path = ep
     if wr is not None:
@@ -1662,10 +2095,16 @@ def edit_runtime(runtime_id):
     conc = request.form.get("concurrency")
     if conc:
         rt.concurrency = int(conc)
+    if rn is not None and rn:
+        rt.runner_id = rn
     if probe_changed:
         rt.detected_version = ""
         from ..execution import utcnow
         rt.last_check_at = utcnow()
+        # Machine-readable markers are invalidated too — a stale
+        # opt_xdist/opt_pabot must never authorize a parallel run
+        # against changed interpreter/workspace/target.
+        rt.probe_json = ""
         rt.last_diagnostic = (
             "re-check required — probe-relevant config changed")
     db.session.commit()
@@ -1730,3 +2169,228 @@ def licence_resume():
     # automation/links do not 404.
     flash("Licence status is informational — dispatch is not held.", "info")
     return redirect(url_for("system.licence_admin"))
+
+
+# -------------------------------------------------------------------------
+# Admin -> System -> Backup & restore (2.6 settings-only scope).
+#
+# Every sensitive action re-verifies the acting admin's password unless a
+# re-auth happened within REAUTH_WINDOW seconds. On a FRESH install (no
+# users yet) restore is authorized instead by the one-time, local,
+# time-limited setup token in <instance>/.restore-setup-token — there is
+# no unauthenticated network restore endpoint. All actions are audited;
+# secrets and passphrases never enter logs/audit.
+# -------------------------------------------------------------------------
+
+import io
+import time as _time
+from pathlib import Path
+from flask import session as _session
+from .. import backup as _bk
+from ..models import User
+from .forms import (BackupCreateForm, RestoreApplyForm, RestoreStageForm)
+
+
+def _fresh_install() -> bool:
+    """Setup not yet completed — the bootstrap admin row already exists,
+    so 'no users' is not the right signal for first-run."""
+    return _bk.unconfigured()
+
+
+def _reauth_ok() -> bool:
+    return _time.time() - _session.get("reauth_at", 0) < _bk.REAUTH_WINDOW
+
+
+def _verify_credential(app, raw: str) -> tuple:
+    """Returns (authorized, actor). Fresh install: setup token. Otherwise:
+    admin + recent re-auth (or inline password, which sets the window)."""
+    if _fresh_install():
+        if _bk.check_setup_token(app, (raw or "").strip()):
+            return True, "setup-token(fresh-install)"
+        return False, ""
+    if not (current_user.is_authenticated
+            and current_user.role == Role.ADMIN):
+        return False, ""
+    if _reauth_ok() or (raw and current_user.check_password(raw)):
+        _session["reauth_at"] = _time.time()
+        return True, current_user.username
+    return False, current_user.username
+
+
+def _admin_or_abort():
+    if not (current_user.is_authenticated
+            and current_user.role == Role.ADMIN):
+        abort(403)
+
+
+@system_bp.route("/backup")
+def backup_page():
+    app = current_app._get_current_object()
+    fresh = _fresh_install()
+    if not fresh:
+        _admin_or_abort()
+    create_form = BackupCreateForm()
+    stage_form = RestoreStageForm()
+    return render_template(
+        "system/backup.html", fresh=fresh,
+        last=_bk.last_backup_info(app), counts=_bk.section_counts(),
+        excluded=_bk.EXCLUDED, min_pp=_bk.MIN_PASSPHRASE,
+        create_form=create_form, stage_form=stage_form,
+        setup_token_hint=_fresh_install())
+
+
+@system_bp.route("/backup/create", methods=["POST"])
+@role_required(Role.ADMIN)
+def backup_create():
+    app = current_app._get_current_object()
+    form = BackupCreateForm()
+    if not form.validate_on_submit():
+        flash("Backup request invalid — check the passphrase fields.",
+              "error")
+        return redirect(url_for("system.backup_page"))
+    if form.passphrase.data != form.confirm.data:
+        flash("Backup passphrases do not match.", "error")
+        return redirect(url_for("system.backup_page"))
+    ok, _ = _verify_credential(app, form.password.data or "")
+    if not ok:
+        record_audit(current_user.username, "backup.create_denied",
+                     "re-authentication failed")
+        db.session.commit()
+        flash("Re-authentication failed — enter your current password.",
+              "error")
+        return redirect(url_for("system.backup_page"))
+    try:
+        data = _bk.create_backup(app, form.passphrase.data)
+    except _bk.BackupError as exc:
+        record_audit(current_user.username, "backup.create_failed", str(exc))
+        db.session.commit()
+        flash(str(exc), "error")
+        return redirect(url_for("system.backup_page"))
+    header = _bk.parse_header(data)
+    _bk.record_backup_marker(app, current_user.username, header)
+    record_audit(current_user.username, "backup.created",
+                 f"format=v{header['format_version']} "
+                 f"app={header['app_version']} sections="
+                 f"{len(_bk.section_counts())}")
+    db.session.commit()
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=_bk.backup_filename(app),
+                     mimetype="application/octet-stream")
+
+
+@system_bp.route("/backup/restore/stage", methods=["POST"])
+def backup_restore_stage():
+    app = current_app._get_current_object()
+    form = RestoreStageForm()
+    ok, actor = _verify_credential(
+        app, form.credential.data if form.credential.data else "")
+    if not ok:
+        record_audit(current_user.username if current_user.is_authenticated
+                     else "anonymous", "backup.restore_denied",
+                     "authorization failed at staging")
+        db.session.commit()
+        abort(403)
+    if not form.validate_on_submit():
+        flash("Restore request invalid — a .tobackup file and its "
+              "passphrase are required.", "error")
+        return redirect(url_for("system.backup_page"))
+    data = form.backup_file.data.read(_bk.MAX_ARCHIVE_BYTES + 1)
+    try:
+        header = _bk.parse_header(data)
+        payload = _bk.decrypt_backup(data, form.passphrase.data)
+    except _bk.BackupError as exc:
+        record_audit(actor, "backup.validate_failed", str(exc))
+        db.session.commit()
+        flash(str(exc), "error")
+        return redirect(url_for("system.backup_page"))
+    record_audit(actor, "backup.validate_ok",
+                 f"format=v{header['format_version']} "
+                 f"app={header['app_version']}")
+    db.session.commit()
+    stage_id = _bk.stage_backup(app, data)
+    apply_form = RestoreApplyForm(
+        staged_id=stage_id,
+        mode="fresh" if _fresh_install() else "replace")
+    return render_template(
+        "system/backup_restore.html",
+        manifest=payload["manifest"], header=header,
+        staged_id=stage_id, apply_form=apply_form,
+        fresh=_fresh_install())
+
+
+@system_bp.route("/backup/restore/cancel/<stage_id>", methods=["POST"])
+def backup_restore_cancel(stage_id):
+    app = current_app._get_current_object()
+    try:
+        _bk.staged_path(app, stage_id).unlink(missing_ok=True)
+    except _bk.BackupError:
+        pass
+    return redirect(url_for("system.backup_page"))
+
+
+@system_bp.route("/backup/restore/apply", methods=["POST"])
+def backup_restore_apply():
+    app = current_app._get_current_object()
+    form = RestoreApplyForm()
+    ok, actor = _verify_credential(app, form.credential.data or "")
+    if not ok:
+        record_audit(current_user.username if current_user.is_authenticated
+                     else "anonymous", "backup.restore_denied",
+                     "authorization failed at apply")
+        db.session.commit()
+        abort(403)
+    if not form.validate_on_submit():
+        flash("Restore confirmation invalid.", "error")
+        return redirect(url_for("system.backup_page"))
+    was_fresh = _fresh_install()
+    mode = "fresh" if was_fresh else "replace"
+    try:
+        path = _bk.staged_path(app, form.staged_id.data)
+        data = path.read_bytes()
+        payload = _bk.decrypt_backup(data, form.passphrase.data)
+    except _bk.BackupError as exc:
+        record_audit(actor, "backup.restore_failed", str(exc))
+        db.session.commit()
+        flash(str(exc), "error")
+        return redirect(url_for("system.backup_page"))
+    if mode == "replace":
+        if _active_work_count():
+            flash("Restore deferred — executions are still active. Wait "
+                  "for them to finish or cancel them first.", "error")
+            return redirect(url_for("system.backup_page"))
+        # Automatic pre-restore safety backup, protected the same way.
+        safety = _bk.create_backup(app, form.passphrase.data)
+        sname = _bk.backup_filename(app).replace(
+            "settings-", "pre-restore-")
+        (Path(_bk.safety_backup_dir(app)) / sname).write_bytes(safety)
+        record_audit(actor, "backup.safety_created", sname)
+        db.session.commit()
+    try:
+        report = _bk.apply_restore(app, payload, mode, actor)
+    except Exception as exc:
+        flash(f"Restore failed — previous configuration kept intact. "
+              f"({exc})", "error")
+        return redirect(url_for("system.backup_page"))
+    path.unlink(missing_ok=True)
+    _bk.consume_setup_token(app)
+    # Keep the acting admin's own re-authenticated session alive; every
+    # other session was revoked by the session_version bump. The old ORM
+    # object was replaced by the restore — re-query, never dereference it.
+    if actor and not actor.startswith("setup-token"):
+        me = User.query.filter_by(username=actor).first()
+        if me is not None:
+            _session["session_version"] = me.session_version
+            _session["reauth_at"] = _time.time()
+    # Redirect (PRG): this request's current_user is a detached pre-restore
+    # row — a fresh request reloads it cleanly, and a reload can't re-apply.
+    _session["restore_report"] = {"report": report, "mode": mode,
+                                  "fresh": was_fresh}
+    return redirect(url_for("system.backup_restore_report"))
+
+
+@system_bp.route("/backup/restore/report")
+def backup_restore_report():
+    stashed = _session.pop("restore_report", None)
+    if stashed is None:
+        return redirect(url_for("system.backup_page"))
+    return render_template("system/backup_report.html", **stashed)

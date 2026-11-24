@@ -65,7 +65,6 @@ SUPPORTED_BROWSERS = {
 # Remote WebDriver: an explicit opt-in that overrides local browser use.
 # url/driver-type/capabilities are passed verbatim to KRE — the adapter
 # validates shape, not reachability.
-DEFAULT_BROWSER = "chrome_headless"
 
 
 def normalize_browser(value: str, os_arch: str = "") -> str:

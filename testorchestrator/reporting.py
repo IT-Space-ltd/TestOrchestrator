@@ -29,7 +29,6 @@ from .execution import Artifact, Execution
 from .results import build_evidence_manifest, sha256_file
 from .adapters import kre as kre_adapter
 
-REPORT_STATUSES = {"pending", "ready", "partial", "missing", "failed"}
 ENTRY_CANDIDATES = ("report.html", "index.html")
 
 

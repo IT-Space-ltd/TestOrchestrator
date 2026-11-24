@@ -1,10 +1,12 @@
-# TestOrchestrator 2.5.1 — User Manual
+# TestOrchestrator 2.6.0 — User Manual
 
-Applies to **TestOrchestrator 2.5.1** (verified build commit
-`1adf71b8d5f8`).
+Applies to **TestOrchestrator 2.6.0** (feature release — Robot
+Framework, pytest, Playwright and Cypress runners join KRE).
 
-All screenshots were captured from a real Linux installation of the
-published release package using safe demonstration data. Application
+All screenshots were captured from a real Linux install of the
+package or a seeded documentation instance of the same codebase —
+always with safe demonstration data (see the Screenshot Index for
+each frame's provenance). Application
 screens show the **user's point of view** — captured as a
 non-administrator account (Test Manager), so the navigation and
 controls are exactly what a regular user sees; administrator-only
@@ -32,13 +34,14 @@ software, that is stated on the screenshot caption and in the text.
   - [3.1 Create and edit a test suite](#31-create-and-edit-a-test-suite)
   - [3.2 Create and manage a release](#32-create-and-manage-a-release)
   - [3.3 Create a plan (schedule)](#33-create-a-plan-schedule)
-- [4. Connecting KRE and running tests](#4-connecting-kre-and-running-tests)
+- [4. Connecting runtimes and running tests](#4-connecting-runtimes-and-running-tests)
   - [4.1 What must exist first](#41-what-must-exist-first)
   - [4.2 Starting a suite or collection](#42-starting-a-suite-or-collection)
   - [4.3 Monitoring an execution](#43-monitoring-an-execution)
   - [4.4 Cancellation, retry, and deletion](#44-cancellation-retry-and-deletion)
   - [4.5 Reading outcomes: test failure vs. infrastructure failure](#45-reading-outcomes-test-failure-vs-infrastructure-failure)
   - [4.6 The application-licence notice](#46-the-application-licence-notice)
+  - [4.7 Step by step — Robot, pytest, Playwright, Cypress](#47-step-by-step--robot-pytest-playwright-cypress)
 - [5. Historical-result import](#5-historical-result-import)
   - [5.1 Starting an import](#51-starting-an-import)
   - [5.2 The preview](#52-the-preview)
@@ -427,7 +430,7 @@ Missed/blocked targets surface the same way as manual runs — check
 
 ---
 
-## 4. Connecting KRE and running tests
+## 4. Connecting runtimes and running tests
 
 ### 4.1 What must exist first
 
@@ -439,9 +442,12 @@ A run needs all of the following — an administrator sets these up
 2. **A registered target** — an enabled execution target in
    coordinator, advertising labels such as `kre=<label>` (plus
    automatic `os`/`arch` labels).
-3. **A runtime connection (KRE installation)** — the registered path
-   to a KRE executable *on that target*, its workspace root, and the
-   runner binding that selects the target.
+3. **A runtime** — the registered executable *on that target*: a
+   KRE installation, a Python interpreter carrying Robot Framework
+   or pytest (`robot`/`pytest` kinds), or the `npx` binary used to
+   launch Playwright/Cypress (`playwright`/`cypress` kinds). The
+   runtime carries its workspace root and the runner binding that
+   selects the target.
 
 ![Infrastructure — execution targets and KRE registration](Screenshot-Doc/admin/infrastructure.png)
 
@@ -468,12 +474,49 @@ implemented settings:
 - **Execution profile** — the Katalon profile name (`default` if
   empty).
 - **Runner** — which configured runner to dispatch to.
-- **Runtime (KRE installation)** — which registered executable the
-  worker should invoke.
+- **Runtime** — which registered runtime the target invokes. Entries
+  tagged `[robot]` are Robot Framework runtimes (2.6.0): they launch
+  `python -m robot` with the configured Python interpreter inside the
+  staged project **on the selected target**. Robot Framework and the
+  project's libraries must already exist in that interpreter — there
+  is no browser selector for Robot (browsers are configured by the
+  project's libraries). The run form's Robot options select a suite
+  file/directory, `--test`/`--suite` names and `--include`/`--exclude`
+  tags. Native `output.xml`, `log.html`, `report.html` and the console
+  log appear under **Artifacts** alongside the normalized cases.
+  Entries tagged `[pytest]` are pytest runtimes (2.6.0): they launch
+  `python -m pytest --junitxml Reports/junit.xml` with the configured
+  Python interpreter inside the staged project **on the selected
+  target** — pytest and the project's dependencies must already exist
+  in that interpreter. The run form's pytest options map to `-k`
+  (keyword expression) and `-m` (marker expression); there is no
+  browser selector (browsers belong to the test project's fixtures).
+  Entries tagged `[playwright]` or `[cypress]` are the Node.js browser
+  runners (2.6.0): they launch `npx playwright test` /
+  `npx cypress run` inside the staged project **on the selected
+  target** — the tests and the browser run there, not on the
+  controller. Node.js, the project's framework dependencies, and
+  the browsers must already be installed on that target (a project
+  dependency is enough — no global install or agent is needed).
+  If a run rejects with a readiness-style error, ask the
+  administrator to run **Check runner readiness** on the
+  Infrastructure page — it reports exactly what the target is
+  missing (Node.js, the framework, a browser, or reachability of
+  the application URL).
+- **Browser** — for Playwright: `chromium`, `firefox`, `webkit`
+  (a `--project` of the same name, or the framework default when
+  empty). For Cypress: `chrome`, `firefox`, `edge`, `electron`,
+  `chromium` (`--browser` flag). Unsupported values reject the
+  run — they are never silently substituted.
 - **Timeout** — seconds before the run is considered timed out.
 
 Confirm to queue the execution. You are taken to the execution detail
-page.
+page. Playwright/Cypress runs produce the same result view as KRE
+runs: JUnit is parsed into per-case rows, and raw JUnit, console
+logs, traces, screenshots, and videos appear under **Artifacts**
+on the run details — including when assertions fail. A missing or
+unreadable report is shown as an environment/collection problem,
+never as a green run with zero tests.
 
 ### 4.3 Monitoring an execution
 
@@ -548,6 +591,90 @@ This is the **application** licence — separate from the KRE licence
 that must exist on each execution target (§4.1). An
 `Activation failed` result (§4.5) means the target's KRE licence, not
 the portal's application licence.
+
+### 4.7 Step by step — Robot, pytest, Playwright, Cypress
+
+This is the everyday "run my tests" walkthrough for the four
+non-KRE frameworks. You do not install anything — the
+administrator already registered the target and the runtime
+(Admin Manual §12.5–12.8). Your job is five clicks and the right
+three dropdowns.
+
+**Before you start, one thing must be true:** the test project is
+in a repository the project syncs (Git bindings tab) — the run
+stages *that* checkout on the target, not anything from your
+machine. If your suite does not appear under the project's
+**Inventory** tab, ask for a sync first.
+
+![Project inventory — discovered suites ready to run](Screenshot-Doc/user/project-inventory.png)
+
+#### Step 1 — open the item
+
+Projects → your project → **Inventory** (or **Test** → suites) →
+click the suite or collection you want to run — a Robot `.robot`
+file, a `test_*.py` file/package, a Playwright `.spec.*`, a
+Cypress `.cy.*` spec, or a collection grouping them. The item page
+shows a **Run** form.
+
+#### Step 2 — fill the form
+
+![Suite item — the Run form](Screenshot-Doc/user/discovered-suite-run.png)
+
+1. **Profile** — Katalon profiles only; leave `default` for the
+   four frameworks (they ignore it).
+2. **Release** — optional; attach the run to a release for
+   history/matrix grouping.
+3. **Worker** — which execution target runs the tests. `Auto`
+   picks the first compatible; pick a specific target when the
+   runtime lives only there (its name is whatever the
+   administrator gave it — e.g. `ci-worker-01` for a Buildbot
+   worker, `ci-ssh-01` for an SSH target; you cannot tell the
+   transport apart from this list and do not need to).
+4. **Runtime** — the framework. Entries are tagged:
+   `[robot]`, `[pytest]`, `[playwright]`, `[cypress]` — or untagged
+   for KRE. Pick the one matching your test file.
+5. **Browser** — **the field most often set wrong.**
+   - `robot` / `pytest`: there is no portal browser — leave
+     *framework default*; the project's own configuration decides.
+   - `playwright`: `chromium`, `firefox`, `webkit`, or framework
+     default.
+   - `cypress`: `chrome`, `firefox`, `edge`, `electron`,
+     `chromium`, or framework default.
+   - The KRE optgroup (Chrome headless etc.) is for KRE runs —
+     choosing it on a framework run is rejected at dispatch as a
+     config error. That rejection is correct behaviour: fix the
+     field, don't retry.
+6. **Framework options** — only the block matching your runtime
+   applies: *Robot options* = `--test` name, `--include`/`--exclude`
+   tags (comma-separated); *pytest options* = `-k` keyword and `-m`
+   marker expressions. Leave empty to run everything in the item.
+7. **Parallelism** — *framework default* is the safe choice;
+   `parallel N` uses Playwright `--workers`, pytest `-n` (needs
+   xdist on the target), Robot Pabot — and is refused if the
+   optional dependency was not detected on that target.
+8. **Timeout** — seconds before the run is considered timed out.
+
+#### Step 3 — submit and watch
+
+Submit → you land on the execution page; the state moves
+`queued` → `running` → a terminal state (§4.3). The tests execute
+**on the target**, not on the portal — a slow run is usually the
+target, the network, or the suite itself.
+
+#### Step 4 — read the result
+
+`completed` + outcome `failed` means *your tests* failed — open
+the results rows; `failed` with no cases means the run never
+reached the tests (§4.5): a readiness problem (missing Node,
+missing interpreter module, unreachable app) or a bad option —
+the run's log says which. Artifacts (JUnit XML, console log,
+`output.xml`/`log.html`/`report.html` for Robot, traces/videos for
+Playwright, per-spec JUnit for Cypress) are under **Artifacts**.
+
+**If the run never starts or fails at launch**, the fix is almost
+always on the target, not in the portal — ask the administrator
+for a **Check runner readiness** on that runtime (Admin Manual
+§6.6–6.8). The probe reports exactly what is missing.
 
 ---
 

@@ -3,7 +3,7 @@ flowchart LR
         BR["browser<br/>admin + end users"]
         GIT["Git repository"]
         KLS["Katalon licence service"]
-        SSHH["agentless SSH host<br/>sshd + KRE only"]
+        SSHH["agentless SSH host<br/>sshd + runtimes only<br/>(no agent installed)"]
     end
 
     subgraph HOST["Portal host (single machine, systemd)"]
@@ -34,9 +34,15 @@ flowchart LR
         direction TB
         WKR["buildbot-worker 4.3.0<br/>from bundled offline installer"]
         KRE["KRE / katalonc<br/>NOT SHIPPED - install<br/>and licence it yourself"]
+        NODE["Node.js runtime<br/>npx playwright test /<br/>npx cypress run"]
+        PYF["Python runtime<br/>python -m robot /<br/>python -m pytest"]
         WWS["job workspace +<br/>worker credential file"]
         WKR --> KRE
+        WKR --> NODE
+        WKR --> PYF
         KRE --> WWS
+        NODE --> WWS
+        PYF --> WWS
     end
 
     BR -->|HTTPS| CHR
@@ -51,5 +57,5 @@ flowchart LR
     classDef data fill:#fef9c3,stroke:#a16207,color:#0f172a
     class CHR,APP,RLAB,BBM,BBL,BBS,WKR bundled
     class BR,GIT,KLS,SSHH external
-    class KRE,WWS own
+    class KRE,NODE,PYF,WWS own
     class DB,FS data

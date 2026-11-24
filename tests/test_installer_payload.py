@@ -110,3 +110,149 @@ def test_isolated_payload_without_package_fails_import(tmp_path):
         capture_output=True, text=True, cwd=tmp_path)
     assert r.returncode != 0
     assert "No module named 'reporting_labs'" in r.stderr
+
+
+def test_buildbot_venv_uses_installed_runtime_not_extraction_dir(
+        tmp_path, monkeypatch):
+    """.run regression: the buildbot venv must be based on the
+    INSTALLED bundled runtime. sys.executable under the self-extracting
+    wrapper is the /tmp/to-install-* extraction dir — a venv created
+    from it has a dangling interpreter symlink after cleanup and the
+    master can never restart (203/EXEC)."""
+    payload = tmp_path / "opt" / "to"
+    rt = (payload / "3rdparty" / "python-runtime" / "python" / "bin"
+          / "python3")
+    rt.parent.mkdir(parents=True)
+    rt.write_text("")  # marker — bundled_python() only checks exists()
+    wheels = payload / "3rdparty" / "buildbot-wheels"
+    wheels.mkdir(parents=True)
+    calls = []
+    monkeypatch.setattr(inst.subprocess, "check_call",
+                        lambda cmd: calls.append(cmd))
+    inst.create_buildbot_venv_offline(
+        payload, wheels, payload / "buildbot-venv")
+    # first call: <installed-runtime> -m venv <bb_venv>
+    assert calls[0][0] == str(rt), \
+        f"venv based on {calls[0][0]!r} — must be the installed runtime"
+    assert calls[0][1:] == ["-m", "venv",
+                            str(payload / "buildbot-venv")]
+    # pip install runs under the NEW venv's python — offline, pinned
+    pip_call = calls[1]
+    assert pip_call[0].endswith("buildbot-venv/bin/python3") \
+        or pip_call[0].endswith("buildbot-venv\\Scripts\\python.exe")
+    assert "--no-index" in pip_call
+
+
+def test_bundled_python_resolves_payload_path(tmp_path):
+    """bundled_python returns the payload-local interpreter only —
+    never the running installer's own (extraction-dir) python."""
+    assert inst.bundled_python(tmp_path) is None
+    rt = (tmp_path / "3rdparty" / "python-runtime" / "python" / "bin"
+          / "python3")
+    rt.parent.mkdir(parents=True)
+    rt.write_text("")
+    assert inst.bundled_python(tmp_path) == rt
+
+
+def test_buildbot_venv_ok_only_when_interpreter_inside_payload(
+        tmp_path):
+    """Upgrade gate: a venv whose python3 resolves outside the payload
+    (dangling .run extraction path, tarball dir, system python) must be
+    rebuilt — carrying it forward leaves the master restart-dead."""
+    payload = (tmp_path / "opt" / "to").resolve()
+    bb_py = payload / "buildbot-venv" / "bin" / "python3"
+    bb_py.parent.mkdir(parents=True)
+
+    # missing entirely -> rebuild
+    assert inst._buildbot_venv_ok(payload, str(bb_py)) is False
+
+    # dangling symlink to a deleted extraction dir -> rebuild
+    bb_py.symlink_to("/tmp/to-install-gone/python/bin/python3")
+    assert inst._buildbot_venv_ok(payload, str(bb_py)) is False
+
+    # live target OUTSIDE payload -> rebuild (e.g. old tarball path)
+    outside = tmp_path / "elsewhere" / "python3"
+    outside.parent.mkdir(parents=True)
+    outside.write_text("")
+    bb_py.unlink()
+    bb_py.symlink_to(str(outside))
+    assert inst._buildbot_venv_ok(payload, str(bb_py)) is False
+
+    # live target inside payload -> keep
+    inside = (payload / "3rdparty" / "python-runtime" / "python" / "bin"
+              / "python3")
+    inside.parent.mkdir(parents=True)
+    inside.write_text("")
+    bb_py.unlink()
+    bb_py.symlink_to(str(inside))
+    assert inst._buildbot_venv_ok(payload, str(bb_py)) is True
+
+
+def test_remove_buildbot_venv_unlinks_symlink_never_follows(tmp_path):
+    """venv dir itself a symlink -> unlink the link ONLY; the outside
+    target (and everything in it) must survive untouched."""
+    payload = (tmp_path / "opt" / "to").resolve()
+    payload.mkdir(parents=True)
+    outside = tmp_path / "elsewhere" / "venv-target"
+    outside.mkdir(parents=True)
+    marker = outside / "keep-me.txt"
+    marker.write_text("important")
+    bb_venv = payload / "buildbot-venv"
+    bb_venv.symlink_to(str(outside), target_is_directory=True)
+
+    inst._remove_buildbot_venv(payload, bb_venv)
+
+    assert not bb_venv.exists() and not bb_venv.is_symlink()
+    assert marker.read_text() == "important"          # target untouched
+    assert outside.is_dir()
+
+
+def test_remove_buildbot_venv_unlinks_dangling_symlink(tmp_path):
+    """Dangling symlink (exists() False, is_symlink() True) must still
+    be removed — venv creation would otherwise hit FileExistsError."""
+    payload = (tmp_path / "opt" / "to").resolve()
+    payload.mkdir(parents=True)
+    bb_venv = payload / "buildbot-venv"
+    bb_venv.symlink_to(str(tmp_path / "gone"), target_is_directory=True)
+
+    inst._remove_buildbot_venv(payload, bb_venv)
+
+    assert not bb_venv.is_symlink()
+    assert not (tmp_path / "gone").exists()
+
+
+def test_remove_buildbot_venv_removes_real_dir_inside_payload(
+        tmp_path):
+    payload = (tmp_path / "opt" / "to").resolve()
+    bb_venv = payload / "buildbot-venv"
+    (bb_venv / "bin").mkdir(parents=True)
+    (bb_venv / "bin" / "python3").write_text("x")
+
+    inst._remove_buildbot_venv(payload, bb_venv)
+
+    assert not bb_venv.exists()
+
+
+def test_remove_buildbot_venv_refuses_outside_payload(tmp_path):
+    """A path resolving outside the payload is refused, not removed."""
+    payload = (tmp_path / "opt" / "to").resolve()
+    payload.mkdir(parents=True)
+    outside = tmp_path / "somewhere" / "buildbot-venv"
+    outside.mkdir(parents=True)
+    (outside / "keep").write_text("x")
+
+    import pytest
+    with pytest.raises(SystemExit):
+        inst._remove_buildbot_venv(payload, outside)
+    assert outside.is_dir()
+
+
+def test_buildbot_units_run_as_service_user(tmp_path):
+    """Regression: units staged without User= ran the master as root —
+    the portal's trigger_reconfig SIGHUP then failed EPERM and
+    UI-issued worker passwords never reached the running master."""
+    import provision_buildbot as pb
+    out = pb._unit("u.service", "d", "x", tmp_path,
+                   user="testorchestrator")
+    assert "User=testorchestrator" in out
+    assert "Group=testorchestrator" in out

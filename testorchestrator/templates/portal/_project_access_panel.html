@@ -1,0 +1,34 @@
+<p>Access = <b>role permits the action</b> AND <b>user is assigned
+   to this project</b>. Membership never grants capabilities beyond
+   the user's existing role — the checkbox scopes visibility only.
+   Changes take effect on the user's next protected request.</p>
+<form method="post" action="{{ url_for('portal.save_project_access', project_id=project.id) }}">
+  {{ plain_form.csrf_token }}
+  <div class="field">
+    <button type="button" class="button secondary sm"
+      data-check-group=".u-cb" data-check-on="1">Select all</button>
+    <button type="button" class="button secondary sm"
+      data-check-group=".u-cb" data-check-on="0">Clear</button>
+  </div>
+  <table class="audit-table">
+    <thead><tr><th>Assigned</th><th>User</th><th>Role</th><th>Status</th></tr></thead>
+    <tbody>
+      {% for u in users %}
+      <tr>
+        {% if u.role.value == "admin" %}
+        <td colspan="4"><b>{{ u.username }}</b> — All projects
+          through Administrator role</td>
+        {% else %}
+        <td><input type="checkbox" class="u-cb" name="user_ids"
+                   value="{{ u.id }}"
+                   {% if project.id in u.assigned_project_ids() %}checked{% endif %}></td>
+        <td>{{ u.username }}</td>
+        <td>{{ u.role.label }}</td>
+        <td>{{ "active" if u.is_active else "deactivated" }}</td>
+        {% endif %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <button type="submit" class="button">Save access</button>
+</form>

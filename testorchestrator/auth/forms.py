@@ -42,6 +42,22 @@ class ChangePasswordForm(FlaskForm):
     )
 
 
+class AccountForm(FlaskForm):
+    """My Account — self-service display preferences. A preference
+    change never alters role or project membership."""
+    timezone = StringField(
+        "Display time zone",
+        validators=[DataRequired(), Length(max=64)],
+        description="IANA zone name — the shown offset varies by date.")
+
+    def validate_timezone(self, field):
+        from ..usertz import valid_zone
+        if not valid_zone((field.data or "").strip()):
+            raise ValidationError(
+                "Unknown time zone — pick an IANA name such as "
+                "Europe/Budapest or UTC.")
+
+
 class LicenceActivationForm(FlaskForm):
     licence_code = StringField("Licence code",
                                validators=[DataRequired(), Length(max=8192)])

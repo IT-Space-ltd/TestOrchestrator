@@ -8,9 +8,12 @@ execution orchestration, Katalon Runtime Engine (KRE) execution via
 managed execution targets, and reporting-labs single-file reports —
 a pure-Python backend with no bundled Node.js.
 
-**Status: 2.5.1 released** ([CHANGELOG](CHANGELOG.md) ·
-[release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.5)).
-This is the initial public release. Execution orchestration is
+**Status: 2.6.0 released** ([CHANGELOG](CHANGELOG.md) ·
+[release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.6.0)).
+2.6.0 adds **Playwright Test, Cypress, Robot Framework, and pytest**
+as first-class runtime kinds alongside KRE — all on the same
+Buildbot/SSH execution paths, with per-framework readiness probes
+and reporting-labs generated reports. Execution orchestration is
 **Buildbot 4.3.0** — local workers, remote Buildbot workers, and
 agentless SSH targets, all managed from Admin → Execution Targets —
 and the public frontend is the in-process **Cheroot** HTTPS tier.
@@ -105,10 +108,10 @@ SQLite ──> project_dashboard.py ──> charts.py ──> template data-fig
 
 | Platform | Status | Package |
 |---|---|---|
-| Ubuntu x86_64 (central server) | **2.5.1 released** | `testorchestrator-2.5.1-linux-x86_64.tar.gz` / `.run` (GitHub release assets + `SHA256SUMS.txt` + `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`) |
-| Windows amd64 (central server) | **2.5.1, unsigned** | `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` — Cheroot portal + Buildbot on Scheduled Tasks |
-| Windows amd64 (execution host) | **2.5.1, unsigned** | `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` — bundled in the packages + Admin UI |
-| Linux x86_64 (execution host) | **2.5.1** | `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` — install script + offline wheels, bundled + Admin UI |
+| Ubuntu x86_64 (central server) | **2.6.0 released** | `testorchestrator-2.6.0-linux-x86_64.tar.gz` / `.run` (GitHub release assets + `SHA256SUMS.txt` + `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz`) |
+| Windows amd64 (central server) | **2.6.0, unsigned** | `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` — Cheroot portal + Buildbot on Scheduled Tasks |
+| Windows amd64 (execution host) | **2.6.0, unsigned** | `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` — bundled in the packages + Admin UI |
+| Linux x86_64 (execution host) | **2.6.0** | `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` — install script + offline wheels, bundled + Admin UI |
 The worker installer (`TestOrchestrator-Buildbot-Worker-Setup-`
 `4.3.0-UNSIGNED.exe`) is **bundled inside the packages** — download
 it from the installed portal under **Admin → Workers & runtimes**
@@ -128,14 +131,17 @@ The Windows executable is **unsigned** — expect SmartScreen /
 publisher warnings; verify the SHA-256 below instead.
 
 **Verification status at publication:** Linux acceptance passed on
-the tested internal build (clean install, all three execution modes,
-cancellation, scheduling, disconnect/recovery — see
-`docs/acceptance-2.5.0.md`). The Windows **controller** installer has
-been installed and verified on a real Windows host (owner-run);
-the worker `.exe` interactive walkthrough and licensed-KRE
-runs per target type, system-wide systemd activation, and a
-separate-machine `sshd` test remain unverified — they are tracked in
-the acceptance record, not marked passed.
+the tested internal build — six consecutive full e2e browser runs
+(chromium ×3 + firefox ×3, 43 passed / 1 skipped each), all eight
+framework cells (pytest, Robot, Playwright, Cypress × Buildbot
+worker and agentless SSH) executed end-to-end on a real target VM,
+same-version upgrade reinstalls with preserved state, and clean
+teardown — see `docs/acceptance-2.6.0.md` for the reconciled ledger.
+Live licensed-KRE execution remains unverified (no API key
+supplied); the Windows interactive checklist (W1–W18) and the
+independent Group B review are product-owner items recorded in the
+ledger — completion of Devin's acceptance execution is **not** an
+unconditional release approval.
 
 ## Installing (Linux)
 
@@ -147,10 +153,10 @@ a matching screenshot (§4.2–§4.4):
 sha256sum -c SHA256SUMS.txt
 
 # 2. extract and install
-tar xzf testorchestrator-2.5.1-linux-x86_64.tar.gz
-cd testorchestrator-2.5.1-linux-x86_64
+tar xzf testorchestrator-2.6.0-linux-x86_64.tar.gz
+cd testorchestrator-2.6.0-linux-x86_64
 sudo ./install.sh            # → toctl install (frozen payload)
-# or: ./testorchestrator-2.5.1-linux-x86_64.run  (self-extracting)
+# or: ./testorchestrator-2.6.0-linux-x86_64.run  (self-extracting)
 
 # 3. open https://<host>/ and sign in as Admin / Admin —
 #    the first sign-in forces a password change
@@ -171,7 +177,7 @@ Buildbot credentials are preserved, data is never deleted.
 
 ## Installing (Windows)
 
-**Controller:** `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe`
+**Controller:** `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe`
 installs the complete controller on Windows amd64 — portal (Cheroot
 HTTPS + Waitress loopback), embedded Python, Buildbot 4.3.0 master,
 the two controller workers, and the downloadable remote-worker
@@ -412,6 +418,86 @@ wins → stored in the immutable execution snapshot → adapter default
 `Chrome (headless)` only when unset. Plan schedules inherit the
 schedule's run_config (no per-entry override exists).
 
+## Robot Framework runner (2.6.0)
+
+Robot Framework is a first-class runtime kind (`robot`) on the same
+Buildbot/SSH execution paths — no second orchestrator. Register a
+Robot runtime on any Buildbot worker or agentless Linux SSH target
+and point `executable_path` at the target's Python interpreter —
+a venv's `bin/python` (POSIX) or `Scripts\python.exe` (Windows)
+works; argv execution means no PATH, shell, or activation script is
+required and paths with spaces are safe. Runs invoke
+`python -m robot --outputdir Reports --xunit junit.xml` under
+`build/src`, supporting a project-relative suite file or directory,
+`--test`/`--suite` selection and `--include`/`--exclude` tags from
+the run form. Robot's exit-code semantics are mapped explicitly:
+exit 1–249 is the failed-test count (JUnit verdict), 250–252 are
+usage/data/configuration errors, 253 is interruption, 255 internal
+— an invalid invocation is never presented as ordinary test
+failures, and a missing `junit.xml` can never pass as a zero-test
+run. JUnit, native `output.xml`/`log.html`/`report.html`, console
+logs and project evidence flow through the standard Reports/
+pipeline — pass or fail.
+
+**Prerequisites** — Robot Framework and the project's required
+Python libraries must be installed in the selected target's Python
+environment. Any required browsers, drivers, or external tools must
+also be available to the execution account. Tests run on the
+target, which must be able to reach the system under test and write
+reports and artifacts. No separate Robot Framework agent is
+required. Browser configuration belongs to the Robot project and
+its libraries — there is no portal browser selector for Robot.
+*Check runner readiness* probes the configured interpreter, Robot
+version, configured library imports, workspace write access and
+application reachability under the real execution account.
+
+## Node.js browser runners (2.6.0)
+
+Playwright Test and headless Cypress E2E are first-class runtime
+kinds on the same Buildbot/SSH execution paths — no second
+orchestrator. Register a runtime with kind `playwright` or
+`cypress` on any Buildbot worker (Windows/Linux) or agentless Linux
+SSH target; runs stage the project under `build/src` and invoke
+`npx playwright test --reporter=junit` / `npx cypress run`
+(reporter `junit`, `toConsoleStandard:true`, per-spec
+`junit-[hash].xml` files so spec reports can't overwrite each
+other). JUnit, logs, traces, screenshots and videos upload through
+the standard Reports/ pipeline and normalize into TestResult rows —
+same run IDs, artifact retention, failure-vs-env classification.
+
+**Prerequisites** — everything is *pre-provisioned on the target
+host*, nothing is bundled: Node.js, the project's
+Playwright/Cypress dependencies (`npm ci` inside the staged project
+is *not* run — the target workspace is expected ready or
+dependency-free), and the required browsers + OS libraries. `npx`
+is resolved from the target's PATH (or the runtime's executable
+path); the framework lives as a project dependency, no global
+install, no separate agent. On agentless SSH the controller-side
+dispatcher reaches out over SSH/SFTP only.
+
+## pytest runner (2.6.0)
+
+pytest is a first-class runtime kind (`pytest`) on the same
+execution paths — register it like Robot (`executable_path` → the
+target's Python interpreter, argv `python -m pytest --junitxml`),
+with `-k`/`-m` selection, `--maxfail`, and optional `xdist`
+`-n` parallelism exposed on the run form. JUnit + console logs flow
+through the standard Reports/ pipeline. *Check runner readiness*
+verifies the interpreter, pytest version, and plugin availability.
+
+**Connectivity ≠ reachability** — a connected worker or a working
+SSH session does not mean the browser on that host can reach the
+application under test. *Check runner readiness* (Infrastructure
+page) runs a probe on the same target/account/transport and reports
+Node/framework/browser versions and, when an application URL is
+configured, whether the browser can reach it — installing nothing
+and running no tests.
+
+Browser selection is validated against the framework's set
+(`chromium`/`firefox`/`webkit` for Playwright;
+`chrome`/`firefox`/`edge`/`electron`/`chromium` for Cypress) —
+unsupported values reject the launch, never substitute.
+
 ## Plans, releases, and suite authoring
 
 - **Repository-native suite authoring**: discovered suites and
@@ -469,20 +555,22 @@ assets, compiles the Windows worker installer, packages, validates,
 and emits checksums + manifest into `dist/release/linux/`.
 Prerequisites and output layout: `docs/build.md`.
 
-## Release assets & checksums (2.5)
+## Release assets & checksums (2.6)
 
 Published at
-<https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.5.1>
+<https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.6.0>
 — all binaries built from the tagged commit:
 
 | Asset | SHA-256 |
 |---|---|
-| `testorchestrator-2.5.1-linux-x86_64.tar.gz` | `146398d09878996b3e9e645926b72f89961ee39b67394ba25afbedef3b7872c7` |
-| `testorchestrator-2.5.1-linux-x86_64.run` | `436c17fa02e8f7dfdceb04a6cb7a1ec03bc7a4078140d4f68749bd56676a2d87` |
-| `testorchestrator-2.5.1-windows-amd64-setup-UNSIGNED.exe` | `9558ce4f68bdf3d1e0c9e0b6c733a475a28258aa6d9db93159f35d5868a15ac6` |
-| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `ecac2250f1e5ba6bc3ca6cfe185eacaef0b239552be165a5005d4b4b218effd4` |
-| `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (bundled + Admin UI) | `22b91596e40e9bfe3a54f0a0149cbec5bba9fef7e5f3b44fa6b3997adf0bc1ba` |
-| `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` (bundled + Admin UI) | `08ab7a480e1f4ad816e5e15d3f50d0752b721b79bd6ffed7a8cc9f0b5e5d2d67` |
+| `testorchestrator-2.6.0-linux-x86_64.tar.gz` | `d421a8fbed487c760625e65e77d2296f0e03eeec64f8356d7ed3a024ce014ebb` |
+| `testorchestrator-2.6.0-linux-x86_64.run` | `49b9537a160a60c16d99e0a59c65e7ba0b12c6c1f84751fe2d8393b70b432560` |
+| `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` | `f9d520e813d2eb183e893225277e21c44b9a0f9a100aa19af574748369212755` |
+| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | `550447b3c0018724bd5ff91db48e702fdea159d19b0ff4889cd176ebb379a37b` |
+| `TestOrchestrator-2.6.0-Admin-Manual.pdf` | `70c72c2557752fd1a6fb36e4f8e20e2e2e584b6a4f27f1518295ecd5f39a3f54` |
+| `TestOrchestrator-2.6.0-User-Manual.pdf` | `c51be242ef7a2bbec28267f6a6b81d7de2da19afa29ca4fa1a763c6ca16517c9` |
+| `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (bundled + Admin UI) | `d273e00225121c98b2db3306ad1b2b807c1b516d99fa5ad06b478ad83b9a2b99` |
+| `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` (bundled + Admin UI) | `a3907427b338551fc77742700945332b75e2e4f771e153c868ee4b54de7a8a89` |
 
 `SHA256SUMS.txt` covers every asset including the bundled worker
 installers and the manual PDFs. Verify: `sha256sum -c SHA256SUMS.txt`
@@ -492,38 +580,45 @@ The worker installers are **bundled inside the packages** and served
 by the installed portal next to the corresponding-source archive —
 they are not separate release assets.
 
-## Validation (2.5)
+## Validation (2.6)
 
-Verified on a clean install of the tested build — details in
-`docs/acceptance-2.5.0.md`:
+Verified on a clean install of the tested build — details in the
+reconciled ledger `docs/acceptance-2.6.0.md`:
 
 - `install.sh` payload + install-time migrations; Cheroot HTTPS on
   the configured port; all five units active under user-scope
-  systemd; Buildbot master + both controller workers attached.
-- All three execution paths exercised end-to-end through the Admin
-  UI: local worker, native Buildbot worker (offline install,
-  credential reissue, reattach), and agentless SSH (host-key
-  approval, live reconfig without restart).
-- Scheduled run, cancellation with confirmed remote process-group
-  termination, disconnect/recovery without duplicate execution,
-  JUnit artifact collection.
+  systemd; Buildbot master + both controller workers attached;
+  kill -9 auto-restart verified.
+- Full e2e UI suite, six consecutive runs (chromium ×3 + firefox ×3):
+  **43 passed / 1 skipped** each — the skip is the documented
+  bootstrap test needing a truly fresh install.
+- All eight framework cells — pytest, Robot Framework, Playwright
+  Test, Cypress, each over both Buildbot-worker and agentless-SSH
+  transports — dispatched through the real UI and executed on a
+  separate target VM with JUnit + evidence collected back.
+- Same-version upgrade reinstalls preserved data, secrets, runners
+  and discovered inventory; worker reconnect after service restart.
+- Unit gate: **948 passed / 2 external-blocked / 1 skipped**
+  (composite — see the ledger for how it was derived; the two
+  blocked rows need an external licence-issuer key that is
+  intentionally absent).
 - Package inventory reconciled: controller and worker both pin
   **Buildbot 4.3.0**; vendored `reporting_labs==0.1.14` + `LICENSE` +
   `VENDORED.md` present exactly once per runtime payload.
-- Test suite on the tested commit: **639 passed, 1 failed,
-  1 skipped** — the failure is the external licence-issuer test
-  (private key intentionally not committed); the skip is a
-  git-packaging configuration case.
+- Two product defects found during acceptance were fixed in-tree and
+  re-verified: a CSP policy that silently killed all inline
+  JavaScript (SSH-target fields, confirm gates), and a retry-block
+  marker false-positive that misclassified real build failures.
 
 ## Deferred checks & limitations
 
 Explicitly deferred — **not** passed:
 
-- Windows worker `.exe` interactive walkthrough and real-corpus
-  end-to-end execution on Windows — deferred to post-release testing
-  (the controller install itself is owner-verified on Windows).
-- Real licensed-KRE suite execution — not demonstrated (adapter is
-  fixture-verified only).
+- Windows interactive checklist W1–W18 and the independent Group B
+  review — product-owner items, tracked in
+  `docs/acceptance-2.6.0.md`.
+- Real licensed-KRE suite execution — not demonstrated (no API key
+  was supplied; the adapter only injects `-apiKey=`).
 - Azure DevOps repo interoperability — gated on an authorized
   repository.
 - Import duplicate matching scans per-project history at classify

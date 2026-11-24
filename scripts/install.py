@@ -213,26 +213,31 @@ def main() -> None:
         bb_home = data / "buildbot"
         bb_venv = payload / "buildbot-venv"
         bb_py = str(bb_venv / "bin" / "python3")
-        if not Path(bb_py).exists():
+        # Rebuild when the venv is absent OR its interpreter resolves
+        # outside the payload — a pre-fix install left the symlink (and
+        # pyvenv.cfg home) on the installer's extraction path, which is
+        # either already deleted or dangling state an upgrade must not
+        # carry forward.
+        if not _buildbot_venv_ok(payload, bb_py):
             bb_wheels = payload / "3rdparty" / "buildbot-wheels"
             if bb_wheels.is_dir():
-                # Offline controller-side stack — created once;
-                # existing installs keep their venv on rerun.
+                # `python -m venv` does not rewrite existing bin/
+                # symlinks — a symlink that still resolves (to an old
+                # extraction dir) would silently survive the rebuild.
+                # Remove the stale env before recreating it; the
+                # helper refuses links/paths outside the payload.
+                _remove_buildbot_venv(payload, bb_venv)
                 print(f"[install] buildbot venv: {bb_venv} "
                       f"(offline from {bb_wheels})")
-                subprocess.check_call(
-                    [sys.executable, "-m", "venv", str(bb_venv)])
-                subprocess.check_call(
-                    [bb_py, "-m", "pip", "install", "--no-index",
-                     "--find-links", str(bb_wheels),
-                     "buildbot[bundled]", "buildbot-worker",
-                     "buildbot-www", "paramiko"])
+                create_buildbot_venv_offline(payload, bb_wheels,
+                                             bb_venv)
             else:
                 bb_py = os.environ.get("TO_BUILDBOT_PYTHON") or ""
         sys.path.insert(0, str(REPO / "scripts"))
         import provision_buildbot
         bb_args = ["--home", str(bb_home),
-                   "--repo-root", str(REPO)]
+                   "--repo-root", str(REPO),
+                   "--service-user", args.service_user]
         if bb_py:
             bb_args += ["--python", bb_py, "--setup"]
         else:
@@ -280,6 +285,12 @@ def main() -> None:
                  "-m", "testorchestrator", "db-upgrade"],
                 cwd=payload, env=env)
             print("[install] database migrated to head")
+
+        # The staged units run as User=<service-user>: the account must
+        # exist (a fresh host fails 217/USER otherwise) and must own the
+        # writable data tree — ReadWritePaths grants capability, not
+        # ownership of a root-created directory.
+        _ensure_service_user(args.service_user, data, args.dry_run)
 
         # Enable + start when authorized; --no-service-start or non-root
         # leaves units staged under config for manual activation.
@@ -387,6 +398,33 @@ def _enabled_units(args) -> tuple:
 def _systemctl(*argv, check=True):
     return subprocess.run(["systemctl", *argv], check=check,
                           stdout=subprocess.DEVNULL)
+
+
+def _ensure_service_user(user: str, data: Path, dry_run: bool) -> None:
+    """The staged units run as ``User=<service-user>``; a fresh host has
+    no such account, so ``systemctl --now`` fails 217/USER — and even an
+    existing account cannot write a root-created data dir
+    (ReadWritePaths grants capability, not ownership). Create a system
+    account + matching group and chown the writable tree when root;
+    otherwise warn so manually-activated units can't fail silently."""
+    if user in ("", "root"):
+        return
+    import pwd
+    try:
+        pwd.getpwnam(user)
+    except KeyError:
+        if dry_run or os.geteuid() != 0 or not shutil.which("useradd"):
+            print(f"[install] NOTE — service user {user!r} does not "
+                  "exist; create it before the units can start")
+            return
+        subprocess.check_call(
+            ["useradd", "--system", "--user-group", "--no-create-home",
+             "--home-dir", str(data), "--shell", "/usr/sbin/nologin",
+             user])
+        print(f"[install] created service user {user}")
+    if dry_run or os.geteuid() != 0:
+        return
+    subprocess.check_call(["chown", "-R", f"{user}:{user}", str(data)])
 
 
 def enable_services(args, config: Path) -> bool:
@@ -524,6 +562,56 @@ def install_worker_installer_asset(repo: Path, payload: Path) -> Path:
         shutil.copy2(src, dst_dir / src.name)
         print(f"[install] linux worker bundle asset: {src.name}")
     return dst
+
+
+def _remove_buildbot_venv(payload: Path, bb_venv: Path) -> None:
+    """Remove a stale buildbot-venv, strictly inside the payload.
+
+    - A symlink (live or dangling) is unlinked as-is — its target is
+      never touched, and rmtree refuses symlinks anyway.
+    - A real directory is removed only when it resolves inside the
+      payload; anything else is refused loudly.
+    """
+    if bb_venv.is_symlink():
+        bb_venv.unlink()
+        return
+    if not bb_venv.exists():
+        return
+    root = payload.resolve()
+    if root not in bb_venv.resolve().parents:
+        raise SystemExit(
+            f"[install] refusing to remove {bb_venv} — "
+            f"resolves outside payload {root}")
+    shutil.rmtree(bb_venv)
+
+
+def _buildbot_venv_ok(payload: Path, bb_py: str) -> bool:
+    """Existing buildbot venv usable? Only when its interpreter symlink
+    resolves to a live file INSIDE the payload — a missing or
+    outside-payload target means stale/upgraded-broken state."""
+    try:
+        resolved = Path(bb_py).resolve(strict=True)
+    except OSError:
+        return False
+    return str(resolved).startswith(str(payload.resolve()) + os.sep)
+
+
+def create_buildbot_venv_offline(payload: Path, bb_wheels: Path,
+                                 bb_venv: Path) -> Path:
+    """Create the buildbot orchestrator venv from the INSTALLED bundled
+    runtime + vendored wheels. sys.executable is the .run EXTRACTION
+    dir's python — its path dies with the temp dir, leaving the venv's
+    interpreter symlink dangling and the master unable to restart
+    (203/EXEC). Always base on the installed payload path."""
+    base = bundled_python(payload) or Path(sys.executable)
+    subprocess.check_call([str(base), "-m", "venv", str(bb_venv)])
+    bb_py = str(bb_venv / "bin" / "python3")
+    subprocess.check_call(
+        [bb_py, "-m", "pip", "install", "--no-index",
+         "--find-links", str(bb_wheels),
+         "buildbot[bundled]", "buildbot-worker",
+         "buildbot-www", "paramiko"])
+    return bb_venv
 
 
 def create_venv_offline(payload: Path) -> Path:
