@@ -363,6 +363,40 @@ is a **target-side** dep, evaluated then.
 
 ## 6. Milestones
 
+**Status update (post-review):** M0–M5 are **implementation
+complete — acceptance pending**, not final capability acceptance.
+The reported test run (20 new + targeted existing suites) is
+targeted evidence; the full regression gate runs in M12.
+
+| M | Scope | Status | Implementation / tests |
+|---|-------|--------|------------------------|
+| M0 | schema + `FrameworkProject` + katalon parity | impl. done | `execution.py` model; `b7c8d9e0f1a2`/`c8d9e0f1a2b3`/`d9e0f1a2b3c4`; backfill from effective behavior (tested 5 binding shapes) |
+| M1 | pytest + robot static discovery | impl. done | `discovery/pytestdisc.py` (AST, exact `::nodeid`, parametrized→candidate); `discovery/robot.py` (suites/tests/tags/`[Template]`/GWT); `tests/test_framework_discovery.py::test_pytest_ast_discovery`, `test_robot_tests_tags_templates` |
+| M2 | onboarding UI + browser + precedence | impl. done | `FrameworkProjectForm`, routes `fp_new/edit/detail/preview/discover/delete` + `binding_browse`, `framework_project.html`; effective-settings table with source badges |
+| M3 | BDD adapters | impl. done | `discovery/gherkin.py` bounded parser (documented English-keyword subset, localized→warnings); `discovery/behave.py` (`path:LINE` exact selectors); `discovery/pytestbdd.py` (`@scenario`/`scenarios()` incl. module-level calls; wildcard→candidate; binding≠step-matching); robot native-GWT distinct from `.feature`; tests `test_behave_*`, `test_pytestbdd_*`, `test_robot_*` |
+| M4 | cypress + playwright(+pytest) | impl. done | `discovery/cypress.py`, `discovery/playwright.py` — literal-only config extraction (JS never executed; dynamic keys → 'unresolved statically', no silent defaults); `playwright-pytest`→pytest adapter alias; file-level selection only where reliable; tests `test_cypress_*`, `test_playwright_*` |
+| M5 | selection → argv plumbing + gates | impl. done | `dispatch._fp_item_gate` (validated-revision + selectable-only + runtime-kind match, server-side); `node_ids`/`behave_targets`/`spec`/`robot_test` snapshot fields; pytest/behave/nodefw branches; `adapters/behavefw.py` + `behave` runtime kind + probe; tests `test_dispatch_gates`, `test_exact_selection_snapshot_map` |
+| M6 | native collection on worker (opt-in) | approved | VM provisioning approved — see §6b |
+| M7 | acceptance on host+VM, worker+SSH | approved | ledger to be appended |
+| M8 | **GoogleTest + Jest** (selector, adapters, runtimes, dispatch, ingestion) | in progress | §10 |
+| M9 | **storage subsystem** (local/mounted/S3 settings + backend interfaces) | planned | §11 |
+| M10 | **remote collection + Git publication + retention** | planned | §12 |
+| M11 | Results & Artifacts project tab | planned | §13 |
+| M12 | integrated acceptance + full regression | planned | §14 |
+
+Milestone evidence ledger: `3024d727` M0+M1 · `46357d43` plan ·
+`bbc77e0a` M2 · `bdaca4a7` M5 · `c7910ef2` regression tests.
+
+## 6b. M6/M7 authorization record
+
+Approved: disposable worker VM under documented resource/network/
+cleanup plan; native collection on the VM for controlled acceptance
+fixtures; browser-driven acceptance (host server + VM worker);
+worker and SSH paths. Host inspection precedes provisioning — new
+privileged host changes (packages, drivers, services, firewall) are
+presented for approval first. Not approved: arbitrary external
+repositories, real secrets, privileged host components.
+
 | M | Scope | Exit |
 |---|---|---|
 | M0 | schema + `FrameworkProject` CRUD + katalon adapter refactor (parity) | existing tests green, migration up/down clean |
@@ -513,3 +547,79 @@ The reviewer's corrections are folded into the implementation:
    without discovery; gates (validated discovery, selectable,
    dispatchable kinds) are enforced server-side in dispatch, not
    just in the UI.
+
+## 10. M8 — GoogleTest and Jest
+
+### 10.1 GoogleTest (`framework=gtest`, runtime kind `gtest`)
+
+Static adapter (`discovery/gtest.py`): parses literal
+`TEST()`/`TEST_F()`/`TEST_P()`/`INSTANTIATE_TEST_SUITE_P` names
+under configured test roots — candidates only, never authoritative.
+Settings: project_root, workdir, source/test locations, build_dir,
+explicit prepare/configure/build commands (run worker-side only),
+executable patterns, filters (`--gtest_filter`), timeouts, report
+output. Native listing (`<exe> --gtest_list_tests`) runs only in
+the isolated worker/SSH stage. Item identity =
+executable-path + `Suite.Test`; disabled tests labeled; duplicate
+names across binaries disambiguated by the executable component.
+Build provenance + executable SHA-256 recorded per run.
+Failure taxonomy: prepare/build / collection / test /
+infrastructure mapped to distinct execution states.
+
+### 10.2 Jest (`framework=jest`, runtime kind `jest`)
+
+Static adapter (`discovery/jest.py`): literal config extraction
+(`jest.config.*`, `package.json` "jest" key) for `roots`,
+`testMatch`/`testRegex`, `projects`, `testEnvironment`,
+`coverageDirectory`. JS config never executed — dynamic values
+unresolved-statically. File-level items selectable; `describe`/
+`it`/`test` names listed as candidates (jest `-t` filtering is
+regex-based — per-test selection is exposed only where the
+identity is unambiguous). Multi-project repos keep `projects[].name`
+identity on items. Native `jest --listTests --json` on the worker.
+Never auto-snapshot-update (`--ci` always); non-interactive.
+
+## 11. M9 — storage subsystem
+
+`ArtifactBackend` model: `local` (admin-approved root), `network`
+(administrator-mounted share — same filesystem contract, approved
+subdir), `s3` (bucket/prefix/region/optional endpoint + SecretRef
+or workload identity). Connection validation + explicit temp
+write/read/delete test on save. Credentials never in URLs/logs/
+exports; TLS verified. Tested S3-compatible provider recorded —
+no universal-compatibility claim. New destinations apply to new
+executions only; historical refs preserved; moving artifacts is a
+separate explicit migration.
+
+## 12. M10 — collection, publication, retention
+
+Manifest per artifact: path, size, sha256, content-type, storage
+ref, transfer state (pending/uploading/available/failed/expired).
+Outcome ≠ transfer status. Idempotent retries without rerunning.
+Staged files kept until confirmed or bounded failure-retention.
+Git publication: optional commit+push to source or separate
+results repo — execution-scoped path
+`TestReports/<project>/<execution-id>/<attempt>/`, never
+force-push, bounded conflict retries, no report-commit → execution
+loop, explicit artifact subset, no LFS auto-enable, separate
+write-credential ref. Separate-source-vs-publication commits
+recorded.
+
+## 13. M11 — Results & Artifacts tab + access controls
+
+Project tab adjacent to Git settings: storage destination config
++ per-execution artifact views. Enforce: project authz +
+cross-project isolation, private-by-default, authenticated
+download, untrusted-HTML isolation, path containment/symlink
+protection, audit on setting/publication changes, retention
+separate from execution metadata.
+
+## 14. M12 — integrated acceptance
+
+gtest built-from-source AND prebuilt; jest multi-project; worker +
+SSH; exact selection incl. unselected-did-not-run proof; config
+invalidation; local/mounted/S3/Git destinations; concurrency,
+conflicts, unavailable storage, retries; historical access after
+storage change; access after VM removal; isolation + retention;
+publication-loop prevention; FULL regression (not targeted counts)
++ acceptance ledger.
