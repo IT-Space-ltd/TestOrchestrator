@@ -3496,7 +3496,25 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         else:
             ex.error_kind = "execution"
             detail = ""
-            if rt0 is not None and (rt0.runtime_kind or "") \
+            if rt0 is not None and \
+                    (rt0.runtime_kind or "kre") == "kre":
+                # KRE failure kinds come from the run log (license,
+                # config, infrastructure) — a bare results=FAILURE
+                # alone is not an actionable classification.
+                try:
+                    tail = (log_dir / "kre-remote-run.log") \
+                        .read_text(errors="replace")[-4000:]
+                except OSError:
+                    tail = ""
+                class _R:  # classify_error reads .canceled/.timed_out/.exit_status
+                    canceled = False
+                    timed_out = False
+                    exit_status = results_code
+                kind = kre_adapter.classify_error(_R(), tail)
+                if kind:
+                    ex.error_kind = kind
+                    detail = f" — KRE reported a {kind} error"
+            elif rt0 is not None and (rt0.runtime_kind or "") \
                     in (robotfw.KIND, pytestfw.KIND):
                 # Robot/pytest write xunit only on a valid execution —
                 # classify the console log so invalid data / missing

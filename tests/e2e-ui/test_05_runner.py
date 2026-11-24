@@ -118,7 +118,8 @@ def test_worker_shows_online(admin_page):
            ).to_contain_text("ok")
     # the attached worker must BE the VM — its identity, not the host's
     attached = _ssh("hostname").stdout.strip()
-    assert attached == "to-worker", attached
+    want_host = os.environ.get("TO_VM_NAME", "to-worker")
+    assert attached == want_host, attached
 
 
 def test_add_ssh_target_with_key_and_hostkey(admin_page):

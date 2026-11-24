@@ -312,6 +312,35 @@ def test_success_collects_and_completes(app, monkeypatch, tmp_path):
         assert ex.outcome == Outcome.PASSED
 
 
+def test_kre_buildbot_failure_classifies_license(
+        app, monkeypatch, tmp_path):
+    """A KRE run ending results=2 with a license error in the run log
+    must surface error_kind='license' — not the generic 'no result
+    data' execution verdict."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 2,
+                          "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.DISPATCHED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        stub_run_log_orig = stub.run_log
+        stub.run_log = lambda *a, **k: "License is not activated"
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        stub.run_log = stub_run_log_orig
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "license"
+        assert "license" in ex.error_text.lower()
+
+
 def test_prep_script_echo_is_not_a_retry_block(
         app, monkeypatch, tmp_path):
     """The prep step's stdio echoes the whole prep script in its

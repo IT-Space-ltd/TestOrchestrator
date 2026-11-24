@@ -37,9 +37,9 @@ def test_create_project_and_binding(admin_page):
     page.goto("/projects")
     page.locator("a", has_text="ui-proj").first.click()
     page.goto(page.url + "?tab=bindings")
-    page.locator("details.add-block summary, summary",
-                 has_text=re.compile(r"binding|Add", re.I)).last.click()
-    bform = page.locator("form.add-form").last
+    page.locator("#panel-bindings summary",
+                 has_text="Add new binding").click()
+    bform = page.locator("#panel-bindings form.add-form").last
     bform.locator("input[name=name]").fill("ui-bind")
     bform.locator("input[name=url]").fill(
         "file:///opt/ui-repo")
@@ -73,9 +73,9 @@ def test_vm_e2e_project_binding_and_real_sync(admin_page):
     page.goto(page.url.split("?")[0] + "?tab=bindings")
     if "vm-bind" not in page.inner_text("body"):
         summary = page.locator(
-            "summary", has_text=re.compile(r"binding|Add", re.I))
+            "#panel-bindings summary", has_text="Add new binding")
         summary.last.click()
-        bform = page.locator("form.add-form").last
+        bform = page.locator("#panel-bindings form.add-form").last
         bform.locator("input[name=name]").fill("vm-bind")
         bform.locator("input[name=url]").fill(
             "file:///var/lib/testorchestrator/fixture")
