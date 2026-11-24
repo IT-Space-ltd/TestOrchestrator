@@ -288,7 +288,10 @@ or license KRE.</p>
             <span class="badge">Re-check required</span>
             {% else %}<span class="badge ok">Check passed</span>{% endif %}
             {% if (rt.runtime_kind or "kre") != "kre" %}
-            <br><span class="badge">{{ rt.readiness_state }}</span>
+            <br><span class="badge {% if rt.readiness_state == 'ready-execution' %}ok{% elif rt.readiness_state in ('missing-dependency','unsupported-version','target-unavailable') %}danger{% elif rt.readiness_state in ('project-validation-required','evidence-stale') %}warn{% endif %}">{{ rt.readiness_state }}</span>
+            {% set help = readiness_help.get(rt.readiness_state) %}
+            {% if help %}<br><small class="muted">{{ help[0] }}
+              {%- if help[1] %} {{ help[1] }}{% endif %}</small>{% endif %}
             {% endif %}
             <small class="muted">{{ rt.last_check_at|localtime_short if rt.last_check_at else "" }}
               {%- if rt.last_diagnostic and not rt.last_diagnostic.startswith('{') %}<br>{{ rt.last_diagnostic[:200] }}{% endif %}</small></td>
@@ -304,6 +307,33 @@ or license KRE.</p>
             {% else %}
             <span class="badge" title="Portal-host check can't verify a
               remote worker's installation">Remote — not verified</span>
+            {% endif %}
+            {% if (rt.runtime_kind or "kre") != "kre"
+               and rt.readiness_state in ("ready-discovery",
+               "ready-execution", "project-validation-required") %}
+            <details class="inline-details">
+              <summary class="button secondary sm">Validate for project</summary>
+              <form method="post"
+                    action="{{ url_for('system.runtime_validate_project',
+                                       runtime_id=rt.id) }}"
+                    class="edit-form">
+                {{ runtime_form.csrf_token }}
+                <div class="field"><label>Project</label>
+                  {% set rt_allowed = rt.allowed_projects | default('[]') %}
+                  <select name="project_id">
+                    {% for p in all_projects %}
+                    {% if (not rt.allowed_projects or rt.allowed_projects == '[]' or p.id in rt.allowed_projects) %}
+                    <option value="{{ p.id }}">{{ p.name }}</option>
+                    {% endif %}
+                    {% endfor %}
+                  </select></div>
+                <small class="muted">Checks association, framework
+                  compatibility, validated discovery, engine,
+                  permissions, and result ingestion — then marks the
+                  pair ready-execution.</small>
+                <button type="submit" class="button">Validate</button>
+                <button type="button" class="button danger" data-cancel-details>Cancel</button>
+              </form></details>
             {% endif %}
             <form method="post" action="{{ url_for('system.toggle_runtime', runtime_id=rt.id) }}" class="inline">
               {{ runtime_form.csrf_token }}

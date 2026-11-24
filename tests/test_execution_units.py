@@ -18,6 +18,16 @@ def _env(app):
         return s.id
 
 
+def _exec_ready(rt, sid):
+    """Seed a validated (runtime, project) pair for dispatch-mechanics
+    tests — execution readiness requires stamped pair evidence on
+    non-KRE runtimes (M16); the checks themselves are covered in
+    test_execution_readiness."""
+    from testorchestrator import execution_readiness
+    s = db.session.get(Suite, sid)
+    execution_readiness._stamp(rt, s.project_id, ["fixture"])
+
+
 def _mk_units(app, sid, n=2):
     with app.app_context():
         s = db.session.get(Suite, sid)
@@ -336,7 +346,9 @@ def test_parallel_persisted_in_snapshot(app):
         rt = RuntimeConnection(name="rt", runner_id=r.id,
                                executable_path="/usr/bin/python3",
                                runtime_kind="pytest", enabled=True)
-        db.session.add(rt); db.session.commit()
+        db.session.add(rt)
+        _exec_ready(rt, sid)
+        db.session.commit()
         rtid = rt.id
     eid = _vpar(app, sid, {"parallel": 4, "runtime_id": rtid})
     with app.app_context():
@@ -417,7 +429,9 @@ def test_proc_budget_blocks_parallel_jobs(app):
         rt = RuntimeConnection(name="rt2", runner_id=r.id,
                                executable_path="/usr/bin/python3",
                                runtime_kind="pytest", enabled=True)
-        db.session.add(rt); db.session.commit()
+        db.session.add(rt)
+        _exec_ready(rt, sid)
+        db.session.commit()
         rid, rtid = r.id, rt.id
         mk = lambda: dispatch.create_execution(
             "m", db.session.get(Suite, sid), source_sha="x",
@@ -498,7 +512,9 @@ def test_framework_default_unbounded_on_budget(app):
         rt = RuntimeConnection(name="pw2", runner_id=r.id,
                                executable_path="/usr/bin/npx",
                                runtime_kind="playwright", enabled=True)
-        db.session.add(rt); db.session.commit()
+        db.session.add(rt)
+        _exec_ready(rt, sid)
+        db.session.commit()
         ex = dispatch.create_execution(
             "m", db.session.get(Suite, sid), source_sha="x",
             run_config={"runtime_id": rt.id, "runner_id": r.id,
@@ -528,7 +544,9 @@ def test_reservations_release_and_hold(app):
         rt = RuntimeConnection(name="rt3", runner_id=r.id,
                                executable_path="/usr/bin/python3",
                                runtime_kind="pytest", enabled=True)
-        db.session.add(rt); db.session.commit()
+        db.session.add(rt)
+        _exec_ready(rt, sid)
+        db.session.commit()
         rid, rtid = r.id, rt.id
         mk = lambda: dispatch.create_execution(
             "m", db.session.get(Suite, sid), source_sha="x",
@@ -632,7 +650,9 @@ def test_slot_builders_and_pick(app):
         rt = RuntimeConnection(name="rts", runner_id=r.id,
                                executable_path="/usr/bin/python3",
                                runtime_kind="pytest", enabled=True)
-        db.session.add(rt); db.session.commit()
+        db.session.add(rt)
+        _exec_ready(rt, sid)
+        db.session.commit()
         assert buildbot_cfg.slot_count(r) == 2
         assert buildbot_cfg.builder_for(r, 0) != \
             buildbot_cfg.builder_for(r, 1)
@@ -779,7 +799,9 @@ def test_reservations_persist_ownership(app):
         rt = RuntimeConnection(name="rto", runner_id=r.id,
                                executable_path="/usr/bin/python3",
                                runtime_kind="pytest", enabled=True)
-        db.session.add(rt); db.session.commit()
+        db.session.add(rt)
+        _exec_ready(rt, sid)
+        db.session.commit()
         ex = dispatch.create_execution(
             "m", db.session.get(Suite, sid), source_sha="x",
             run_config={"runtime_id": rt.id, "runner_id": r.id,
@@ -816,7 +838,9 @@ def test_wait_reason_records_capacity_block(app):
         rt = RuntimeConnection(name="rtf", runner_id=r.id,
                                executable_path="/usr/bin/python3",
                                runtime_kind="pytest", enabled=True)
-        db.session.add(rt); db.session.commit()
+        db.session.add(rt)
+        _exec_ready(rt, sid)
+        db.session.commit()
         mk = lambda: dispatch.create_execution(
             "m", db.session.get(Suite, sid), source_sha="x",
             run_config={"runtime_id": rt.id, "runner_id": r.id})

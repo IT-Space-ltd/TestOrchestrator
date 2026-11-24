@@ -511,6 +511,10 @@ def create_execution(username: str, suite: Suite = None,
                 f"runtime {_rt.name!r} is not dispatch-ready "
                 f"({ _rt.readiness_state}) — fix the toolchain or "
                 "re-run the readiness probe")
+        exec_block = _exec_ready_block(_rt, project_id,
+                                       run_config or {})
+        if exec_block:
+            raise DispatchError(exec_block)
         # worker_label runtimes are bindings to a removed worker
         # transport. They fail VISIBLY here rather than silently
         # rerouting: the runtime must be re-registered against a
@@ -1069,9 +1073,38 @@ def _runtime_probe_blocked(rt) -> bool:
                                   "target-unavailable")
 
 
+def _exec_ready_block(rt, project_id: str, rc: dict) -> str:
+    """Error string when an EXECUTION may not launch on this runtime
+    for this project. Repository-discovery/collection operations
+    (native_collect) need only toolchain readiness — the
+    ready-execution pair evidence gates real runs. KRE untouched."""
+    if (rt.runtime_kind or "kre") == "kre":
+        return ""
+    if rc.get("native_collect"):
+        return ""
+    from . import execution_readiness
+    if execution_readiness.execution_ready(rt, project_id):
+        return ""
+    if rt.readiness_state == "project-validation-required":
+        detail = "project validation is required and incomplete"
+    elif rt.readiness_state in ("ready-discovery", "not-checked",
+                                "checking", "evidence-stale"):
+        detail = (f"toolchain state is {rt.readiness_state} — "
+                  "execution needs a positive probe plus per-project "
+                  "validation")
+    else:
+        detail = f"state is {rt.readiness_state}"
+    return (f"runtime {rt.name!r} is not ready-execution for this "
+            f"project ({detail}) — run 'Validate for project' on "
+            "the infrastructure page")
+
+
 def pick_runtime(execution: Execution, runner: Runner):
+    rc = execution.snapshot().get("run_config") or {}
     for rt in runner.runtimes:
         if not rt.enabled or _runtime_probe_blocked(rt):
+            continue
+        if _exec_ready_block(rt, execution.project_id, rc):
             continue
         allowed = json.loads(rt.allowed_projects or "[]")
         if allowed and execution.project_id not in allowed:
@@ -1383,6 +1416,9 @@ def _select_runner_runtime(ex: Execution):
                 f"explicitly selected runtime {req_runtime[:12]}… is "
                 "unavailable or incompatible with the selected "
                 "runner — no fallback")
+        eb = _exec_ready_block(runtime, ex.project_id, rc)
+        if eb:
+            return None, None, eb
     else:
         runtime = ex.runtime or pick_runtime(ex, runner)
         if runtime is None:

@@ -181,6 +181,31 @@ READINESS_STATES = (
 )
 
 
+# What each state means + the action that advances it — rendered on
+# the infrastructure list so a pending check is never unexplained.
+READINESS_HELP = {
+    "not-checked": ("No probe evidence.", "Run Check runner readiness."),
+    "checking": ("A readiness probe is running on the target.",
+                 "Wait for it to finish."),
+    "ready-discovery": ("Toolchain verified — repository discovery "
+                        "may run. Execution also needs per-project "
+                        "validation.", "Validate for project."),
+    "project-validation-required": ("Toolchain verified but project "
+                                    "validation is missing or "
+                                    "failed.", "Validate for project."),
+    "ready-execution": ("Toolchain + project checks passed — "
+                        "eligible to dispatch executions.", ""),
+    "missing-dependency": ("Probe found absent tooling.", "Install "
+                           "the dependency on the target, re-check."),
+    "unsupported-version": ("Tool version is not supported.",
+                            "Install a supported version, re-check."),
+    "target-unavailable": ("The target could not run the probe.",
+                           "Fix target connectivity, re-check."),
+    "evidence-stale": ("Probe-relevant config changed since the last "
+                       "check.", "Re-run Check runner readiness."),
+}
+
+
 def profile(framework: str) -> dict:
     return RUNTIME_PROFILES.get(framework)
 

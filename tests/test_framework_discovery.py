@@ -343,13 +343,20 @@ def test_config_fingerprint_changes(app, tmp_path):
 # ---------- dispatch gates ----------
 
 def _runtime(app, kind="pytest"):
+    """A runtime with positive TOOLCHAIN evidence (ready-discovery)
+    — models a passed probe. Execution dispatch additionally needs
+    per-project validation (execution_readiness.validate_project);
+    discovery/collection ops need only this state."""
     import uuid
     r = Runner(name="w-" + uuid.uuid4().hex[:8], target_type="local",
                os_arch="linux", enabled=True)
     db.session.add(r); db.session.flush()
     rt = RuntimeConnection(name=kind + uuid.uuid4().hex[:4],
                            runner_id=r.id, runtime_kind=kind,
-                           executable_path="python3", enabled=True)
+                           executable_path="python3", enabled=True,
+                           readiness_state=(
+                               "ready-discovery"
+                               if kind != "kre" else "not-checked"))
     db.session.add(rt); db.session.commit()
     return rt
 
@@ -371,6 +378,11 @@ def test_dispatch_gates(app, tmp_path):
             dispatch.create_execution("u", binding=b, source_item=item,
                                       run_config={"runtime_id": rt.id})
         gitsync.sync_framework_project(fp, b)
+        # Execution additionally requires the (runtime, project) pair
+        # validated to ready-execution (M16 — toolchain readiness
+        # alone never authorizes a run).
+        from testorchestrator import execution_readiness
+        assert execution_readiness.validate_project(rt, p) == []
         # item sha matches binding sha → dispatch ok
         ex = dispatch.create_execution("u", binding=b, source_item=item,
                                        run_config={"runtime_id": rt.id})
@@ -413,6 +425,8 @@ def test_exact_selection_snapshot_map(app, tmp_path):
         fp.discovery_status = "ok"; fp.discovered_sha = "sha1"
         db.session.commit()
         rt = _runtime(app, "robot")
+        from testorchestrator import execution_readiness
+        assert execution_readiness.validate_project(rt, p) == []
         it = DiscoveredItem(
             binding_id=b.id, project_id=p.id, framework_project_id=fp.id,
             sha="sha1", kind="test", path="s/x.robot", name="T",
@@ -431,6 +445,7 @@ def test_exact_selection_snapshot_map(app, tmp_path):
         fp2.discovered_sha = "sha1"
         db.session.add(fp2); db.session.commit()
         rtb = _runtime(app, "behave")
+        assert execution_readiness.validate_project(rtb, p) == []
         it2 = DiscoveredItem(
             binding_id=b.id, project_id=p.id,
             framework_project_id=fp2.id, sha="sha1", kind="scenario",

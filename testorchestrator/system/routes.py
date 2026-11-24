@@ -1516,7 +1516,14 @@ def _render_infrastructure(runner_form, runtime_form):
         bb_sources=_bb_sources_asset(),
         pb_hints=_pb_endpoint_hints(),
         secret_names=secret_names,
+        all_projects=Project.query.order_by(Project.name).all(),
+        readiness_help=_readiness_help(),
     )
+
+
+def _readiness_help():
+    from ..runtime_profiles import READINESS_HELP
+    return READINESS_HELP
 
 
 @system_bp.route("/infrastructure/runners", methods=["POST"])
@@ -2118,6 +2125,8 @@ def edit_runtime(runtime_id):
         rt.last_diagnostic = (
             "re-check required — probe-relevant config changed")
         if (rt.runtime_kind or "kre") != "kre":
+            from .. import execution_readiness
+            execution_readiness.clear_evidence(rt)
             rt.readiness_state = "evidence-stale"
     db.session.commit()
     record_audit(current_user.username, "runtime.edited", rt.name)
@@ -2523,8 +2532,45 @@ def runtime_projects(runtime_id):
     known = {p.id for p in Project.query.all()}
     rt.allowed_projects = json.dumps(
         [s for s in selected if s in known])
+    from .. import execution_readiness
+    execution_readiness.prune_projects(rt)
     db.session.commit()
     record_audit(current_user.username, "runtime.projects_set",
                  f"{rt.id} -> {len(selected)} project(s)")
     flash("Project associations updated.", "info")
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/runtimes/<runtime_id>/validate-project",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def runtime_validate_project(runtime_id):
+    """Execution-level readiness (M16 §5): toolchain readiness alone
+    is not execution readiness — this validates the (runtime,
+    project) pair and stamps durable evidence the dispatch gate
+    requires for non-KRE runtimes. No repository code is loaded onto
+    the target; all checks are server-side."""
+    from .. import execution_readiness
+    from ..execution import Project, RuntimeConnection
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    if (rt.runtime_kind or "kre") == "kre":
+        flash("KRE runtimes use the existing readiness flow.",
+              "error")
+        return redirect(url_for("system.infrastructure"))
+    project = db.session.get(
+        Project, request.form.get("project_id") or "")
+    if project is None:
+        flash("Select a project to validate against.", "error")
+        return redirect(url_for("system.infrastructure"))
+    failed = execution_readiness.validate_project(
+        rt, project, actor=current_user.username)
+    if failed:
+        flash(f"Execution readiness NOT ready for "
+              f"{project.name!r}: " + "; ".join(failed), "error")
+    else:
+        flash(f"Runtime is ready-execution for {project.name!r} — "
+              "toolchain and project checks passed.", "info")
     return redirect(url_for("system.infrastructure"))

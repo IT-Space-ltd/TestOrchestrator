@@ -256,8 +256,12 @@ def poll(runtime) -> bool:
             {k: v for k, v in probe.items()})
         # Structured state (M16): toolchain probe pass = ready for
         # discovery; project-dependent validation is a separate step
-        # at collection/dispatch time.
+        # at collection/dispatch time. A fresh probe result revokes
+        # previously stamped per-project execution evidence — it was
+        # recorded against the prior toolchain.
         if (runtime.runtime_kind or "kre") != "kre":
+            from . import execution_readiness
+            execution_readiness.clear_evidence(runtime)
             runtime.readiness_state = (
                 "ready-discovery"
                 if "readiness: ready" in runtime.last_diagnostic
