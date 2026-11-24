@@ -12,6 +12,7 @@
 """
 
 import hashlib
+import json
 import mimetypes
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -120,6 +121,56 @@ def parse_junit(path: Path) -> ParsedRun:
                 )
             )
 
+    if run.producer_tests and run.producer_tests != len(run.cases):
+        run.discrepant = True
+    return run
+
+
+class JestParseError(Exception):
+    pass
+
+
+def parse_jest(path: Path) -> ParsedRun:
+    """Parse jest's --json outputFile into the canonical case list.
+    Jest's structured contract is JSON, not junit XML — without this,
+    jest runs collect Reports/jest.json as an opaque artifact and
+    ingest zero TestResult rows."""
+    try:
+        data = json.loads(path.read_bytes())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise JestParseError(f"{path.name}: malformed jest JSON: {exc}") \
+            from exc
+    if not isinstance(data, dict) or "testResults" not in data:
+        raise JestParseError(f"{path.name}: not jest --json output")
+
+    run = ParsedRun()
+    run.producer_tests = int(data.get("numTotalTests") or 0)
+    run.producer_failures = int(data.get("numFailedTests") or 0)
+    run.producer_skipped = (
+        int(data.get("numPendingTests") or 0)
+        + int(data.get("numTodoTests") or 0))
+    status_map = {"passed": "passed", "failed": "failed",
+                  "pending": "skipped", "todo": "skipped",
+                  "skipped": "skipped", "disabled": "skipped",
+                  "focused": "skipped"}
+    for suite in data.get("testResults") or []:
+        classname = Path(suite.get("name") or "").name
+        for ar in suite.get("assertionResults") or []:
+            title = " ".join(
+                [*(ar.get("ancestorTitles") or []),
+                 ar.get("title") or "<unnamed>"]).strip()
+            raw = (ar.get("status") or "").lower()
+            status = status_map.get(raw)
+            if status is None:
+                status, run.partial = "error", True
+            message = "\n".join(ar.get("failureMessages") or [])
+            try:
+                duration = float(ar.get("duration") or 0) / 1000.0
+            except (TypeError, ValueError):
+                duration, run.partial = 0.0, True
+            run.cases.append(ParsedCase(
+                name=title, classname=classname, status=status,
+                duration_s=duration, message=message))
     if run.producer_tests and run.producer_tests != len(run.cases):
         run.discrepant = True
     return run

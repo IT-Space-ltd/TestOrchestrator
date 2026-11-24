@@ -85,12 +85,28 @@ def build_script(runs, prepare="", configure="", build="",
         args = " ".join(q(a) for a in extra_args)
         flt = f"--gtest_filter={filt}" if filt else ""
         dis = " --gtest_also_run_disabled_tests" if run_disabled else ""
-        nz = (" --gtest_fail_if_no_test_selected"
-              if fail_if_no_test else "")
+        if fail_if_no_test:
+            # Probe the linked gtest for the flag at run time — an
+            # unrecognized --gtest_* flag makes the binary print help
+            # and exit 0 having run nothing, the exact silent vacuous
+            # pass this option exists to prevent. Support differs per
+            # binary (each links its own gtest).
+            lines.append(
+                f"  if {q(exe)} --gtest_help 2>&1 | "
+                "grep -q gtest_fail_if_no_test_selected; then "
+                "NZFLAG=' --gtest_fail_if_no_test_selected'; "
+                "else NZFLAG=''; fi")
+            nz = "$NZFLAG"
+        else:
+            nz = ""
         lines.append(
             f"  {t}{q(exe)} --gtest_color=no --gtest_brief=1{dis}{nz}"
             f" --gtest_output=xml:$R/junit/{jname}.xml"
             f" {flt} {args} || exit 1")
+        lines.append(
+            f'  if [ ! -s "$R/junit/{jname}.xml" ]; then'
+            f" echo 'NO RESULT XML {jname} — binary produced no "
+            "report' >&2; exit 1; fi")
     lines.append('echo "}" >> "$MANIFEST"')
     return "\n".join(lines)
 

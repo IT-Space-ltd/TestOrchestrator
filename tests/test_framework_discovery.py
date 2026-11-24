@@ -642,6 +642,11 @@ def test_gtestfw_driver_script():
     assert "exit 4" in s and "--gtest_filter=S.*" in s
     assert "--gtest_list_tests" in s
     assert "sha256sum" in s
+    # flag-guard: unsupported --gtest_fail_if_no_test_selected must
+    # never reach the binary (help text + exit 0 = silent zero-run)
+    s2 = gtestfw.build_script([("b/t", "", "x1")], fail_if_no_test=True)
+    assert "--gtest_help" in s2 and "$NZFLAG" in s2
+    assert "NO RESULT XML" in s2
     kinds = dict((rc, kind) for rc, (kind, _) in
                  ((0, gtestfw.classify_exit(0)),
                   (2, gtestfw.classify_exit(2)),

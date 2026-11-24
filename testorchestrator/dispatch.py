@@ -1935,6 +1935,37 @@ def _normalize(ex: Execution) -> None:
             key = (case.classname, case.name)
             seen_names[key] = seen_names.get(key, 0) + 1
             cases.append((case, seen_names[key], parsed))
+    # Jest's structured contract is Reports/jest.json, not junit XML —
+    # without this its runs ingest zero result rows and a clean pass
+    # still verdicts "incomplete".
+    _item_fw = ""
+    if ex.source_item_id:
+        _it = db.session.get(DiscoveredItem, ex.source_item_id)
+        _item_fw = (_it.framework or "") if _it else ""
+    if _item_fw == "jest":
+        for artifact in Artifact.query.filter_by(
+                execution_id=ex.id).all():
+            if Path(artifact.rel_path).name != "jest.json":
+                continue
+            path = Path(ex.report_dir) / artifact.rel_path
+            try:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                continue
+            prior = seen_hash.get(digest)
+            if prior is not None and _same_report_source(
+                    prior, artifact.rel_path):
+                continue
+            seen_hash.setdefault(digest, artifact.rel_path)
+            try:
+                parsed = results_mod.parse_jest(path)
+            except Exception:
+                continue
+            parsed_docs.append(parsed)
+            for case in parsed.cases:
+                key = (case.classname, case.name)
+                seen_names[key] = seen_names.get(key, 0) + 1
+                cases.append((case, seen_names[key], parsed))
     completed = ex.exit_status is not None
     for case, occurrence, parsed in cases:
         db.session.add(TestResult(
