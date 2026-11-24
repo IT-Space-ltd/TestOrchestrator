@@ -2323,7 +2323,7 @@ data preserved across reinstall (projects/runners/items/secrets).
 - Sudoers grant `/etc/sudoers.d/devin-to-stage` removed — sudo re-prompts.
 - Repo state: head `7ea90634`, clean tree. Branch `feature/2.6.0-node-runners`, PR #4 — no merge/tag/publish per boundary.
 
-## Final reconciliation — ledger closeout (recorded at head `be3a7089`)
+## Final reconciliation — ledger closeout (recorded at head `be3a7089`; this section's own commit is docs-only)
 
 ### 1. Completion status — precise wording
 
@@ -2348,7 +2348,7 @@ draft — no merge, no tag, no publication was performed.
 
 | Role | Revision | Content |
 |---|---|---|
-| Final repository head | `be3a7089` | ledger + reconciliation docs only |
+| Final repository head | `be3a7089` (+ this reconciliation commit) | ledger + reconciliation docs only — every commit after `faf4d822` is docs-only, including this one |
 | Linux product/build revision | `711cb317` | last product-code change (delegated data-confirm fix); packaged into `.run`/`tar.gz` |
 | Windows build revision | `faf4d822` | product code identical to `711cb317` (see diff below) |
 | UI-suite (e2e-ui test) revision | `faf4d822` | last test-code change; ran against installed `49b9537a` payload |
