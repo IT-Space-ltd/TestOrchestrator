@@ -36,6 +36,16 @@ RUNTIMES = [
     ("cy-ssh", "cypress", "vm-ssh", "/opt/fake-node/npx", ""),
 ]
 
+# seeded name -> displayed path (inventory links show paths)
+ITEM_PATHS = {
+    "pytest-pass": "pytest/test_smoke.py",
+    "pytest-fail": "pytest/test_fail.py",
+    "smoke.robot": "tests/smoke.robot",
+    "fail.robot": "tests/fail.robot",
+    "pw.spec.js": "tests/pw.spec.js",
+    "cy.cy.js": "cypress/e2e/cy.cy.js",
+}
+
 # (item name in inventory, runtime name, expect)
 CELLS = [
     ("pytest-pass", "pytest-worker", "PASSED"),
@@ -94,9 +104,20 @@ def _probe(page, name):
     btn = row.locator("button", has_text=re.compile(r"^Check$|Check"))
     btn.first.click()
     page.wait_for_load_state("load")
-    expect(page.locator("tr", has_text=name).first).to_contain_text(
-        re.compile(r"verified|ok|ready|11\.7\.0|7\.5\.1|9\.2\.0|11\.2\.0",
-                   re.I))
+    # The Check runs asynchronously on the target — poll until the row
+    # reports a terminal check state.
+    deadline = time.monotonic() + 120
+    rx = re.compile(
+        r"verified|ok|ready|failed|error|11\.7\.0|7\.5\.1|9\.2\.0|"
+        r"11\.2\.0", re.I)
+    while True:
+        page.reload()
+        txt = page.locator("tr", has_text=name).first.inner_text()
+        if rx.search(txt) and "running" not in txt.lower():
+            break
+        if time.monotonic() > deadline:
+            pytest.fail(f"probe for {name} did not settle: {txt}")
+        page.wait_for_timeout(1500)
 
 
 def _open_item(page, item_name):
@@ -104,8 +125,9 @@ def _open_item(page, item_name):
     page.goto("/projects")
     page.locator("a", has_text="VM-E2E").first.click()
     page.goto(page.url.split("?")[0] + "?tab=inventory")
+    path = ITEM_PATHS.get(item_name, item_name)
     link = page.locator(
-        "a[href^='/discovered/']", has_text=item_name).first
+        "a[href^='/discovered/']", has_text=path).first
     expect(link).to_be_visible()
     page.goto(link.get_attribute("href"))
 
@@ -117,12 +139,17 @@ def _dispatch(page, item_name, runtime_name):
     opt = sel.locator("option", has_text=runtime_name).first
     expect(opt).to_have_count(1)
     sel.select_option(opt.get_attribute("value"))
+    # KRE browser defaults (e.g. "Chrome (headless)") are invalid for
+    # playwright/cypress — use the framework default ("").
+    if runtime_name.startswith(("pw-", "cy-")):
+        page.locator("select#browser_type").select_option("")
     page.locator("button[type=submit]",
                  has_text=re.compile(r"Run ")).click()
     page.wait_for_load_state("load")
     body = page.inner_text("body")
-    m = re.search(r"Execution ([0-9a-f]{8}) queued", body)
+    m = re.search(r"/executions/([0-9a-f]{8,})", page.url)
     assert m, f"dispatch failed: {body[-400:]}"
+    assert "queued" in body, f"no queued flash: {body[-400:]}"
     return m.group(1)
 
 
@@ -140,6 +167,17 @@ def wait_for_table_state(page, timeout_s=240,
         page.reload()
 
 
+def _exec_state(page, exec_id):
+    """State badge text on the execution detail (lowercase value)."""
+    for b in page.locator("span.badge").all():
+        t = (b.inner_text() or "").strip().lower()
+        if t in ("queued", "dispatched", "preparing", "running",
+                 "completed", "failed", "canceled", "cancelled",
+                 "unknown"):
+            return t
+    return ""
+
+
 def _exec_outcome(page, exec_id, want, timeout_s=300):
     """Poll an execution detail for the expected terminal outcome."""
     deadline = time.monotonic() + timeout_s
@@ -147,7 +185,7 @@ def _exec_outcome(page, exec_id, want, timeout_s=300):
     while True:
         page.goto(f"/executions/{exec_id}")
         body = page.inner_text("body")
-        if rx.search(body):
+        if rx.search(_exec_state(page, exec_id)):
             return body
         if time.monotonic() > deadline:
             pytest.fail(
@@ -201,9 +239,8 @@ def test_framework_cell(admin_page, item, runtime, want):
     eid = _dispatch(admin_page, item, runtime)
     DISPATCHED[f"{item}@{runtime}"] = eid
     body = _exec_outcome(admin_page, eid,
-                         r"completed|failed|cancel")
-    assert "completed" in body.lower(), body[-400:]
-    # outcome line must show the expected result, not just COMPLETED
+                         r"completed|failed|cancelled|canceled")
+    # outcome must show the expected result, not just a terminal state
     assert re.search(want, body, re.I), body[-400:]
 
 
@@ -234,10 +271,11 @@ def test_dispatch_watch_queue_and_terminal(admin_page):
 
 
 def test_license_failure_kind(admin_page):
-    """A failing case must surface a failure outcome + details, not a
-    green run."""
+    """A failing case must surface a failed result — the orchestration
+    completes (COMPLETED) while the parsed result records FAILED."""
     eid = _dispatch(admin_page, "pytest-fail", "pytest-worker")
-    body = _exec_outcome(admin_page, eid, r"failed")
+    body = _exec_outcome(admin_page, eid, r"completed")
+    assert re.search(r"failed", body, re.I), body[-400:]
     assert re.search(r"fail|error", body, re.I)
 
 

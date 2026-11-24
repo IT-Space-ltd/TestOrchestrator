@@ -2877,7 +2877,14 @@ def _retry_blocked_line(adapter: BuildbotAdapter,
     except Exception:
         return None
     for line in (log or "").splitlines():
-        if "TO_RETRY_BLOCKED" in line:
+        # Buildbot stdio prefixes each line with a channel char
+        # ('o'/'e' output, 'h' header). Header lines echo the prep
+        # SCRIPT itself — which embeds "TO_RETRY_BLOCKED" in its echo
+        # statements — so a bare substring check false-positives on
+        # every failure. The marker is only real when it starts an
+        # emitted output line.
+        body = line[1:] if line[:1] in "oehi" else line
+        if body.startswith("TO_RETRY_BLOCKED:"):
             return line.strip()[:400]
     return None
 

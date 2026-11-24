@@ -8,9 +8,16 @@ import pytest
 from playwright.sync_api import expect
 from conftest import wait_for_text_after_reload
 from test_06_execution import (wait_for_table_state, _dispatch,
-                               _exec_outcome)
+                               _exec_outcome, _register_runtime)
 
 VM_HOST = os.environ.get("TO_VM_HOST", "10.97.0.121")
+
+
+def test_register_licfail_runtime(admin_page):
+    """KRE runtime pointing at the license-fail fixture, registered
+    through the UI like any other runtime."""
+    _register_runtime(admin_page, "kre-licfail", "kre", "vm-worker",
+                      "/opt/fake-kre/katalonc-licfail", "")
 
 
 def test_failing_case_reports_failure(admin_page):

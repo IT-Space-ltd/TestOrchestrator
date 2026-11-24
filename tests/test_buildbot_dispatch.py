@@ -312,6 +312,41 @@ def test_success_collects_and_completes(app, monkeypatch, tmp_path):
         assert ex.outcome == Outcome.PASSED
 
 
+def test_prep_script_echo_is_not_a_retry_block(
+        app, monkeypatch, tmp_path):
+    """The prep step's stdio echoes the whole prep script in its
+    header lines — including the literal TO_RETRY_BLOCKED echo text.
+    That script echo must NOT be read as a refusal marker: only an
+    emitted TO_RETRY_BLOCKED: output line means the prep refused."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 2,
+                          "claimed": True}
+    # Real log shape: header line contains the script body (marker
+    # text embedded mid-line); no emitted marker anywhere.
+    stub.prep_log = (
+        "hsh -c 'af=.to_exec_attempt_deadbeef; n=$(( $(cat \"$af\" "
+        "|| echo 0) + 1 )); echo \"$n\" > \"$af\"; if [ \"$n\" "
+        "-gt 1 ]; then echo \"TO_RETRY_BLOCKED: attempt $n\"; "
+        "exit 70; fi' to-exec ./katalonc\n"
+        "oNPX-FAKE completed\n"
+        "hprogram finished with exit code 2")
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.DISPATCHED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert "TO_RETRY_BLOCKED" not in ex.error_text
+
+
 def test_retry_blocked_maps_unknown_and_holds_reservations(
         app, monkeypatch, tmp_path):
     """A buildrequest resubmit REFUSED by prep (unresolvable prior

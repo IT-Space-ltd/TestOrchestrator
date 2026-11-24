@@ -2116,3 +2116,101 @@ Known deferred defect (not failed): invisible keyboard-focus indicator.
   with the purged instance. No qemu process, no `/tmp` artifacts on host.
 - Trace/screenshot artifacts: none produced (retain-on-failure, all
   runs green); nothing committed to git.
+
+## Final-package stage — host-server / VM-worker topology (2026-11-24)
+
+Continuation gate: accept reported fixes but hold acceptance open.
+This stage re-tests on the **required topology** — the packaged server
+runs on the **host OS**; a fresh disposable VM is **only** the worker/
+SSH target. Playwright drives the host portal; execution happens on
+the VM. Prior `to-ui`/`to-accept` runs (server+worker colocated in one
+VM) remain valid evidence for their rows but do not substitute here.
+
+### Environment baseline (recorded before install)
+
+| Item | Value |
+|---|---|
+| Host OS | Zorin OS 18.1 (kernel 7.0.0-43-generic), x86_64, 12 CPU, 15 GiB RAM |
+| Free RAM at baseline | ~10 GiB available (floor: ≥4 GiB for VM + ≥2 GiB kept free throughout) |
+| Server package | `testorchestrator-2.6.0-linux-x86_64.run` sha256 `34a73313d06b86966e10ceb967ddbb6690f75b4bb11370ead25590fa4afa19f7` (tarball `435213a82e3c…2915`), product rev `1b3fa5fb` — verified against `dist/` |
+| Pre-existing state | No `/opt/testorchestrator`, no `testorchestrator*` units, nothing on :443/:8080/:9989/:8010/:18080 — clean host, nothing overwritten |
+| Worker VM | `to-worker` — Multipass 1.17.2, Ubuntu 26.04 (`resolute` 20261108), 4 GiB / 2 CPU / 12 GiB, IP `10.97.0.121`, sshd on :22, host key `SHA256:7cnLyR+i7egkNTvA4JiN1SXMZiDdkPVxVFfPxdZhrFY` (ed25519) |
+| VM users/dirs | `ubuntu` (ssh), `to-worker` (created by worker install); `/opt/vm-proj`, `/opt/fake-kre`, `/opt/fake-node`, `/opt/robot-venv` (CPython 3.12.16 via uv), `/tmp/to-ssh` |
+| VM runtimes | real Robot 7.5.1 + pytest 9.2.0 (py312 venv); fake `katalonc`/`npx`/`npm` (orchestration-proof only, same boundary as prior stage); system py3.14 is out of bb-wheels ABI range |
+| Required ports | host: 443 HTTPS, 8080 redirect, 9989 PB (0.0.0.0), 18080+8010 loopback · VM: 22 sshd, PB egress → 10.97.0.1:9989 |
+| Firewall | **No host firewall active** — :9989 LAN-reachable during test window; owner accepted exposure (documented boundary) |
+| Test keys | throwaway ed25519 `~/.ssh/id_to_worker` (host→VM agentless); deleted at teardown; in-VM copies die with the VM |
+| Browser tooling | `/tmp/pw-venv` + Playwright chromium-1255 / firefox-1572 (user-level, isolated — never the product runtime) |
+| Leftover from prior stage | `~/vm-e2e-tmp/` (old seed.py/vm-setup.sh + stale `to_key` pair) — flagged, removed at teardown |
+| Cleanup plan | multipass delete+purge `to-worker`; host uninstall (units, /opt, /var/lib, /etc dirs, service user); delete `id_to_worker`, `~/vm-e2e-tmp`, `/tmp/pw-venv`, `/tmp/to-ui-state`, UI artifacts; verify remnants listed |
+
+### Approvals recorded
+
+- **Host privileged install**: approved — owner granted passwordless
+  sudo for the stage (`--yes` run of the packaged `.run`).
+- **KRE credential**: owner will provide a real Katalon API key.
+  Credential plan (below) presented for approval *before* any use;
+  `KRE-API.txt` on this host is TestOps API documentation, not a key.
+- **PB exposure**: accepted — no firewall; :9989 reachable on the LAN
+  for the test window only.
+
+### KRE credential plan (pending owner confirmation of key)
+
+- KRE runs **only inside `to-worker`**: real `Katalon_Studio_Engine_
+  Linux_64-11.7.0.tar.gz` → `/opt/katalon`, activated with the provided
+  key. Production issuer private key never placed on host or VM —
+  `test_production_key_auto_loaded` stays blocked.
+- Storage: portal encrypted secret store (UI SecretRef) + worker-local
+  cred file mode 600 owned by `to-worker` — the established
+  `credential_file` path. Never in git, test sources, or argv typed
+  into any shell.
+- argv: `-apiKey=` is the only vendor-documented channel — visible to
+  same-UID processes on the worker for process lifetime (Admin Manual
+  §6.9). Disposable `to-worker` user only; zero host exposure.
+- Redaction: portal logs/audit/artifacts redact; Playwright
+  traces/screens scanned for the key value before retention.
+- Cleanup: VM purge destroys the cred file; portal secret deleted at
+  uninstall; staging deleted; owner advised to rotate the key — a
+  scope-limited/throwaway key preferred.
+
+Evidence below is appended as rows complete.
+
+### Defect found and fixed — CSP blocks inline JS (d93e51c7)
+
+While extending the UI suite on the host install, Playwright verified
+that the add-target form's SSH radio checks but `#ssh-fields` never
+un-hides. Cause: `security.py` sends `script-src 'self'`, which blocks
+every inline `<script>` and `on*` handler — the reveal handler is inline.
+Audit found 2 inline scripts + 12 inline handlers across 7 templates:
+
+- **Blocking**: `#ssh-fields` reveal (infrastructure.html) — SSH target
+  creation unreachable via UI.
+- **Dead controls**: select-all/clear (project access panel, user
+  access), project filter input (user_access), "View all releases" tab
+  link (project_detail), timezone "use detected" (account).
+- **Silent confirm loss**: `return confirm(...)` on delete user,
+  delete credential, remove target, delete execution+report, apply
+  restore, restart services, bulk cancel, prune orphan evidence,
+  run-schedule-now — submissions proceeded with **no** dialog.
+
+Fix `d93e51c7`: all moved to `static/js/ui-inline.js` via `data-*`
+hooks + delegation (precedent: `1824bef8`); base.html includes it once;
+`data-cancel-details`/modal/data-guard paths already external and
+unaffected. Regression test `test_templates_have_no_inline_javascript`
+scans all templates for bare `<script>`/`on*=` — green with the rest of
+test_security + test_infra + test_execution_controls (58 passed).
+
+Package `34a73313d06b…a19f7` (built at `1b3fa5fb`) is **stale** for all
+rows affected by the above; rebuild from `d93e51c7`+ in progress — all
+UI/infra/exec rows rerun against the new hash.
+
+### Rebuild after CSP fix
+
+- `34a73313d06b…a19f7` → **STALE** (pre-CSP-fix).
+- New: `dist/release/linux/testorchestrator-2.6.0-linux-x86_64.run`
+  sha256 `262fead1e9e53ffdd84647ea65cbe8b45efee84a76800dad0a14c9a4a7ee29eb`
+  (201,073,963 B), built at `89d840d2` — product tree identical to
+  `d93e51c7` (that commit is templates/js/test only; `89d840d2` adds
+  e2e test files). First attempt hit a transient SIGSEGV in the
+  bundled-runtime venv check during `validate_package.py`; identical
+  retry passed. Noted as an environment flake, not product.
