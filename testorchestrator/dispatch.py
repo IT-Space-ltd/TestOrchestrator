@@ -1129,6 +1129,7 @@ def _exec_ready_block(rt, project_id: str, rc: dict) -> str:
 
 def pick_runtime(execution: Execution, runner: Runner):
     rc = execution.snapshot().get("run_config") or {}
+    eligible, busy = [], []
     for rt in runner.runtimes:
         if not rt.enabled or _runtime_probe_blocked(rt):
             continue
@@ -1143,9 +1144,13 @@ def pick_runtime(execution: Execution, runner: Runner):
                 db.select(_runtime_active_subquery(
                     runner, rt, execution.id))).scalar() or 0)
             if used >= rt_cap:
+                # A full runtime is still eligible — the execution queues
+                # on the capacity claim. Prefer a runtime with headroom,
+                # never report "no compatible runtime" just for being busy.
+                busy.append(rt)
                 continue
-        return rt
-    return None
+        eligible.append(rt)
+    return (eligible or busy or [None])[0]
 
 
 # ---------- worker ----------
