@@ -47,8 +47,10 @@ class LocalBuildbotStub:
                 tar.extractall(builddir, filter="data")
         argv = [spec["executable"], *spec.get("args", [])]
         if spec.get("credential_wrapper") and spec.get("credential_file"):
-            argv = [spec["credential_wrapper"], spec["credential_file"],
-                    *argv]
+            argv = ([spec["credential_interp"]]
+                    if spec.get("credential_interp") else [])
+            argv += [spec["credential_wrapper"],
+                     spec["credential_file"], *argv]
         workdir = basedir / spec.get("exec_workdir", "build")
         log_path = basedir / "run.log"
         req["log_path"] = log_path

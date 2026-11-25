@@ -2093,6 +2093,27 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             _fn = (".to_collect.js" if _cfw in
                    collectors.NODE_SCRIPTS else ".to_collect.py")
             _cscripts = {_fn: _script}
+    _helper_sha = ""
+    _kind0 = getattr(runtime, "runtime_kind", "") or "kre"
+    if (_kind0 == "kre"
+            and (runner.target_type or "local") != "ssh"
+            and (runtime.credential_file or runtime.credential_ref)):
+        # Credentialed KRE on a PB worker: the credential resolver is
+        # staged inside this run's source tar — remote workers can
+        # never resolve controller-host paths, and each execution gets
+        # its own copy under src/ (isolated, cleaned with the tree).
+        try:
+            _helper_text = buildbot_cfg.kre_cred_helper_source() \
+                .read_text(encoding="utf-8")
+        except OSError as exc:
+            _fail(ex, "infrastructure",
+                  f"KRE credential resolver missing from the "
+                  f"controller payload: {exc}")
+            return
+        _cscripts = dict(_cscripts or {})
+        _cscripts[buildbot_cfg.KRE_CRED_HELPER] = _helper_text
+        import hashlib as _hl
+        _helper_sha = _hl.sha256(_helper_text.encode()).hexdigest()
     buildbot_cfg.stage_source(ex, source, scripts=_cscripts)
     # Slot-builders: a (builder, worker) pair runs one build at a time,
     # so the runner's admitted slots map to distinct builders. Pick a
@@ -2690,9 +2711,13 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             remote_webdriver_type=rc.get("remote_webdriver_type", ""),
             collection=bool(rc.get("collection")),
             extra=flags)
+        _win = (runner.os_arch or "").lower().startswith("win")
         spec = buildbot_cfg.kre_exec_spec(
             ex, runtime, args[1:], credential_file=cred_file,
-            posix=not (runner.os_arch or "").lower().startswith("win"))
+            posix=not _win,
+            helper_interp=kre_adapter.helper_interp_for(
+                runner.os_arch),
+            helper_sha256=_helper_sha)
         # Persist the rendered spec — collection re-renders it as the
         # kre-invocation.log evidence record (same contract the local
         # path had: the exact argv, never secret values).
@@ -3545,6 +3570,15 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                 if kind:
                     ex.error_kind = kind
                     detail = f" — KRE reported a {kind} error"
+                    if "kre_cred_exec:" in (tail or ""):
+                        # The credential resolver's own message is the
+                        # precise cause — surface it, not the generic
+                        # kind alone.
+                        for line in (tail or "").splitlines():
+                            if "kre_cred_exec:" in line:
+                                detail = (" — " +
+                                          line.strip()[:200])
+                                break
             elif rt0 is not None and (rt0.runtime_kind or "") \
                     in (robotfw.KIND, pytestfw.KIND):
                 # Robot/pytest write xunit only on a valid execution —

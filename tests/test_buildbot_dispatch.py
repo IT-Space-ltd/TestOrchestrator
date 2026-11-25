@@ -366,6 +366,78 @@ def test_kre_classify_ignores_benign_testcloud_fallback():
     assert kre.classify_error(noact, "License is not activated") \
         == "license"
 
+    # The staged credential resolver failing before KRE launches is a
+    # credential-provisioning/config problem — never a license verdict
+    # (the license was never reached).
+    wrap = InvocationResult(exit_status=1)
+    assert kre.classify_error(
+        wrap, "kre_cred_exec: credential file unreadable") == "config"
+
+    # The step runner's kill marker → timeout is infrastructure even
+    # when the coordinator reports a bare failure code.
+    to = InvocationResult(exit_status=1)
+    assert kre.classify_error(
+        to, "command timed out: 20 seconds without output "
+        "running [...] attempting to kill") == "infrastructure"
+
+    # The logged argv always echoes "-projectPath=<dir>" — data, not
+    # an error. The bare substring must not fire "config".
+    argvecho = InvocationResult(exit_status=1)
+    assert kre.classify_error(
+        argvecho,
+        "argv: [b'katalonc', b'-projectPath=.', b'-reportFolder=R'] "
+        "program finished with exit code 1") != "config"
+    # …while a real project-path complaint still classifies config.
+    badproj = InvocationResult(exit_status=4)
+    assert kre.classify_error(
+        badproj, "cannot find project") == "config"
+    # KRE's bad-selection marker is config, not infrastructure — but a
+    # test failure mentioning "not found" inside a suite stays honest.
+    badsuite = InvocationResult(exit_status=4)
+    assert kre.classify_error(
+        badsuite, "Test suite 'Test Suites/NOPE' not found.") \
+        == "config"
+    testfail = InvocationResult(exit_status=1)
+    assert kre.classify_error(
+        testfail, "Test suite 'TS2' — Test Cases/TC3 FAILED: "
+        "element not found on page") != "config"
+
+
+def test_kre_exec_spec_staged_helper(app):
+    """Credentialed KRE on a PB worker: the resolver travels inside the
+    exec tar as src/.to_kre_cred_exec.py and runs under a named worker
+    interpreter — never a controller-host path."""
+    with app.app_context():
+        ex = type("E", (), {})()
+        ex.snapshot = lambda: {"run_config": {}}
+        rt = type("R", (), {"executable_path": "/x"})()
+        spec = buildbot_cfg.kre_exec_spec(
+            ex, rt, ["a"], credential_file="C:/to/kre.key",
+            posix=False, helper_interp="python",
+            helper_sha256="ab12")
+        assert spec["credential_wrapper"] == ".to_kre_cred_exec.py"
+        assert spec["credential_wrapper"] == buildbot_cfg.KRE_CRED_HELPER
+        assert spec["credential_interp"] == "python"
+        assert spec["credential_file"] == "C:/to/kre.key"
+        assert spec["helper_sha256"] == "ab12"
+        # No credential → no helper fields at all (missing-cred path
+        # still runs the bare executable).
+        spec2 = buildbot_cfg.kre_exec_spec(ex, rt, ["a"])
+        assert "credential_wrapper" not in spec2
+        assert "credential_interp" not in spec2
+
+
+def test_kre_cred_helper_source_is_portable():
+    """The staged resolver must exist in the payload and carry the
+    cross-platform guards (geteuid/O_NOFOLLOW absent on Windows,
+    kill-on-close job for process-tree control)."""
+    src = buildbot_cfg.kre_cred_helper_source()
+    assert src.is_file()
+    text = src.read_text(encoding="utf-8")
+    assert 'os.name == "nt"' in text
+    assert "AssignProcessToJobObject" in text
+    compile(text, str(src), "exec")
+
 
 def test_prep_script_echo_is_not_a_retry_block(
         app, monkeypatch, tmp_path):

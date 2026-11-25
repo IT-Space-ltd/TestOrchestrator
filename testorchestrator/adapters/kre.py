@@ -348,6 +348,16 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
     if result.timed_out:
         return "infrastructure"
     text = stdout_tail.lower()
+    # The step runner's own kill marker — a timed-out run is
+    # infrastructure even when the coordinator only reports a bare
+    # failure code (results=2 hides the timeout cause).
+    if "command timed out" in text:
+        return "infrastructure"
+    # The credential resolver failed before KRE launched — a
+    # credential-provisioning/config problem, never a KRE license
+    # verdict (the license was never reached).
+    if "kre_cred_exec:" in text:
+        return "config"
     # Fatal license failures — specific markers only. KRE logs a
     # benign "Failed to activate with TestCloud license" fallback in
     # every run before acquiring the KRE license; matching on the bare
@@ -368,7 +378,17 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
                 s in text for s in ("license", "licence",
                                     "activation"))):
         return "license"
-    if any(s in text for s in ("projectpath", "no such file", "cannot find project")):
+    # Bad project/config markers — but never the argv echo: the
+    # logged invocation always carries "-projectPath=<dir>", which is
+    # data, not an error. Real KRE complaints phrase the path problem
+    # out, so the bare "projectpath" substring is only meaningful when
+    # it is not the "-projectPath=" option itself.
+    if any(s in text for s in ("no such file", "cannot find project",
+                               "project not found", "invalid project")) \
+            or ("projectpath" in text and "projectpath=" not in text) \
+            or re.search(
+                r"test suite(?: collection)? '[^']*' not found",
+                text) is not None:
         return "config"
     if result.exit_status not in (0, 1):
         return "infrastructure"
@@ -383,3 +403,130 @@ def discover_reports(report_dir: Path) -> list:
         p for p in report_dir.rglob("*.xml")
         if p.is_file() and not p.name.startswith(".")
     )
+
+
+# ---------------------------------------------------------------- readiness
+# Same TO-PROBE marker contract as the other runners: the staged source
+# runs on the target under the target's own account, emits markers,
+# installs nothing. What a remote KRE run actually needs, checked on
+# the target itself — the configured katalonc executable, a Python
+# interpreter the staged credential resolver runs under, that resolver
+# really executing (its usage-error exit proves parse + launch), a
+# writable workspace, and application-URL reachability.
+
+PROBE_SH = """#!/bin/sh
+# TestOrchestrator KRE readiness probe (POSIX).
+set +e
+R=Reports
+mkdir -p "$R"
+L="$R/probe.txt"; : > "$L"
+p() { echo "TO-PROBE $1"; echo "TO-PROBE $1" >> "$L"; }
+p "connectivity=ok"
+K="${KREBIN:-}"
+if [ -z "$K" ]; then
+  p "kre=missing (no executable_path configured)"
+elif [ ! -f "$K" ]; then
+  p "kre=missing ($K not found)"
+elif [ ! -x "$K" ]; then
+  p "kre=missing ($K not executable)"
+else
+  p "kre=present"
+  if command -v timeout >/dev/null 2>&1; then T="timeout 120"; else T=""; fi
+  v=$($T "$K" -version 2>&1 \\
+      | grep -o 'katalon\\.versionNumber=[0-9.]*' | head -1)
+  if [ -n "$v" ]; then
+    p "krever=${v#katalon.versionNumber=}"
+  else
+    p "krever=unprobeable (-version produced no versionNumber marker)"
+  fi
+fi
+PY="${HELPER_PY:-python3}"
+"$PY" --version >/dev/null 2>&1 \\
+  && p "helper_interp=$("$PY" --version 2>&1)" \\
+  || p "helper_interp=missing ($PY not runnable)"
+"$PY" .to_kre_cred_exec.py 2>&1 | grep -q "usage: kre_cred_exec" \\
+  && p "helper_exec=ok" || p "helper_exec=FAILED"
+mkdir -p Reports/.wtest && rmdir Reports/.wtest \\
+  && p "workspace_write=ok" || p "workspace_write=denied"
+if [ -n "%APP_URL%" ]; then
+  curl -sf -m 10 -o /dev/null "%APP_URL%" \\
+    && p "app_url=reachable" || p "app_url=UNREACHABLE from this target"
+else
+  p "app_url=not-configured (no application URL to check)"
+fi
+p "done=1"
+"""
+
+
+PROBE_CMD = r"""@echo off
+rem TestOrchestrator KRE readiness probe (Windows cmd, argv-only).
+setlocal enabledelayedexpansion
+if not exist Reports mkdir Reports
+set L=Reports\probe.txt
+type nul > "%L%"
+call :p connectivity=ok
+if "%KREBIN%"=="" goto nokrebin
+if not exist "%KREBIN%" goto kremissing
+call :p kre=present
+for /f "delims=" %%v in ('"%KREBIN%" -version 2^>^&1 ^| findstr /c:"katalon.versionNumber="') do (echo TO-PROBE krever=%%v & >>"%L%" echo TO-PROBE krever=%%v)
+goto kredone
+:kremissing
+call :p kre=missing ^(%KREBIN% not found^)
+goto kredone
+:nokrebin
+call :p kre=missing ^(no executable_path configured^)
+:kredone
+if "%HELPER_PY%"=="" (set PY=python) else (set "PY=%HELPER_PY%")
+"%PY%" --version >nul 2>&1
+if errorlevel 1 (echo TO-PROBE helper_interp=missing ^(%PY% not runnable^) & >>"%L%" echo TO-PROBE helper_interp=missing ^(%PY% not runnable^)) else (for /f "delims=" %%v in ('"%PY%" --version 2^>nul') do (echo TO-PROBE helper_interp=%%v & >>"%L%" echo TO-PROBE helper_interp=%%v))
+"%PY%" ".to_kre_cred_exec.py" 2>&1 | findstr /c:"usage: kre_cred_exec" >nul
+if errorlevel 1 (echo TO-PROBE helper_exec=FAILED & >>"%L%" echo TO-PROBE helper_exec=FAILED) else (echo TO-PROBE helper_exec=ok & >>"%L%" echo TO-PROBE helper_exec=ok)
+rmdir Reports\.wtest 2>nul & mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul
+if errorlevel 1 (echo TO-PROBE workspace_write=denied & >>"%L%" echo TO-PROBE workspace_write=denied) else (echo TO-PROBE workspace_write=ok & >>"%L%" echo TO-PROBE workspace_write=ok)
+if "%APP_URL%"=="" goto noappurl
+curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1
+if errorlevel 1 (echo TO-PROBE app_url=UNREACHABLE from this target & >>"%L%" echo TO-PROBE app_url=UNREACHABLE from this target) else (echo TO-PROBE app_url=reachable & >>"%L%" echo TO-PROBE app_url=reachable)
+goto appdone
+:noappurl
+call :p app_url=not-configured
+:appdone
+call :p done=1
+exit /b 0
+:p
+>>"%L%" echo TO-PROBE %*
+echo TO-PROBE %*
+exit /b 0
+"""
+
+
+def probe_scripts(app_url: str = "", helper_path=None) -> dict:
+    """Filename -> content for the staged readiness source. The
+    credential resolver itself travels with the probe so the
+    helper_exec marker proves interpreter + script on the real
+    target — a missing payload copy is reported, not hidden."""
+    scripts = {
+        "probe.sh": PROBE_SH.replace("%APP_URL%", app_url or ""),
+        "probe.cmd": PROBE_CMD.replace("%APP_URL%", app_url or "")
+                              .replace("\n", "\r\n"),
+    }
+    try:
+        scripts[".to_kre_cred_exec.py"] = Path(
+            helper_path).read_text(encoding="utf-8")
+    except (OSError, TypeError):
+        pass
+    return scripts
+
+
+def probe_argv(os_arch: str) -> list:
+    """Entry argv for the probe on the worker — batch on Windows,
+    POSIX sh everywhere else."""
+    win = (os_arch or "").lower().startswith("win")
+    return ["cmd", "/c", "probe.cmd"] if win else ["sh", "probe.sh"]
+
+
+def helper_interp_for(os_arch: str) -> str:
+    """Worker interpreter the staged credential resolver runs under —
+    must match dispatch's helper_interp choice and the probe's
+    HELPER_PY so readiness proves the same thing dispatch needs."""
+    return "python" if (os_arch or "").lower().startswith("win") \
+        else "python3"

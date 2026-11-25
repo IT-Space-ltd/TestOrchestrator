@@ -20,6 +20,13 @@ Security contract:
     inside the configured directory (or KRE_CRED_DIR when set), and
     contain a narrowly-shaped credential (see _KEY_RE). Validation is
     performed on the opened file descriptor — no check/read race.
+  - On Windows the uid/mode-bits checks are skipped (st_uid is always
+    0 and POSIX mode bits are synthesised); NTFS ACLs on the
+    service-account-owned run directory carry the equivalent control,
+    and link/junction rejection happens before the open.
+  - On Windows the KRE child is placed in a kill-on-close job object,
+    so terminating this wrapper — timeout, cancel, worker kill —
+    cannot orphan the KRE process tree.
   - A pre-supplied -apiKey argument is rejected: exactly one
     credential source.
   - The resolved value is passed to KRE as an argv element
@@ -58,19 +65,35 @@ def read_credential(path: str, allowed_dir: str = "") -> bytes:
     real = os.path.realpath(path)
     if not real.startswith(conf_dir + os.sep):
         _fail("credential file outside permitted directory")
-    # O_NOFOLLOW: refuse symlink substitution on the final component.
+    # Refuse symlink substitution on the final component. POSIX gets
+    # O_NOFOLLOW on the open itself; Windows lacks the flag, so the
+    # link/junction is rejected before the open instead.
+    if os.name == "nt":
+        if os.path.islink(real) or os.path.isjunction(real):
+            _fail("credential file must not be a link/junction")
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    else:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
     try:
-        fd = os.open(real, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(real, flags)
     except OSError as exc:
         _fail(f"credential file unreadable: {exc.strerror or exc}")
     try:
         st = os.fstat(fd)  # checks on the opened fd — no stat/read race
         if not stat.S_ISREG(st.st_mode):
             _fail("credential file is not a regular file")
-        if st.st_uid != os.geteuid():
-            _fail("credential file not owned by the invoking account")
-        if st.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
-            _fail("credential file has group/other permission bits")
+        if os.name != "nt":
+            # POSIX uid/mode-bits checks — on Windows st_uid is always
+            # 0 and the group/other mode bits are synthesised, so the
+            # equivalent protection is the NTFS ACL on the per-run
+            # directory (service-account-owned), which stdlib cannot
+            # evaluate here.
+            if st.st_uid != os.geteuid():
+                _fail("credential file not owned by the invoking "
+                      "account")
+            if st.st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+                _fail("credential file has group/other permission "
+                      "bits")
         data = os.read(fd, 513)
     finally:
         os.close(fd)
@@ -113,6 +136,54 @@ def _pump(src, dst, needle: bytes) -> None:
         dst.flush()
 
 
+def _assign_kill_on_close(proc) -> object:
+    """Windows: place the KRE child in a kill-on-close job object so a
+    dead wrapper — step timeout, cancel, or worker kill via
+    TerminateProcess — takes the whole process tree with it. Without
+    this, killing the wrapper orphans katalonc's console children
+    (java), which keep the license and keep writing reports."""
+    import ctypes
+    k32 = ctypes.windll.kernel32
+    job = k32.CreateJobObjectW(None, None)
+    if not job:
+        _fail("CreateJobObjectW failed")
+
+    class _LIM(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64),
+                    ("PerJobUserTimeLimit", ctypes.c_int64),
+                    ("LimitFlags", ctypes.c_uint32),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t),
+                    ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", ctypes.c_uint32),
+                    ("Affinity", ctypes.c_size_t),
+                    ("PriorityClass", ctypes.c_uint32),
+                    ("SchedulingClass", ctypes.c_uint32)]
+
+    class _IO(ctypes.Structure):
+        _fields_ = [(n, ctypes.c_uint64) for n in (
+            "ReadOperationCount", "WriteOperationCount",
+            "OtherOperationCount", "ReadTransferCount",
+            "WriteTransferCount", "OtherTransferCount")]
+
+    class _EXT(ctypes.Structure):
+        _fields_ = [("BasicLimitInformation", _LIM),
+                    ("IoInfo", _IO),
+                    ("ProcessMemoryLimit", ctypes.c_size_t),
+                    ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                    ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    info = _EXT()
+    # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    info.BasicLimitInformation.LimitFlags = 0x2000
+    if not k32.SetInformationJobObject(
+            job, 9, ctypes.byref(info), ctypes.sizeof(info)):
+        _fail("SetInformationJobObject failed")
+    if not k32.AssignProcessToJobObject(job, proc._handle):
+        _fail("AssignProcessToJobObject failed")
+    return job  # caller holds it — the handle dies with the process
+
+
 def main(argv: list) -> int:
     if len(argv) < 3:
         sys.stderr.write(
@@ -132,6 +203,7 @@ def main(argv: list) -> int:
     proc = subprocess.Popen(
         [katalonc, *kre_args, "-apiKey=" + key.decode()],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    _job = _assign_kill_on_close(proc) if os.name == "nt" else None
 
     def _term(_sig, _frm):
         proc.terminate()

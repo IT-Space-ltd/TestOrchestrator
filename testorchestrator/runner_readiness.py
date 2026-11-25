@@ -39,14 +39,20 @@ def submit(runtime, app_url: str = "",
            required_libs: str = "") -> tuple:
     """Stage + submit the probe. Returns (ok, message)."""
     kind = runtime.runtime_kind or "kre"
+    kfw = kind == "kre"
     pyfw = kind in (robotfw.KIND, pytestfw.KIND, "behave")
     gtw = kind == "gtest"
     shfw = kind in ("postman", "bruno")   # POSIX script probes
-    kind = kind if pyfw or gtw or shfw or kind in nodefw.KINDS \
-        else "playwright"
+    kind = kind if kfw or pyfw or gtw or shfw \
+        or kind in nodefw.KINDS else "playwright"
     runner = runtime.runner
     rid = _rid(runtime)
-    if kind == pytestfw.KIND:
+    if kfw:
+        from .adapters import kre as kre_adapter
+        scripts = kre_adapter.probe_scripts(
+            app_url.strip(),
+            helper_path=buildbot_cfg.kre_cred_helper_source())
+    elif kind == pytestfw.KIND:
         scripts = pytestfw.probe_scripts(app_url.strip())
     elif kind == "behave":
         from .adapters import behavefw
@@ -69,6 +75,10 @@ def submit(runtime, app_url: str = "",
     if pyfw:
         probe_env["PYBIN"] = (runtime.executable_path or "").strip()
         probe_env["REQUIRED_LIBS"] = (required_libs or "").strip()
+    if kfw:
+        probe_env["KREBIN"] = (runtime.executable_path or "").strip()
+        probe_env["HELPER_PY"] = kre_adapter.helper_interp_for(
+            runner.os_arch)
     adapter = BuildbotAdapter.from_settings()
     try:
         if runner.target_type == "ssh":
@@ -103,7 +113,8 @@ def submit(runtime, app_url: str = "",
                     / "to_ssh_exec.py"),
                 spec_file=str(spec_file))
         else:
-            argv = (robotfw.probe_argv(runner.os_arch) if pyfw
+            argv = (kre_adapter.probe_argv(runner.os_arch) if kfw
+                    else robotfw.probe_argv(runner.os_arch) if pyfw
                     else gtestfw.probe_argv(runner.os_arch) if gtw
                     else postmanfw.probe_argv(runner.os_arch)
                     if kind == "postman"
@@ -177,6 +188,31 @@ def _summarize(probe: dict, kind: str) -> str:
             f"{k}={v}" for k, v in probe.items()
             if k in ("python", kind)
             and not v.startswith("missing"))
+    elif kind == "kre":
+        problems = []
+        if probe.get("kre", "missing").startswith("missing"):
+            problems.append("KRE executable not found/runnable at "
+                            "the configured executable_path on the "
+                            "target")
+        if probe.get("helper_interp", "missing") \
+                .startswith("missing"):
+            problems.append("no worker Python interpreter for the "
+                            "staged credential resolver (python3 / "
+                            "python on PATH)")
+        if probe.get("helper_exec") == "FAILED":
+            problems.append("staged credential resolver cannot run "
+                            "under the target interpreter")
+        if probe.get("workspace_write") not in (None, "ok"):
+            problems.append("workspace not writable for the run "
+                            "account")
+        if probe.get("app_url", "").startswith("UNREACHABLE"):
+            problems.append("target cannot reach the application "
+                            "URL")
+        versions = ", ".join(
+            f"{k}={v}" for k, v in probe.items()
+            if k in ("kre", "krever", "helper_interp")
+            and not v.startswith("missing")
+            and not v.startswith("unprobeable"))
     elif kind == "gtest":
         problems = []
         if not any(probe.get(f"tool_{t}") == "present"

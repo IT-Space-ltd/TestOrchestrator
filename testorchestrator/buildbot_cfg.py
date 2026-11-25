@@ -370,14 +370,34 @@ def _retry_policy(ex, posix: bool = True) -> dict:
             "retry_enabled": bool(rc.get("retry_enabled", True))}
 
 
+# Name the credential resolver is staged under inside the exec source
+# tar (src/<name> — stage_source "scripts" injection). The worker runs
+# the staged copy through the platform interpreter; nothing on the
+# worker resolves controller-host paths.
+KRE_CRED_HELPER = ".to_kre_cred_exec.py"
+
+
+def kre_cred_helper_source() -> Path:
+    """Controller-side location of the credential resolver that gets
+    staged into the exec tar for every credentialed KRE run."""
+    return (Path(__file__).resolve().parent.parent / "scripts"
+            / "kre_cred_exec.py")
+
+
 def kre_exec_spec(ex, runtime, args: list,
                   credential_file: str = "",
-                  posix: bool = True) -> dict:
+                  posix: bool = True,
+                  helper_interp: str = "",
+                  helper_sha256: str = "") -> dict:
     """Validated runner spec for local + remote worker targets — argv
     only, never a shell string and never secrets. ``credential_file``
     is a PATH: worker-local for remote targets, a portal-written 0600
     file under staging for the controller-local worker. ``posix=False``
-    (Windows workers) skips the pidfile wrapper — no sh there."""
+    (Windows workers) skips the pidfile wrapper — no sh there.
+    The credential resolver travels inside the exec tar as
+    src/.to_kre_cred_exec.py and runs under ``helper_interp``
+    (python3 / python on the worker PATH) — remote workers must never
+    resolve controller-host paths."""
     spec = {
         "executable": runtime.executable_path,
         "args": list(args),
@@ -389,12 +409,13 @@ def kre_exec_spec(ex, runtime, args: list,
         "report_src": "src/Reports",
         "posix": posix,
     }
-    wrapper = str(
-        Path(__file__).resolve().parent.parent / "scripts"
-        / "kre_cred_exec.py")
     if credential_file:
-        spec["credential_wrapper"] = wrapper
+        spec["credential_wrapper"] = KRE_CRED_HELPER
         spec["credential_file"] = credential_file
+        if helper_interp:
+            spec["credential_interp"] = helper_interp
+        if helper_sha256:
+            spec["helper_sha256"] = helper_sha256
     spec.update(_retry_policy(ex, posix=posix))
     return spec
 
