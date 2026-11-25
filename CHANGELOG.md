@@ -9,7 +9,7 @@ delivers so far. Schema changes so far: `projects.retention_json`
 `framework_projects`, `discovered_items` framework/selector/
 provenance columns, `artifact_stores`, and discovery fingerprints.
 New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
-`migration_pending`; `a2b3c4d5e6f7` adds
+`migration_pending`; `o4b5c6d7e8f9` adds
 `runtime_connections.licensing_mode` / `license_refs` /
 `license_server_url`.
 
@@ -18,7 +18,7 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 - **KRE licensing modes — online / offline / private.** A KRE runtime
   now declares its licensing mode explicitly
   (`runtime_connections.licensing_mode`, migration
-  `a2b3c4d5e6f7`): `online` keeps the existing `-apiKey` credential
+  `o4b5c6d7e8f9`): `online` keeps the existing `-apiKey` credential
   contract (unchanged for all existing runtimes); `offline` needs no
   API key and instead uses genuine Katalon-issued `.lic` files in the
   execution account's `~/.katalon/license` — either

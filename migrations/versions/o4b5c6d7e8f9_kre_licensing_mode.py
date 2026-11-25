@@ -1,8 +1,8 @@
 """KRE licensing modes: runtime_connections.licensing_mode /
 license_refs / license_server_url
 
-Revision ID: a2b3c4d5e6f7
-Revises: z8a9b0c1d2e3
+Revision ID: o4b5c6d7e8f9
+Revises: n2b3c4d5e6f7
 Create Date: 2026-11-25
 
 Additive only. Existing runtimes keep licensing_mode 'online' —
@@ -12,8 +12,8 @@ their behaviour is byte-identical to the pre-migration gate
 from alembic import op
 import sqlalchemy as sa
 
-revision = "a2b3c4d5e6f7"
-down_revision = "z8a9b0c1d2e3"
+revision = "o4b5c6d7e8f9"
+down_revision = "n2b3c4d5e6f7"
 branch_labels = None
 depends_on = None
 
