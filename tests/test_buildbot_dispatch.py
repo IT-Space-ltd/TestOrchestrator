@@ -93,6 +93,7 @@ def _env(app, monkeypatch, stub, target_type="local",
         db.session.flush()
         rt = RuntimeConnection(name="kre", runner_id=r.id,
                                executable_path="/opt/kre/katalonc",
+                               credential_file="/opt/kre/.krecred",
                                enabled=True)
         db.session.add(rt)
         db.session.flush()
@@ -456,12 +457,22 @@ def test_kre_classify_ignores_benign_testcloud_fallback():
     assert kre.classify_error(noact, "License is not activated") \
         == "license"
 
-    # The staged credential resolver failing before KRE launches is a
-    # credential-provisioning/config problem — never a license verdict
-    # (the license was never reached).
+    # The staged credential resolver failing before KRE launches is
+    # never a license verdict (the license was never reached). Split by
+    # layer: credential VALUE problems are config; file/transfer/
+    # permission/executable problems are infrastructure.
     wrap = InvocationResult(exit_status=1)
     assert kre.classify_error(
-        wrap, "kre_cred_exec: credential file unreadable") == "config"
+        wrap, "kre_cred_exec: credential file unreadable") \
+        == "infrastructure"
+    assert kre.classify_error(
+        wrap, "kre_cred_exec: KRE executable not found at the "
+        "configured path") == "infrastructure"
+    assert kre.classify_error(
+        wrap, "kre_cred_exec: credential file is empty") == "config"
+    assert kre.classify_error(
+        wrap, "kre_cred_exec: conflicting credential source: -apiKey "
+        "already supplied") == "config"
 
     # The step runner's kill marker → timeout is infrastructure even
     # when the coordinator reports a bare failure code.

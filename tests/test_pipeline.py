@@ -91,9 +91,13 @@ def pipeline_env(app, tmp_path, fake_kre):
             name="local-1", connection_mode="local",
             workspace_root=str(tmp_path / "work"), max_slots=2))
         runner = Runner.query.filter_by(name="local-1").first()
+        krecred = tmp_path / "krecred"
+        krecred.write_text("TESTKREKEY-0001")
+        krecred.chmod(0o600)
         db.session.add(RuntimeConnection(
             name="kre-1", runner_id=runner.id,
             executable_path=fake_kre,
+            credential_file=str(krecred),
             workspace_root=str(tmp_path / "krework")))
         db.session.commit()
         yield {

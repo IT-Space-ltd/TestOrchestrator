@@ -353,10 +353,23 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
     # failure code (results=2 hides the timeout cause).
     if "command timed out" in text:
         return "infrastructure"
-    # The credential resolver failed before KRE launched — a
-    # credential-provisioning/config problem, never a KRE license
-    # verdict (the license was never reached).
+    # The credential resolver failed before KRE launched — never a
+    # KRE license verdict (the license was never reached). Split by
+    # layer: a missing/unreadable credential FILE, permission or
+    # confinement failure, missing executable/interpreter, or a
+    # failed launch is a target infrastructure problem; only a bad
+    # credential VALUE (empty/malformed token, conflicting source,
+    # usage errors) is a config error.
     if "kre_cred_exec:" in text:
+        if any(s in text for s in (
+                "credential file not found", "credential file unreadable",
+                "credential file must not be a link",
+                "cannot stat credential", "cannot read credential",
+                "not owned by the invoking", "group/other permission",
+                "outside permitted directory", "cannot create private run dir",
+                "cannot create output fifo", "executable not found",
+                "failed to start")):
+            return "infrastructure"
         return "config"
     # Fatal license failures — specific markers only. KRE logs a
     # benign "Failed to activate with TestCloud license" fallback in

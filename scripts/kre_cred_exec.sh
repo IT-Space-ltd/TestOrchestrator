@@ -48,9 +48,11 @@ for a in "$@"; do
 done
 
 # Path contract: an absolute path (operator-placed target file), or
-# the per-run delivered form ../<name> (FileDownload artifact landed
-# at the builddir root, exec workdir is build/src). Nothing else —
-# no bare names, no interior .., no escaping paths.
+# the per-run delivered form ../<relpath> — the FileDownload artifact
+# lands in the prep-created restricted drop dir .to_cred/ at the
+# builddir root (exec workdir is build/src). After stripping the
+# leading ../ the remainder must be a clean relative path: no bare
+# name rejection needed, but no interior .., no leading /.
 case "$cred" in
     /*) ;;
     ../*)
@@ -59,7 +61,7 @@ case "$cred" in
             case "$rest" in ../*) rest=${rest#../};; *) break;; esac
         done
         case "$rest" in
-            ""|*/*|.|..)
+            ""|.|..|/*|../*|*/../*|*/..)
                 fail "credential file path must be absolute";;
         esac;;
     *) fail "credential file path must be absolute";;

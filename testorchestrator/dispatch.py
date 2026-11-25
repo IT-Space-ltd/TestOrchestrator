@@ -2783,6 +2783,17 @@ def _submit_buildbot(ex: Execution, runner: Runner,
     if not ok_b:
         _fail(ex, "config", browser_val)
         return
+    # KRE cannot start a licensed console session without -apiKey —
+    # a runtime with neither a managed credential_ref nor a legacy
+    # credential_file would launch an unlicensed run and still report
+    # completion. Missing credential configuration is a config error.
+    if not (runtime.credential_ref
+            or (runtime.credential_file or "").strip()):
+        _fail(ex, "config",
+              "KRE credential configuration missing — set a 'runtime' "
+              "credential_ref (System → Secrets) or a legacy "
+              "credential_file on the runtime before dispatch")
+        return
 
     if runner.target_type == "ssh":
         buildbot_cfg.materialize_ssh_key(runner)
