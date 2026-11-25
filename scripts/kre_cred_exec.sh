@@ -23,9 +23,10 @@
 #     reads the key from the credential file itself, so the value is
 #     in no process argv, env, or temp file — before output reaches
 #     step capture; redaction happens at the source, not on collect.
-#   - KRE runs under setsid so a TERM/INT/HUP to this launcher takes
-#     the whole katalonc process GROUP — java children cannot survive
-#     a timeout/cancel and keep holding the license.
+#   - KRE runs in THIS launcher's process group. Both kill paths —
+#     Buildbot's step killpg (TERM-then-KILL) and the SSH driver's
+#     group kill — target the launcher's group; a setsid'ed KRE would
+#     escape both and strand a licensed run as an orphan.
 #   - A pre-supplied -apiKey is rejected: exactly one credential
 #     source. Usage/validation failures exit 3 with a
 #     "kre_cred_exec:" marker for controller-side classification.
@@ -103,15 +104,16 @@ esac
 
 [ -f "$exe" ] || fail "KRE executable not found at the configured path"
 
-# Run KRE in its own session/group and scrub its merged output
-# through awk — the awk program reads the key from the credential
-# file itself, so the value exists in no argv, env, or extra file.
+# Run KRE in this launcher's process group (NO setsid — see header)
+# and scrub its merged output through awk — the awk program reads
+# the key from the credential file itself, so the value exists in
+# no argv, env, or extra file.
 d=$(mktemp -d "${TMPDIR:-/tmp}/to_kre.XXXXXX") \
     || fail "cannot create private run dir"
 fifo=$d/out
 mkfifo "$fifo" 2>/dev/null || { rm -rf "$d"; fail "cannot create output fifo"; }
 
-setsid "$exe" "$@" "-apiKey=$key" > "$fifo" 2>&1 &
+"$exe" "$@" "-apiKey=$key" > "$fifo" 2>&1 &
 pid=$!
 awk -v cred="$cred" '
     BEGIN {
@@ -127,14 +129,37 @@ awk -v cred="$cred" '
     }' < "$fifo" &
 awkpid=$!
 
+_kids() {
+    # Children of $1 — pgrep when available, else a POSIX ps scan.
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -P "$1" 2>/dev/null
+    else
+        ps -eo pid=,ppid= 2>/dev/null | awk -v p="$1" '$2==p {print $1}'
+    fi
+}
+_killtree() {
+    # Depth-first: signal leaves before parents so reparented
+    # grandchildren cannot escape the sweep.
+    for _k in $(_kids "$1"); do _killtree "$_k" "$2"; done
+    kill -"$2" "$1" 2>/dev/null
+}
 on_term() {
-    # Negative pid = process GROUP. No `--` separator: dash's kill
-    # builtin rejects it ("Illegal number"), and every supported sh
-    # accepts kill -TERM -<pgid> directly.
-    kill -TERM -"$pid" 2>/dev/null
+    # A pid-directed signal reaches only this launcher — take the
+    # whole child TREE (katalonc's java/sleep grandchildren), not
+    # just the direct child. Group-directed kills already reached
+    # the tree; the redundant signal is harmless. No `--` separator:
+    # dash's kill builtin rejects it ("Illegal number").
+    _killtree "$pid" TERM
     sleep 1
-    kill -KILL -"$pid" 2>/dev/null
-    wait "$awkpid" 2>/dev/null   # drain what the child already wrote
+    _killtree "$pid" KILL
+    # Bounded drain of the scrubber: a surviving writer that
+    # inherited the fifo fd must not hang the trap.
+    i=0
+    while kill -0 "$awkpid" 2>/dev/null && [ "$i" -lt 5 ]; do
+        i=$((i + 1)); sleep 1
+    done
+    kill -KILL "$awkpid" 2>/dev/null
+    wait "$awkpid" 2>/dev/null
     rm -rf "$d"
     exit 143
 }

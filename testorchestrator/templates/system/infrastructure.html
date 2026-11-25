@@ -343,16 +343,19 @@ or license KRE.</p>
               <form method="post" action="{{ url_for('system.edit_runtime', runtime_id=rt.id) }}" class="edit-form">
                 {{ runtime_form.csrf_token }}
                 <div class="field"><label>Name</label><input name="name" value="{{ rt.name }}"></div>
-                <div class="field"><label>Executable path</label><input name="executable_path" value="{{ rt.executable_path }}"></div>
-                <div class="field"><label>Working directory</label><input name="workspace_root" value="{{ rt.workspace_root }}"></div>
+                <div class="field"><label>Executable path</label><input name="executable_path" value="{{ rt.executable_path }}">
+                  <small class="muted">On the worker's filesystem. Linux: <code>/usr/local/bin/katalonc</code> · Windows: <code>C:\Katalon\Katalon_Studio_Engine\katalonc.exe</code></small></div>
+                <div class="field"><label>Working directory</label><input name="workspace_root" value="{{ rt.workspace_root }}">
+                  <small class="muted">Linux: <code>/var/lib/to-runs</code> · Windows: <code>C:\to\runs</code></small></div>
                 <div class="field"><label>Credential reference</label>
                   <select name="credential_ref">
                     <option value="{{ rt.credential_ref }}" selected>{{ rt.credential_ref or "(none)" }}</option>
                     <option value="">(none)</option>
                     {% for s in runtime_secret_names if s != rt.credential_ref %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
                   </select>
-                  <small class="muted">Delivered securely to the target per execution — overrides the legacy file below.</small></div>
-                <div class="field"><label>Credential file on target (legacy)</label><input name="credential_file" value="{{ rt.credential_file }}" placeholder="Absolute path on target, 0600 — only if no credential reference"></div>
+                  <small class="muted">Delivered securely to the target per execution — overrides the legacy file below. E.g. <code>kre-api-key</code> (kind <code>runtime</code> under System → Secrets).</small></div>
+                <div class="field"><label>Credential file on target (legacy)</label><input name="credential_file" value="{{ rt.credential_file }}" placeholder="Absolute path on target, 0600 — only if no credential reference">
+                  <small class="muted">Linux: <code>/opt/to/cred/kre-api-key.txt</code> · Windows: <code>C:\to\cred\kre-api-key.txt</code></small></div>
                 <div class="field"><label>Concurrency</label><input name="concurrency" value="{{ rt.concurrency }}"></div>
                 <button type="submit" class="button">Apply</button>
                 <button type="button" class="button danger" data-cancel-details>Cancel</button>
@@ -380,7 +383,7 @@ or license KRE.</p>
       runtime names the installed tools to use on a target; adding
       one never installs software.</small>
   </div>
-  <details class="block-details"><summary class="button">Register a test runtime</summary>
+  <details class="block-details"><summary class="button">Register KRE</summary>
   <form method="post" action="{{ url_for('system.create_runtime') }}">
     {{ runtime_form.csrf_token }}
     <div class="field"><label>Runner type</label>
@@ -396,16 +399,19 @@ or license KRE.</p>
         <option value="bruno">Bruno (bru CLI)</option>
         <option value="jest">Jest (Node.js)</option>
       </select>
-      <small><strong>Required.</strong> Playwright/Cypress run on the
+      <small><strong>Required.</strong> Select <code>KRE (desktop
+      engine)</code> for a Katalon Runtime Engine install.
+      Playwright/Cypress run on the
       <em>selected target</em> via <code>npx</code> inside the staged
       project — install Node.js, the project's framework dependency,
       and the browsers on that host; the framework need not be a
       global install. No separate agent is needed.</small></div>
     <div class="field">{{ runtime_form.name.label }} {{ runtime_form.name() }}
-      <small><strong>Required.</strong> Label for this installation,
-      e.g. <code>kre-9.2-ci01</code>.</small></div>
+      <small><strong>Required.</strong> Label for this installation.<br>
+      Example: <code>katalon-lin-01</code> or <code>katalon-win-01</code></small></div>
     <div class="field">{{ runtime_form.description.label }} {{ runtime_form.description() }}
-      <small>Optional note.</small></div>
+      <small>Optional note.<br>
+      Example: <code>KRE 11.7 on the Linux CI worker</code></small></div>
     <fieldset class="field"><legend>Execution location</legend>
       <div class="checkbox"><input type="radio" name="exec_location"
         id="loc-local" value="local" checked>
@@ -429,18 +435,24 @@ or license KRE.</p>
         {% endfor %}
       </select>
       <small><strong>Remote only.</strong> The execution target this
-      runtime binds to; validated against compatibility.</small></div>
+      runtime binds to; validated against compatibility. Pick the
+      Buildbot worker or SSH host you added under <em>Workers</em>
+      above — e.g. <code>acc-lin</code> for a Linux worker.</small></div>
     <div class="field"><label>Executable location</label> {{ runtime_form.executable_path() }}
       <small><strong>Required for KRE.</strong> Path on the
       <em>worker's</em> filesystem (for local workers: this host) to
-      the KRE CLI binary. Example:
-      <code>/opt/kre/bin/kre-console.sh</code>. For
-      Playwright/Cypress this is the <code>npx</code> binary on the
+      the KRE CLI binary (<code>katalonc</code> /
+      <code>katalonc.exe</code>).<br>
+      Linux example: <code>/usr/local/bin/katalonc</code><br>
+      Windows example: <code>C:\Katalon\Katalon_Studio_Engine\katalonc.exe</code><br>
+      For Playwright/Cypress this is the <code>npx</code> binary on the
       target — leave it empty to resolve <code>npx</code>/
       <code>npx.cmd</code> from the target's PATH.</small></div>
     <div class="field"><label>Working directory</label> {{ runtime_form.workspace_root() }}
       <small>Optional. Overrides the worker's workspace root for this
-      runtime only — path on the worker's filesystem.</small></div>
+      runtime only — path on the worker's filesystem.<br>
+      Linux example: <code>/var/lib/to-runs</code> ·
+      Windows example: <code>C:\to\runs</code></small></div>
     <div class="field"><label>Credential reference</label>
       <select name="credential_ref">
         <option value="" selected>(none)</option>
@@ -450,7 +462,10 @@ or license KRE.</p>
       System → Credentials — never the value itself. TestOrchestrator
       delivers it to the worker or SSH target securely per execution
       and removes it afterwards. Needed when the runtime requires an
-      auth token (e.g. a KRE API key).</small></div>
+      auth token (e.g. a KRE API key).<br>
+      Example: <code>kre-api-key</code> — create it under System →
+      Secrets with kind <code>runtime</code> first, then select it
+      here.</small></div>
     <div class="field"><label>Credential file on target (legacy)</label> {{ runtime_form.credential_file() }}
       <small>Optional. Legacy mode: absolute path on the <em>target</em>
       to a protected credential file (0700 dir / 0600 file) you placed
@@ -458,10 +473,14 @@ or license KRE.</p>
       manual file placement. The spec carries the path only; the
       target-side launcher reads the
       value at exec. Required for remote dispatch when this runtime
-      uses a credential.</small></div>
+      uses a credential.<br>
+      Linux example: <code>/opt/to/cred/kre-api-key.txt</code> ·
+      Windows example: <code>C:\to\cred\kre-api-key.txt</code></small></div>
     <div class="field">{{ runtime_form.concurrency.label }} {{ runtime_form.concurrency() }}
       <small><strong>Required.</strong> Max parallel sessions for this
-      runtime; integer ≥ 1, capped by the worker's free slots.</small></div>
+      runtime; integer ≥ 1, capped by the worker's free slots.<br>
+      Example: <code>1</code> — a KRE licence typically allows one
+      session per key.</small></div>
     <div class="form-actions">
       <button type="submit" class="button">Apply</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>

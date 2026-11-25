@@ -634,6 +634,9 @@ pre.example {
 }
 .audit-table { table-layout: auto; }
 .audit-table td:last-child { white-space: nowrap; }
+/* Prose tables inside collapsible help must wrap — nowrap on the
+   last column pushes the table outside the card. */
+.block-details .audit-table td:last-child { white-space: normal; }
 
 /* --- tabs polish --- */
 .tab-bar label, .tab-bar a.tsub {

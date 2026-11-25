@@ -1700,19 +1700,25 @@ def _resolve_runtime_secret(runtime: RuntimeConnection) -> str:
     ref = runtime.credential_ref
     row = SecretRef.query.filter_by(name=ref).first()
     if row is None:
-        raise DispatchError(
+        exc = DispatchError(
             f"runtime credential reference {ref!r} does not exist — "
             "create it under System → Secrets (kind 'runtime')")
+        exc.credential_kind = "config"
+        raise exc
     if row.kind != "runtime":
-        raise DispatchError(
+        exc = DispatchError(
             f"credential {ref!r} is a {row.kind!r}-kind secret — only "
             "'runtime' secrets may be used for KRE invocation")
+        exc.credential_kind = "config"
+        raise exc
     try:
         return read_secret(current_app._get_current_object(), ref)
     except SecretError as exc:
-        raise DispatchError(
+        err = DispatchError(
             f"runtime credential {ref!r} could not be resolved: "
-            f"{exc}") from exc
+            f"{exc}")
+        err.credential_kind = "infrastructure"
+        raise err from exc
 
 
 def _redact_values(runtime: RuntimeConnection) -> list:
@@ -1725,9 +1731,11 @@ def _redact_values(runtime: RuntimeConnection) -> list:
         return [read_secret(current_app._get_current_object(),
                             runtime.credential_ref)]
     except SecretError as exc:
-        raise DispatchError(
+        err = DispatchError(
             f"runtime credential {runtime.credential_ref!r} is "
-            f"configured but cannot be resolved: {exc}") from exc
+            f"configured but cannot be resolved: {exc}")
+        err.credential_kind = "infrastructure"
+        raise err from exc
 
 
 def _fail(ex: Execution, kind: str, text: str) -> None:
@@ -2703,7 +2711,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                 cred_stage = buildbot_cfg.write_run_credential(
                     ex.id, _resolve_runtime_secret(runtime))
             except DispatchError as exc:
-                _fail(ex, "license", str(exc))
+                _fail(ex, getattr(exc, "credential_kind", "license"),
+                      str(exc))
                 return
             cred_file = remote + "/.to_kre_cred"
         args = kre_adapter.build_args(
@@ -2748,7 +2757,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                 staged = buildbot_cfg.write_run_credential(
                     ex.id, _resolve_runtime_secret(runtime))
             except DispatchError as exc:
-                _fail(ex, "license", str(exc))
+                _fail(ex, getattr(exc, "credential_kind", "license"),
+                      str(exc))
                 return
             if runner.target_type == "local":
                 cred_file = staged
