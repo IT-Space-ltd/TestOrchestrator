@@ -1296,3 +1296,29 @@ details.adv-card ul { margin-top: .6rem; }
 .link-card.hub .hub-text, details.adv-card .hub-text { flex: 1 1 auto; }
 .link-card.hub .hub-text h2, details.adv-card .hub-text h2 { margin-top: 0; }
 .link-card.hub .hub-text p, details.adv-card .hub-text p { margin-bottom: 0; }
+
+/* --- log-table / audit-events: fit viewport, wrap long text --- */
+/* System → Audit: the shared audit-table rule nowraps the last cell
+   for action buttons elsewhere; the audit Detail column must wrap
+   instead, and a fixed layout keeps the table inside the page. */
+.audit-events { table-layout: fixed; }
+.audit-events th:nth-child(1), .audit-events td:nth-child(1) {
+  width: 11rem; }
+.audit-events th:nth-child(2), .audit-events td:nth-child(2) {
+  width: 9rem; }
+.audit-events th:nth-child(3), .audit-events td:nth-child(3) {
+  width: 21rem; }
+.audit-events td { overflow-wrap: anywhere; }
+.audit-events td:last-child { white-space: normal; }
+
+/* System → Operational Logs: fixed layout stops long messages and
+   unbroken context ids from pushing the table past the card. */
+#log-table { table-layout: fixed; }
+#log-table .col-time { width: 7.5rem; }
+#log-table .col-sev { width: 5.5rem; }
+#log-table .col-comp { width: 8.5rem; }
+#log-table .col-cat { width: 7.5rem; }
+#log-table .col-ctx { width: 12rem; }
+#log-table td { overflow-wrap: anywhere; }
+#log-table td.log-msg { min-width: 0; max-width: none; }
+#log-table td.log-ctx { word-break: break-all; }
