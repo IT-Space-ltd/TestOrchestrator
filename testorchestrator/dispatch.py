@@ -983,8 +983,11 @@ def _ssh_remote_cancel(ex: Execution) -> "bool | None":
             _run(f"kill -TERM -{pid} 2>/dev/null; sleep 1; "
                  f"kill -KILL -{pid} 2>/dev/null; true", timeout=20)
             # Wipe any delivered credential file — a killed run
-            # must not leave secret material on the target.
-            _run(f"rm -f {qwd}/.to_kre_cred 2>/dev/null; true")
+            # must not leave secret material on the target. The
+            # license pack is per-run staging too — installed
+            # licenses under ~/.katalon/license persist.
+            _run(f"rm -f {qwd}/.to_kre_cred {qwd}/.to_licpack.tar "
+                 f"{qwd}/to-*.lic 2>/dev/null; true")
             time.sleep(1)
             _, out = _run(f"kill -0 {pid} 2>/dev/null "
                           "&& echo alive || echo dead")
@@ -1702,6 +1705,36 @@ def run_execution(execution_id: str) -> None:
         if not ok_b:
             _fail(ex, "config", browser_val)
             return
+        # Licensing gate (licensing-mode aware — the local path had
+        # no gate at all and would launch katalonc unlicensed).
+        lic_gate = _kre_licensing_gate(runtime)
+        if lic_gate:
+            _fail(ex, "config", lic_gate)
+            return
+        _lic_mode = (runtime.licensing_mode or "online").strip() \
+            or "online"
+        _srv_url = (runtime.license_server_url or "").strip() \
+            if _lic_mode == "private" else ""
+        if _lic_mode == "offline":
+            # Managed offline licenses: install into the execution
+            # account's ~/.katalon/license BEFORE launch — KRE
+            # verifies the .lic itself; a missing/invalid file can
+            # only produce a license failure, never a false pass.
+            try:
+                _lics = _resolve_license_secrets(
+                    runtime, project_id=ex.project_id)
+            except DispatchError as exc:
+                _fail(ex, getattr(exc, "credential_kind", "config"),
+                      str(exc))
+                return
+            if _lics:
+                try:
+                    _install_licenses_local(runtime, _lics)
+                except OSError as exc:
+                    _fail(ex, "infrastructure",
+                          f"to_license: local license install "
+                          f"failed: {exc}")
+                    return
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             project_path=str(project_dir),
@@ -1713,6 +1746,7 @@ def run_execution(execution_id: str) -> None:
             remote_webdriver_type=rc.get("remote_webdriver_type", ""),
             collection=bool(rc.get("collection")),
             extra=flags,
+            server_url=_srv_url,
         )
 
         _transition(ex, ExecutionState.RUNNING)
@@ -1825,6 +1859,143 @@ def _resolve_runtime_secret(runtime: RuntimeConnection,
             f"{exc}")
         err.credential_kind = "infrastructure"
         raise err from exc
+
+
+def _kre_licensing_gate(runtime: RuntimeConnection) -> str:
+    """Licensing-mode-aware pre-dispatch gate
+    (docs/kre-licensing-modes.md). Returns the failure text (config
+    error) or "" when the runtime's licensing config is dispatchable.
+
+    - online (default): the historical contract — a managed
+      credential_ref or operator-placed credential_file is required;
+      KRE would otherwise launch unlicensed and still report
+      completion.
+    - offline: an API key is NOT required — the license is the
+      machine-bound .lic under the execution account's
+      ~/.katalon/license. Managed refs (license-kind secrets) are
+      validated here; an empty set means operator-provisioned — the
+      probe reports presence and KRE's own verdict governs (it can
+      never yield a false PASS: ISS-013/ISS-014 classification).
+    - private: online semantics plus license_server_url — a private
+      instance without its URL is a config error, not a silent
+      fallback to the public service.
+    """
+    mode = (runtime.licensing_mode or "online").strip() or "online"
+    if mode == "offline":
+        for ref in runtime.license_ref_names():
+            from .execution import SecretRef
+            row = SecretRef.query.filter_by(name=ref).first()
+            if row is None:
+                return (f"license secret {ref!r} does not exist — "
+                        "create it under System → Secrets "
+                        "(kind 'license')")
+            if row.kind != "license":
+                return (f"license reference {ref!r} is a "
+                        f"{row.kind!r}-kind secret — only 'license' "
+                        "secrets may be provisioned as offline "
+                        "licenses")
+        return ""
+    has_cred = bool(runtime.credential_ref
+                    or (runtime.credential_file or "").strip())
+    if mode == "private":
+        if not (runtime.license_server_url or "").strip():
+            return ("private licensing mode requires a license "
+                    "server URL — set it on the runtime; an empty "
+                    "URL never silently falls back to the public "
+                    "Katalon service")
+        if not has_cred:
+            return ("private licensing mode requires an API-key "
+                    "credential — set a 'runtime' credential_ref "
+                    "(System → Secrets) or a legacy credential_file")
+        return ""
+    # online (and any unrecognised value is treated as online — a
+    # mistyped mode must not silently weaken the credential gate)
+    if not has_cred:
+        return ("KRE credential configuration missing — set a "
+                "'runtime' credential_ref (System → Secrets) or a "
+                "legacy credential_file on the runtime before "
+                "dispatch")
+    return ""
+
+
+def _resolve_license_secrets(runtime: RuntimeConnection,
+                             project_id: str = "") -> list:
+    """Resolve each license-kind secret to bytes for managed offline
+    provisioning — scope-enforced like runtime credentials: a grant
+    covering this project/runtime/runner must exist BEFORE any
+    decryption. Returns [bytes]."""
+    from .secrets_store import SecretError, read_secret, scope_allows
+    out = []
+    for ref in runtime.license_ref_names():
+        if not scope_allows(ref, project_id=project_id,
+                            runtime_id=runtime.id,
+                            runner_id=runtime.runner_id):
+            exc = DispatchError(
+                f"credential-scope: license {ref!r} is not "
+                "authorized for this project/runtime — an "
+                "administrator must grant scope under "
+                "System → Secrets")
+            exc.credential_kind = "config"
+            raise exc
+        try:
+            out.append(read_secret(current_app._get_current_object(),
+                                   ref).encode())
+        except SecretError as exc:
+            err = DispatchError(
+                f"license {ref!r} could not be resolved: {exc}")
+            err.credential_kind = "infrastructure"
+            raise err from exc
+    return out
+
+
+def _stage_license_pack(ex: Execution,
+                        runtime: RuntimeConnection) -> dict:
+    """Resolve + stage managed offline licenses for this run.
+    Returns the spec's license_install dict, or {} when the runtime
+    has no managed licenses (operator-provisioned or online mode).
+    The .lic bodies are Katalon-issued material — staged 0600,
+    pushed by FileDownload/SFTP, never in argv/properties/logs."""
+    names = runtime.license_ref_names()
+    if not names:
+        return {}
+    items = _resolve_license_secrets(runtime, project_id=ex.project_id)
+    stage, files = buildbot_cfg.write_run_license_pack(ex.id, items)
+    return {"mastersrc": stage, "stage": stage, "files": files}
+
+
+def _lic_dir_home() -> str:
+    """Controller-local license dir for offline KRE on a local
+    target — the execution account's own home."""
+    return str(Path.home() / ".katalon" / "license")
+
+
+def _install_licenses_local(runtime: RuntimeConnection,
+                            items: list) -> list:
+    """Install managed .lic bodies into ~/.katalon/license on the
+    controller host (local target) — the same to-<sha>.lic ownership
+    contract as remote installs: only to-* names, content-addressed
+    idempotency, .to_managed ledger. Returns installed names."""
+    import hashlib
+    ldir = Path(_lic_dir_home())
+    ldir.mkdir(parents=True, exist_ok=True)
+    marker = ldir / ".to_managed"
+    installed = []
+    for value in items:
+        digest = hashlib.sha256(value).hexdigest()
+        name = f"to-{digest[:12]}.lic"
+        dest = ldir / name
+        if not dest.exists():
+            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                         0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(value)
+        installed.append(name)
+        line = f"{digest}  {name}  user={os.environ.get('USER', '?')}"
+        existing = marker.read_text() if marker.exists() else ""
+        if line.split("  user=")[0] not in existing:
+            with open(marker, "a") as f:
+                f.write(line + "\n")
+    return installed
 
 
 def _redact_values(runtime: RuntimeConnection) -> list:
@@ -2839,17 +3010,26 @@ def _submit_buildbot(ex: Execution, runner: Runner,
     if not ok_b:
         _fail(ex, "config", browser_val)
         return
-    # KRE cannot start a licensed console session without -apiKey —
-    # a runtime with neither a managed credential_ref nor a legacy
-    # credential_file would launch an unlicensed run and still report
-    # completion. Missing credential configuration is a config error.
-    if not (runtime.credential_ref
-            or (runtime.credential_file or "").strip()):
-        _fail(ex, "config",
-              "KRE credential configuration missing — set a 'runtime' "
-              "credential_ref (System → Secrets) or a legacy "
-              "credential_file on the runtime before dispatch")
+    # Licensing gate — licensing-mode aware. Online/private need an
+    # API-key credential (KRE cannot start a licensed console
+    # session without one); offline validates its managed-license
+    # refs instead and emits no -apiKey.
+    _lic_gate = _kre_licensing_gate(runtime)
+    if _lic_gate:
+        _fail(ex, "config", _lic_gate)
         return
+    _lic_mode = (runtime.licensing_mode or "online").strip() \
+        or "online"
+    _srv_url = (runtime.license_server_url or "").strip() \
+        if _lic_mode == "private" else ""
+    _lic_install = {}
+    if _lic_mode == "offline":
+        try:
+            _lic_install = _stage_license_pack(ex, runtime)
+        except DispatchError as exc:
+            _fail(ex, getattr(exc, "credential_kind", "config"),
+                  str(exc))
+            return
 
     if runner.target_type == "ssh":
         buildbot_cfg.materialize_ssh_key(runner)
@@ -2887,10 +3067,12 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             remote_webdriver_url=rc.get("remote_webdriver_url", ""),
             remote_webdriver_type=rc.get("remote_webdriver_type", ""),
             collection=bool(rc.get("collection")),
-            extra=flags)
+            extra=flags,
+            server_url=_srv_url)
         spec_file = buildbot_cfg.write_ssh_run_spec(
             ex, runner, runtime, args[1:], cred_file,
-            credential_stage=cred_stage)
+            credential_stage=cred_stage,
+            licenses=_lic_install or None)
         import sys as _sys
         spec = buildbot_cfg.ssh_exec_spec(
             ex,
@@ -2940,11 +3122,13 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             remote_webdriver_url=rc.get("remote_webdriver_url", ""),
             remote_webdriver_type=rc.get("remote_webdriver_type", ""),
             collection=bool(rc.get("collection")),
-            extra=flags)
+            extra=flags,
+            server_url=_srv_url)
         _win = (runner.os_arch or "").lower().startswith("win")
         spec = buildbot_cfg.kre_exec_spec(
             ex, runtime, args[1:], credential_file=cred_file,
             credential_mastersrc=cred_mastersrc,
+            licenses=_lic_install or None,
             posix=not _win,
             helper_launch=kre_adapter.helper_launch_for(
                 runner.os_arch),

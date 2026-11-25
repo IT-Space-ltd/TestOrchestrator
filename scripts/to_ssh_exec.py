@@ -163,6 +163,44 @@ def _prepare(client, spec) -> None:
         if spec.get("credential_stage"):
             sftp.put(spec["credential_stage"], wd + "/.to_kre_cred")
             _exec(client, f"chmod 600 {shlex.quote(wd)}/.to_kre_cred")
+        # Managed offline licenses: the pack is SFTP'd into the run
+        # workdir, then each to-<sha>.lic is installed into the LOGIN
+        # account's ~/.katalon/license (0600) — durable machine-bound
+        # state that PERSISTS across runs (unlike .to_kre_cred, which
+        # is wiped at collect/kill). Only to-* names are installed,
+        # so operator-owned .lic files are never overwritten or
+        # removed; the .to_managed ledger records TO ownership.
+        lic = spec.get("license_install") or {}
+        if lic.get("stage"):
+            sftp.put(lic["stage"], wd + "/.to_licpack.tar")
+            _exec(
+                client,
+                f'LDIR="$HOME/.katalon/license" && '
+                f'mkdir -p "$LDIR" && '
+                f'tar -xf {shlex.quote(wd)}/.to_licpack.tar -C '
+                f'{shlex.quote(wd)}')
+            for ent in (lic.get("files") or []):
+                name, sha = ent["name"], ent["sha256"]
+                rc, out, err = _exec(
+                    client,
+                    f'LDIR="$HOME/.katalon/license"; '
+                    f'if [ -f "$LDIR/{name}" ]; then '
+                    f'  echo "to_license: {name} already installed '
+                    f'(content-identical, kept)"; '
+                    f'else '
+                    f'  install -m 600 {shlex.quote(wd)}/{name} '
+                    f'"$LDIR/{name}" && '
+                    f'  echo "to_license: installed {name}"; '
+                    f'fi; '
+                    f'touch "$LDIR/.to_managed" && '
+                    f'grep -q "^{sha}  {name}" "$LDIR/.to_managed" '
+                    f'2>/dev/null || echo "{sha}  {name}  '
+                    f'user=$(id -un 2>/dev/null)" '
+                    f'>> "$LDIR/.to_managed"')
+                if rc != 0:
+                    raise RuntimeError(
+                        f"to_license: license install failed for "
+                        f"{name}: {(err or out).strip()[:200]}")
         remote = shlex.quote
         args = " ".join(remote(a) for a in spec["args"])
         cred = spec.get("credential_file") or ""
@@ -323,6 +361,16 @@ def _collect(client, spec, local_dir: Path) -> None:
             sftp.remove(f"{wd}/.to_kre_cred")
         except OSError:
             pass
+        # The license pack + extracted copies are per-run staging —
+        # the INSTALLED copies under ~/.katalon/license persist.
+        for rel in (".to_licpack.tar",
+                    *((e["name"]) for e in
+                      (spec.get("license_install") or {})
+                      .get("files") or [])):
+            try:
+                sftp.remove(f"{wd}/{rel}")
+            except OSError:
+                pass
     finally:
         sftp.close()
 

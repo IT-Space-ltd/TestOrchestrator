@@ -1069,13 +1069,41 @@ on port 443 to Katalon.
   with that kind recorded. TestOrchestrator shows it; it does not
   retry around it and cannot repair the Katalon side.
 
-**Offline licenses.** Katalon also supports an offline licence
-file under the `.katalon/license` folder of the user account that
-runs KRE (see the Katalon activation docs above). TestOrchestrator
-has no code path that installs or manages that file — placing it
-is the operator's job on each execution host, under the account
-the worker runs as. **Offline KRE execution was not tested** in
-this release's evidence set.
+**Licensing modes (2.7.0).** A KRE runtime now declares a
+**Licensing mode** — `online` (default; everything above applies),
+`offline`, or `private`:
+
+- **offline** needs no API key. KRE verifies machine-bound `.lic`
+  files under the *execution account's* `~/.katalon/license`
+  (Linux `/home/<u>/`, Windows `%USERPROFILE%`) on every run —
+  remember the account matters: Katalon's machine ID binds to the
+  OS user (a Windows worker running as SYSTEM has a different
+  machine ID than an interactive admin). Two provisioning options:
+  - **Managed:** store each genuine Katalon-issued `.lic` file's
+    contents as a `license`-kind secret, list the names in the
+    runtime's **Offline license secrets** field. Per run, TO
+    delivers a restricted pack and installs each file as
+    `to-<sha>.lic` `0600` — we only ever write `to-*` names (your
+    own `.lic` files are never overwritten or removed), record them
+    in a `.to_managed` ledger, and they persist across runs. Scope
+    grants apply to license secrets exactly like runtime secrets.
+    One `.lic` = one concurrent offline session: n parallel runs
+    need n license secrets listed.
+  - **Operator-provisioned:** leave the list empty and place the
+    `.lic` files on the target yourself. The readiness probe
+    reports what is actually present (`license_dir`,
+    `license_files`, `exec_user`) without attempting activation.
+- **private** is online activation against your own license server:
+  credential required plus the **Private license server URL** field,
+  emitted as `-serverUrl=<url>` (KRE v8.3.5+). An empty URL fails
+  config — it never silently falls back to the public service.
+- **No hybrid execution mode:** a runtime uses exactly one
+  mechanism; hybrid *deployments* run online- and
+  offline-configured runtimes side by side. Delivery failures carry
+  `to_license:` markers (transport/permissions → `infrastructure`,
+  content/ownership → `config`); KRE's own offline verdict ("no
+  Katalon Runtime Engine … license available") classifies
+  `license`. Design detail: `docs/kre-licensing-modes.md`.
 
 **Separate from TestOrchestrator's own licence.** The
 TestOrchestrator licence is an offline Ed25519-signed code checked

@@ -51,6 +51,38 @@ def _runtime_cred_ref_error(ref: str):
     return ""
 
 
+def _runtime_license_ref_error(ref: str):
+    """Server-side guard for offline-license refs: the named secret
+    must exist and be kind 'license' — each entry holds one genuine
+    Katalon-issued .lic file body. Returns error text or ""."""
+    ref = (ref or "").strip()
+    if not ref:
+        return ""
+    from ..execution import SecretRef
+    row = SecretRef.query.filter_by(name=ref).first()
+    if row is None:
+        return (f"license reference {ref!r} does not exist — "
+                "create it under Secrets (kind 'license')")
+    if row.kind != "license":
+        return (f"license reference {ref!r} is a {row.kind!r}-kind "
+                "secret — choose a 'license' secret")
+    return ""
+
+
+def _license_refs_from_form() -> tuple:
+    """Parse + validate the license_refs form field (comma/newline
+    separated names). Returns (json_str, first_error)."""
+    import json as _json
+    raw = (request.form.get("license_refs") or "") \
+        .replace("\r", ",").replace("\n", ",")
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    for n in names:
+        err = _runtime_license_ref_error(n)
+        if err:
+            return "[]", err
+    return _json.dumps(names), ""
+
+
 def _context():
     settings = settings_mod.all_settings()
     candidates = detect_address_candidates()
@@ -1950,8 +1982,24 @@ def create_runtime():
         _kind in ("kre", "robot", "pytest", "behave")
         and not (form.executable_path.data or "").strip())
     cred_ref_err = _runtime_cred_ref_error(form.credential_ref.data)
+    # Licensing mode + offline-license refs (KRE only — other kinds
+    # keep the default online gate).
+    _lmode = (request.form.get("licensing_mode") or "online").strip()
+    if _lmode not in ("online", "offline", "private"):
+        _lmode = "online"
+    if _kind != "kre":
+        _lmode = "online"
+    _lrefs_json, _lref_err = _license_refs_from_form()
+    _lsrv = (request.form.get("license_server_url") or "").strip()
+    if _lmode == "offline":
+        if not _lref_err and cred_ref_err:
+            cred_ref_err = ""  # offline needs no api-key credential
+    if _lmode == "private" and not _lsrv:
+        _lref_err = (_lref_err
+                     or "private licensing mode requires a license "
+                        "server URL")
     if (form.validate_on_submit() and not kre_missing_path
-            and not cred_ref_err):
+            and not cred_ref_err and not _lref_err):
         _rt = RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
@@ -1963,6 +2011,9 @@ def create_runtime():
             git_ssh_key_path=form.git_ssh_key_path.data or "",
             credential_ref=(form.credential_ref.data or "").strip(),
             credential_file=(form.credential_file.data or "").strip(),
+            licensing_mode=_lmode,
+            license_refs=_lrefs_json,
+            license_server_url=_lsrv if _lmode == "private" else "",
 
             concurrency=form.concurrency.data or 1,
             runtime_kind=_kind,
@@ -1973,6 +2024,10 @@ def create_runtime():
             from ..secrets_store import record_pending_association
             record_pending_association(
                 _rt.credential_ref, _rt.id, _rt.runner_id)
+        for _lr in _rt.license_ref_names():
+            from ..secrets_store import record_pending_association
+            record_pending_association(
+                _lr, _rt.id, _rt.runner_id)
         record_audit(current_user.username, "runtime.registered",
                      form.name.data.strip())
     else:
@@ -1988,7 +2043,10 @@ def create_runtime():
         if cred_ref_err:
             flash(f"Credential reference rejected — {cred_ref_err}",
                   "error")
-        if errs or kre_missing_path or cred_ref_err:
+        if _lref_err:
+            flash(f"License configuration rejected — {_lref_err}",
+                  "error")
+        if errs or kre_missing_path or cred_ref_err or _lref_err:
             from ..execution import Project as _P
             runner_form = RunnerForm()
             runner_form.allowed_projects.choices = [
@@ -2187,6 +2245,39 @@ def edit_runtime(runtime_id):
     cf = request.form.get("credential_file")
     if cf is not None:
         rt.credential_file = cf.strip()
+    # Licensing mode fields — a mode change clears probe evidence
+    # too (the probe reports licensing state under the execution
+    # account; the old diagnostic no longer describes it).
+    lm = request.form.get("licensing_mode")
+    if lm is not None:
+        lm = lm.strip()
+        if lm in ("online", "offline", "private"):
+            if lm != (rt.licensing_mode or "online"):
+                rt.licensing_mode = lm
+                probe_changed = True
+    lr = request.form.get("license_refs")
+    if lr is not None:
+        lrefs_json, lref_err = _license_refs_from_form()
+        if lref_err:
+            flash(f"License configuration rejected — {lref_err}",
+                  "error")
+            return redirect(url_for("system.infrastructure"))
+        if lrefs_json != (rt.license_refs or "[]"):
+            rt.license_refs = lrefs_json
+            probe_changed = True
+            for _lr2 in rt.license_ref_names():
+                from ..secrets_store import \
+                    record_pending_association
+                record_pending_association(_lr2, rt.id,
+                                           rt.runner_id)
+    lsu = request.form.get("license_server_url")
+    if lsu is not None:
+        rt.license_server_url = lsu.strip()
+        if (rt.licensing_mode or "") == "private" \
+                and not lsu.strip():
+            flash("Private licensing mode requires a license "
+                  "server URL.", "error")
+            return redirect(url_for("system.infrastructure"))
     conc = request.form.get("concurrency")
     if conc:
         rt.concurrency = int(conc)

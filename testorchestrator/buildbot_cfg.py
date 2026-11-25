@@ -396,6 +396,7 @@ def kre_cred_helper_source(win: bool = False) -> Path:
 def kre_exec_spec(ex, runtime, args: list,
                   credential_file: str = "",
                   credential_mastersrc: str = "",
+                  licenses: dict = None,
                   posix: bool = True,
                   helper_launch: list = None,
                   helper_sha256: str = "") -> dict:
@@ -433,6 +434,16 @@ def kre_exec_spec(ex, runtime, args: list,
             spec["credential_launch"] = list(helper_launch)
         if helper_sha256:
             spec["helper_sha256"] = helper_sha256
+    # Managed offline licenses: {mastersrc, files:[{name,sha256}]}
+    # — the pack is FileDownloaded into the restricted .to_lic drop
+    # dir, then a target-native step installs each file into the
+    # execution account's ~/.katalon/license — where it PERSISTS
+    # (offline licenses are durable machine-bound state, not
+    # per-run material like .to_kre_cred). Only to-* names are
+    # ever installed; operator files are never overwritten or
+    # removed.
+    if licenses:
+        spec["license_install"] = dict(licenses)
     spec.update(_retry_policy(ex, posix=posix))
     return spec
 
@@ -451,6 +462,41 @@ def write_run_credential(execution_id: str, value: str) -> str:
     with os.fdopen(fd, "w") as f:
         f.write(value)
     return str(path)
+
+
+def write_run_license_pack(execution_id: str,
+                           items: list) -> tuple:
+    """Master-side staging for managed Katalon .lic files — one tar
+    archive holding every .lic for this run, under names that carry
+    the content digest (``to-<sha12>.lic``). 0600, same contract as
+    write_run_credential. Returns (staging_path, file_entries) where
+    file_entries is [{name, sha256}] for the spec's install step.
+
+    The to-* naming is the ownership contract: TestOrchestrator only
+    ever writes files under its own prefix, so an operator-owned
+    .lic can never be overwritten, and a re-delivery of identical
+    bytes is a content-addressed no-op."""
+    import hashlib
+    import io
+    entries = []
+    sd = staging_dir()
+    sd.mkdir(parents=True, exist_ok=True)
+    os.chmod(sd, 0o700)
+    path = sd / f"{execution_id}.licpack.tar"
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tf:
+        for value in items:
+            digest = hashlib.sha256(value).hexdigest()
+            name = f"to-{digest[:12]}.lic"
+            info = tarfile.TarInfo(name)
+            info.size = len(value)
+            info.mode = 0o600
+            tf.addfile(info, io.BytesIO(value))
+            entries.append({"name": name, "sha256": digest})
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(raw.getvalue())
+    return str(path), entries
 
 
 def node_exec_spec(ex, executable: str, args: list,
@@ -510,6 +556,7 @@ def ssh_exec_spec(ex, python: str, dispatcher_script: str,
 def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
                        credential_file: str = "",
                        credential_stage: str = "",
+                       licenses: dict = None,
                        extra: dict = None,
                        executable: str = None,
                        source_tar: str = "",
@@ -540,6 +587,11 @@ def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
         # credential_ref reaches an agentless target. Path only, never
         # a value; cleared by clear_staging at finalize.
         "credential_stage": credential_stage,
+        # Managed offline licenses: {stage, files:[{name,sha256}]}
+        # — the dispatcher SFTP-installs each into the login
+        # account's ~/.katalon/license (0600), where they persist
+        # across runs.
+        "license_install": dict(licenses or {}),
         "report_rel": "Reports",
         "timeout_s": int((ex.snapshot().get("run_config") or {})
                          .get("timeout_seconds") or 3600),

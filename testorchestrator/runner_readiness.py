@@ -77,6 +77,15 @@ def submit(runtime, app_url: str = "",
         probe_env["REQUIRED_LIBS"] = (required_libs or "").strip()
     if kfw:
         probe_env["KREBIN"] = (runtime.executable_path or "").strip()
+        # Licensing-mode awareness: the probe reports the actual
+        # execution identity + offline provisioning state — never
+        # attempts activation.
+        probe_env["TO_LIC_MODE"] = (
+            getattr(runtime, "licensing_mode", "") or "online")
+        _lrefs = (getattr(runtime, "license_ref_names", None)
+                  and runtime.license_ref_names()) or []
+        if _lrefs:
+            probe_env["TO_LIC_EXPECT"] = str(len(_lrefs))
     adapter = BuildbotAdapter.from_settings()
     try:
         if runner.target_type == "ssh":
@@ -202,9 +211,28 @@ def _summarize(probe: dict, kind: str) -> str:
         if probe.get("app_url", "").startswith("UNREACHABLE"):
             problems.append("target cannot reach the application "
                             "URL")
+        # Offline licensing: report provisioning state under the
+        # ACTUAL execution account — file presence only; KRE's own
+        # acceptance can only be proven by a real run (and the probe
+        # never attempts activation).
+        if probe.get("licensing_mode") == "offline":
+            try:
+                lic_n = int(probe.get("license_files") or 0)
+            except ValueError:
+                lic_n = 0
+            lic_where = probe.get("license_dir", "")
+            if lic_where.startswith("missing") or lic_n == 0:
+                problems.append(
+                    "offline licensing: no .lic files under the "
+                    "execution account's ~/.katalon/license — "
+                    "provision managed licenses (license-kind "
+                    "secrets) or place operator files on the "
+                    "target")
         versions = ", ".join(
             f"{k}={v}" for k, v in probe.items()
-            if k in ("kre", "krever", "helper_launcher")
+            if k in ("kre", "krever", "helper_launcher",
+                     "licensing_mode", "exec_user", "license_dir",
+                     "license_files")
             and not v.startswith("missing")
             and not v.startswith("unprobeable"))
     elif kind == "gtest":

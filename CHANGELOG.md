@@ -9,9 +9,31 @@ delivers so far. Schema changes so far: `projects.retention_json`
 `framework_projects`, `discovered_items` framework/selector/
 provenance columns, `artifact_stores`, and discovery fingerprints.
 New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
-`migration_pending`.
+`migration_pending`; `a2b3c4d5e6f7` adds
+`runtime_connections.licensing_mode` / `license_refs` /
+`license_server_url`.
 
 ### Added
+
+- **KRE licensing modes — online / offline / private.** A KRE runtime
+  now declares its licensing mode explicitly
+  (`runtime_connections.licensing_mode`, migration
+  `a2b3c4d5e6f7`): `online` keeps the existing `-apiKey` credential
+  contract (unchanged for all existing runtimes); `offline` needs no
+  API key and instead uses genuine Katalon-issued `.lic` files in the
+  execution account's `~/.katalon/license` — either
+  operator-provisioned or managed through new `license`-kind secrets
+  delivered per-run and installed under a `to-<sha>.lic` ownership
+  prefix (operator files never touched, `.to_managed` ledger,
+  persistent across runs); `private` emits `-serverUrl=<url>`
+  alongside the API-key credential. The missing-credential dispatch
+  gate is licensing-mode aware, and the **local dispatch path gains
+  the gate it previously lacked**. There is deliberately no "hybrid"
+  execution mode — hybrid deployments run online- and
+  offline-configured runtimes side by side. The readiness probe
+  reports the actual execution account, license dir, .lic inventory,
+  and managed-marker state without attempting activation. See
+  `docs/kre-licensing-modes.md`.
 
 - **Credential authorization scope.** `runtime`-kind secrets now carry
   a grant list (`scope_json`) matching project / runtime / runner

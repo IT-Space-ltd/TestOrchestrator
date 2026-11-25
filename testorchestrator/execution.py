@@ -355,6 +355,27 @@ class RuntimeConnection(db.Model):
     # resolved on the TARGET host.
     runtime_kind = db.Column(db.String(16), nullable=False,
                              default="kre")
+    # KRE licensing mode (docs/kre-licensing-modes.md): "online"
+    # (-apiKey credential, existing rows keep this), "offline"
+    # (machine-bound .lic files under the execution account's
+    # ~/.katalon/license — no -apiKey is emitted), "private"
+    # (online + -serverUrl private authentication instance).
+    # There is deliberately no "hybrid" execution mode — hybrid is a
+    # deployment property: online and offline runtimes coexist.
+    licensing_mode = db.Column(db.String(16), nullable=False,
+                               default="online")
+    # JSON list of 'license'-kind secret names, each holding ONE
+    # genuine Katalon-issued .lic file body for managed offline
+    # provisioning. One .lic = one concurrent offline session
+    # (Katalon floating model). Empty => operator-provisioned
+    # (the admin placed .lic files on the target themselves — the
+    # probe reports what is present).
+    license_refs = db.Column(db.Text, nullable=False, default="[]")
+    # Private authentication instance URL (licensing_mode "private")
+    # — emitted as -serverUrl=<url> (KRE v8.3.5+). Kept separate
+    # from online/offline selection.
+    license_server_url = db.Column(db.String(512), nullable=False,
+                                   default="")
     # Framework-adapted toolchain settings for non-KRE runtimes
     # (M16): python_env/node_bin/engine/sandbox-policy/env-allowlist
     # etc. — additive JSON; KRE rows keep "{}" and never read it.
@@ -373,6 +394,15 @@ class RuntimeConnection(db.Model):
             return json.loads(self.config_json or "{}")
         except ValueError:
             return {}
+
+    def license_ref_names(self) -> list:
+        """Managed offline-license secret names (each holds one
+        Katalon-issued .lic body)."""
+        try:
+            return [n for n in json.loads(self.license_refs or "[]")
+                    if (n or "").strip()]
+        except ValueError:
+            return []
 
 
 class ExecutionState(str, enum.Enum):

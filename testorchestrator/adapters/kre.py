@@ -101,6 +101,13 @@ def validate_browser(value: str, os_arch: str = "") -> tuple[bool, str]:
 # Well-known KRE console flag set (Katalon-documented form). Kept version-
 # aware: flags may be overridden per detected version once the operator's
 # installed version is probed — never assumed universal (§5).
+# Supported KRE licensing modes (docs/kre-licensing-modes.md).
+# "hybrid" is deliberately NOT a mode — Katalon uses the word for an
+# organisation holding a mix of online and offline licenses; here it
+# would leave the actual per-runtime mechanism unspecified.
+LICENSING_MODES = ("online", "offline", "private")
+
+
 def build_args(
     executable: str,
     project_path: str,
@@ -112,6 +119,7 @@ def build_args(
     remote_webdriver_type: str = "",
     extra: list | None = None,
     collection: bool = False,
+    server_url: str = "",
 ) -> list:
     # KRE console selectors want the project-relative path WITHOUT the
     # file extension — the discovered inventory path keeps it, so it is
@@ -147,6 +155,10 @@ def build_args(
     else:
         args += [f"-browserType={browser}"]
     args += [f"-reportFolder={report_dir}", *(extra or [])]
+    if server_url:
+        # -serverUrl=<url>: Private Instance license activation —
+        # documented KRE argument from v8.3.5 onwards.
+        args.append(f"-serverUrl={server_url}")
     return args
 
 
@@ -371,6 +383,18 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
                 "failed to start")):
             return "infrastructure"
         return "config"
+    # Offline-license provisioning/delivery failures carry the
+    # to_license: marker — split by layer like the credential
+    # launcher: transport/filesystem problems are infrastructure,
+    # content/ownership conflicts are config for the admin.
+    if "to_license:" in text:
+        if any(s in text for s in (
+                "cannot create license dir", "mkdir failed",
+                "cannot write license file", "permission denied",
+                "cannot stat", "delivery failed", "sftp",
+                "cannot update managed marker")):
+            return "infrastructure"
+        return "config"
     # Fatal license failures — specific markers only. KRE logs a
     # benign "Failed to activate with TestCloud license" fallback in
     # every run before acquiring the KRE license; matching on the bare
@@ -391,7 +415,11 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
             "license has expired", "trial license has expired",
             "cannot execute the activation request",
             "invalid api key", "incorrect api key",
-            "no license available", "insufficient license")):
+            "no license available", "insufficient license",
+            # Offline path: no valid .lic for this machine/account —
+            # "Cannot execute this test suite. There is no Katalon
+            # Runtime Engine and TestCloud license available."
+            "there is no katalon runtime engine")):
         return "license"
     # Bad project/config markers — but never the argv echo: the
     # logged invocation always carries "-projectPath=<dir>", which is
@@ -467,6 +495,36 @@ else
     p "krever=unprobeable (-version produced no versionNumber marker)"
   fi
 fi
+# --- licensing-mode awareness (TO_LIC_MODE set by the portal) ---
+# Reports the ACTUAL execution identity and offline-license
+# provisioning state — presence only; only a real run proves KRE
+# accepts a .lic, and the probe never attempts activation.
+LM="${TO_LIC_MODE:-online}"
+p "licensing_mode=$LM"
+p "exec_user=$(id -un 2>/dev/null || echo unknown)"
+p "exec_home=${HOME:-unset}"
+LDIR="${TO_LIC_DIR:-$HOME/.katalon/license}"
+if [ "$LM" = "offline" ]; then
+  if [ -d "$LDIR" ]; then
+    cnt=$(ls -1 "$LDIR" 2>/dev/null | grep -c '\.lic$')
+    p "license_dir=present ($LDIR)"
+    p "license_files=$cnt"
+    for f in "$LDIR"/*.lic; do
+      [ -f "$f" ] || continue
+      h=$(sha256sum "$f" 2>/dev/null | cut -c1-12)
+      [ -z "$h" ] && h=$(shasum -a 256 "$f" 2>/dev/null | cut -c1-12)
+      p "license_file=$(basename "$f") sha256_12=${h:-unhashable}"
+    done
+    if [ -f "$LDIR/.to_managed" ]; then
+      p "managed_marker=present ($(wc -l < "$LDIR/.to_managed" | tr -d ' ') entries)"
+    else
+      p "managed_marker=absent (operator-provisioned or unmanaged)"
+    fi
+  else
+    p "license_dir=missing ($LDIR)"
+    p "license_files=0"
+  fi
+fi
 sh .to_kre_cred_exec.sh 2>&1 | grep -q "usage: kre_cred_exec" \\
   && { p "helper_launcher=sh"; p "helper_exec=ok"; } \\
   || p "helper_exec=FAILED"
@@ -500,6 +558,27 @@ goto kredone
 :nokrebin
 call :p kre=missing ^(no executable_path configured^)
 :kredone
+rem --- licensing-mode awareness (TO_LIC_MODE set by the portal) ---
+if "%TO_LIC_MODE%"=="" set TO_LIC_MODE=online
+call :p licensing_mode=%TO_LIC_MODE%
+for /f "delims=" %%u in ('whoami') do (echo TO-PROBE exec_user=%%u & >>"%L%" echo TO-PROBE exec_user=%%u)
+call :p exec_profile=%USERPROFILE%
+if "%TO_LIC_MODE%"=="offline" (
+  set "LDIR=%USERPROFILE%\.katalon\license"
+  if exist "!LDIR!" (
+    call :p license_dir=present ^(!LDIR!^)
+    set CNT=0
+    for %%f in ("!LDIR!\*.lic") do (
+      set /a CNT+=1
+      for /f "tokens=1" %%h in ('certutil -hashfile "%%f" SHA256 ^| findstr /v ":"') do (echo TO-PROBE license_file=%%~nxf sha256_12=%%h & >>"%L%" echo TO-PROBE license_file=%%~nxf sha256_12=%%h)
+    )
+    call :p license_files=!CNT!
+    if exist "!LDIR!\.to_managed" (call :p managed_marker=present) else (call :p managed_marker=absent ^(operator-provisioned or unmanaged^))
+  ) else (
+    call :p license_dir=missing ^(!LDIR!^)
+    call :p license_files=0
+  )
+)
 powershell -NoProfile -ExecutionPolicy Bypass -File ".to_kre_cred_exec.ps1" 2>&1 | findstr /c:"usage: kre_cred_exec" >nul
 if errorlevel 1 (echo TO-PROBE helper_exec=FAILED & >>"%L%" echo TO-PROBE helper_exec=FAILED) else (echo TO-PROBE helper_launcher=powershell & echo TO-PROBE helper_exec=ok & >>"%L%" echo TO-PROBE helper_launcher=powershell & >>"%L%" echo TO-PROBE helper_exec=ok)
 rmdir Reports\.wtest 2>nul & mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul

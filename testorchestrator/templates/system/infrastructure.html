@@ -274,7 +274,9 @@ or license KRE.</p>
         {% for rt in its %}
         <tr>
           <td>{{ rt.name }}{% if (rt.runtime_kind or "kre") != "kre" %}
-            <span class="badge">{{ rt.runtime_kind }}</span>{% endif %}</td>
+            <span class="badge">{{ rt.runtime_kind }}</span>{% endif %}
+            {% if (rt.licensing_mode or "online") != "online" %}
+            <span class="badge">lic:{{ rt.licensing_mode }}</span>{% endif %}</td>
           <td><span class="badge {{ 'warn' if rt.runner and rt.runner.connection_mode == 'remote' else '' }}">{{ "Remote" if rt.runner and rt.runner.connection_mode == 'remote' else "Local" }}</span></td>
           <td><code>{{ rt.executable_path }}</code></td>
           <td>{{ rt.detected_version or "unprobed" }}</td>
@@ -379,6 +381,18 @@ or license KRE.</p>
                   <small class="muted">Delivered securely to the target per execution — overrides the legacy file below. E.g. <code>kre-api-key</code> (kind <code>runtime</code> under System → Secrets).</small></div>
                 <div class="field"><label>Credential file on target (legacy)</label><input name="credential_file" value="{{ rt.credential_file }}" placeholder="Absolute path on target, 0600 — only if no credential reference">
                   <small class="muted">Linux: <code>/opt/to/cred/kre-api-key.txt</code> · Windows: <code>C:\to\cred\kre-api-key.txt</code></small></div>
+                {% if (rt.runtime_kind or "kre") == "kre" %}
+                <div class="field"><label>Licensing mode</label>
+                  <select name="licensing_mode">
+                    <option value="online" {{ "selected" if (rt.licensing_mode or "online") == "online" }}>online — API-key credential</option>
+                    <option value="offline" {{ "selected" if (rt.licensing_mode or "online") == "offline" }}>offline — machine-bound .lic</option>
+                    <option value="private" {{ "selected" if (rt.licensing_mode or "online") == "private" }}>private — API key + private license server</option>
+                  </select>
+                  <small class="muted">KRE licensing mode — not a fallback: the runtime uses exactly the selected mechanism.</small></div>
+                <div class="field"><label>Offline license secrets</label><input name="license_refs" value="{{ rt.license_refs | replace('[','') | replace(']','') | replace('"','') }}" placeholder="Comma-separated 'license'-kind secret names — one .lic each">
+                  <small class="muted">One genuine Katalon-issued .lic per name; delivered to the execution account's <code>~/.katalon/license</code> (persistent). One .lic = one concurrent offline session.</small></div>
+                <div class="field"><label>Private license server URL</label><input name="license_server_url" value="{{ rt.license_server_url }}" placeholder="https://license.internal — only for 'private' mode"></div>
+                {% endif %}
                 <div class="field"><label>Concurrency</label><input name="concurrency" value="{{ rt.concurrency }}"></div>
                 <button type="submit" class="button">Apply</button>
                 <button type="button" class="button danger" data-cancel-details>Cancel</button>
@@ -499,6 +513,28 @@ or license KRE.</p>
       uses a credential.<br>
       Linux example: <code>/opt/to/cred/kre-api-key.txt</code> ·
       Windows example: <code>C:\to\cred\kre-api-key.txt</code></small></div>
+    <div class="field"><label>Licensing mode (KRE)</label>
+      <select name="licensing_mode">
+        <option value="online" selected>online — API-key credential</option>
+        <option value="offline">offline — machine-bound .lic</option>
+        <option value="private">private — API key + private license server</option>
+      </select>
+      <small>Optional, KRE only. <em>online</em> needs the credential
+      reference above; <em>offline</em> uses Katalon-issued .lic files
+      in the execution account's <code>~/.katalon/license</code> —
+      no API key needed; <em>private</em> is online against your own
+      license server (<code>-serverUrl</code>). There is no hybrid
+      execution mode — run different modes on different runtimes.</small></div>
+    <div class="field"><label>Offline license secrets</label>
+      <input name="license_refs" placeholder="Comma-separated 'license'-kind secret names — one .lic each">
+      <small>Optional, for <em>offline</em> mode. Each named secret
+      (kind <code>license</code>) holds one genuine Katalon-issued
+      .lic file; delivered to the execution account's
+      <code>~/.katalon/license</code> where it persists. One .lic =
+      one concurrent offline session. Leave empty if the operator
+      placed .lic files on the target directly.</small></div>
+    <div class="field"><label>Private license server URL</label>
+      <input name="license_server_url" placeholder="https://license.internal — only for 'private' mode"></div>
     <div class="field">{{ runtime_form.concurrency.label }} {{ runtime_form.concurrency() }}
       <small><strong>Required.</strong> Max parallel sessions for this
       runtime; integer ≥ 1, capped by the worker's free slots.<br>
