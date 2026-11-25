@@ -78,10 +78,12 @@ def test_pytest_junit_normalizes(tmp_path: Path):
 
 def test_probe_scripts_no_secrets_and_done_marker():
     scripts = pytestfw.probe_scripts("https://app.example")
-    assert set(scripts) == {"probe.sh", "probe.cmd"}
+    assert set(scripts) == {"probe.sh", "probe.cmd", "libchk.cmd"}
     for text in scripts.values():
-        assert "TO-PROBE" in text and "done=1" in text
+        assert "TO-PROBE" in text
         assert "password" not in text.lower()
+    assert "done=1" in scripts["probe.sh"]
+    assert "done=1" in scripts["probe.cmd"]
 
 
 def test_probe_argv():

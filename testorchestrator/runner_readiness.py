@@ -112,7 +112,9 @@ def submit(runtime, app_url: str = "",
                     else nodefw.probe_argv(runner.os_arch))
             spec = {"executable": argv[0], "args": argv[1:],
                     "exec_workdir": "build/src",
-                    "report_src": "src/Reports"}
+                    "report_src": "src/Reports",
+                    "posix": not (runner.os_arch or "")
+                    .lower().startswith("win")}
             if probe_env:
                 spec["env"] = probe_env
         builder = buildbot_cfg.builder_for(runner)

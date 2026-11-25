@@ -139,12 +139,57 @@ p "done=1"
 """
 
 
+PROBE_CMD = r"""@echo off
+rem TestOrchestrator bruno readiness probe (Windows cmd).
+if not exist Reports mkdir Reports
+set L=Reports\probe.txt
+type nul > "%L%"
+rem cmd.exe constraints: 'call :label' is illegal inside if/for parens;
+rem .cmd shims (bru/npx) invoked bare transfer control and never
+rem return — 'call' is mandatory; 'X && (...) || (...)' can emit BOTH
+rem sides, so every conditional is a two-line '<test>' +
+rem 'if errorlevel 1 (...) else (...)' pair.
+call :p connectivity=ok
+where node >nul 2>&1
+if errorlevel 1 (echo TO-PROBE node=missing & >>"%L%" echo TO-PROBE node=missing) else (for /f "delims=" %%v in ('node --version 2^>nul') do (echo TO-PROBE node=%%v & >>"%L%" echo TO-PROBE node=%%v))
+where npx >nul 2>&1
+if errorlevel 1 (echo TO-PROBE npx=missing & >>"%L%" echo TO-PROBE npx=missing) else (for /f "delims=" %%v in ('call npx --version 2^>nul') do (echo TO-PROBE npx=%%v & >>"%L%" echo TO-PROBE npx=%%v))
+where bru >nul 2>&1
+if errorlevel 1 (echo TO-PROBE bruno=missing ^(installed/pinned CLI required - never auto-installed^) & >>"%L%" echo TO-PROBE bruno=missing ^(installed/pinned CLI required - never auto-installed^)) else (for /f "delims=" %%v in ('call bru --version 2^>nul') do (echo TO-PROBE bruno=%%v & >>"%L%" echo TO-PROBE bruno=%%v))
+call bru run --help 2>nul | findstr /c:"--sandbox" >nul
+if errorlevel 1 (echo TO-PROBE sandbox_flag=unverified & >>"%L%" echo TO-PROBE sandbox_flag=unverified) else (echo TO-PROBE sandbox_flag=supported & >>"%L%" echo TO-PROBE sandbox_flag=supported)
+call bru run --help 2>nul | findstr /c:"--global-env" >nul
+if errorlevel 1 (echo TO-PROBE global_env=unverified & >>"%L%" echo TO-PROBE global_env=unverified) else (echo TO-PROBE global_env=supported & >>"%L%" echo TO-PROBE global_env=supported)
+call bru run --help 2>nul | findstr /c:"--reporter-junit" >nul
+if errorlevel 1 (echo TO-PROBE junit_reporter=unverified & >>"%L%" echo TO-PROBE junit_reporter=unverified) else (echo TO-PROBE junit_reporter=supported & >>"%L%" echo TO-PROBE junit_reporter=supported)
+rmdir Reports\.wtest 2>nul & mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul
+if errorlevel 1 (echo TO-PROBE workspace_write=denied & >>"%L%" echo TO-PROBE workspace_write=denied) else (echo TO-PROBE workspace_write=ok & >>"%L%" echo TO-PROBE workspace_write=ok)
+if "%APP_URL%"=="" goto noappurl
+curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1
+if errorlevel 1 (echo TO-PROBE app_url=UNREACHABLE from this target & >>"%L%" echo TO-PROBE app_url=UNREACHABLE from this target) else (echo TO-PROBE app_url=reachable & >>"%L%" echo TO-PROBE app_url=reachable)
+goto appdone
+:noappurl
+call :p app_url=not-configured
+:appdone
+call :p done=1
+exit /b 0
+:p
+>>"%L%" echo TO-PROBE %*
+echo TO-PROBE %*
+exit /b 0
+"""
+
+
 def probe_scripts(app_url: str = "") -> dict:
-    return {"probe.sh": PROBE_SH.replace("%APP_URL%", app_url or "")}
+    return {
+        "probe.sh": PROBE_SH.replace("%APP_URL%", app_url or ""),
+        "probe.cmd": PROBE_CMD.replace("%APP_URL%", app_url or "")
+                              .replace("\n", "\r\n"),
+    }
 
 
 def probe_argv(os_arch: str) -> list:
+    """argv for the probe on the worker — batch file on Windows (no
+    Bash dependency), POSIX sh elsewhere."""
     win = (os_arch or "").lower().startswith("win")
-    return ["cmd", "/c", "echo",
-            "TO-PROBE bruno=unsupported-on-windows"] \
-        if win else ["sh", "probe.sh"]
+    return ["cmd", "/c", "probe.cmd"] if win else ["sh", "probe.sh"]

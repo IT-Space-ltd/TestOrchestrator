@@ -156,13 +156,56 @@ p "done=1"
 """
 
 
+PROBE_CMD = r"""@echo off
+rem TestOrchestrator gtest readiness probe (Windows cmd).
+if not exist Reports mkdir Reports
+set L=Reports\probe.txt
+type nul > "%L%"
+rem cmd.exe constraints: 'call :label' is illegal inside if/for parens;
+rem 'X && (...) || (...)' can emit BOTH sides — every conditional is
+rem a two-line '<test>' + 'if errorlevel 1 (...) else (...)' pair.
+call :p connectivity=ok
+for %%t in (cc c++ gcc g++ clang++ cmake make ninja cl) do call toolchk.cmd %%t
+rmdir Reports\.wtest 2>nul & mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul
+if errorlevel 1 (echo TO-PROBE workspace_write=denied & >>"%L%" echo TO-PROBE workspace_write=denied) else (echo TO-PROBE workspace_write=ok & >>"%L%" echo TO-PROBE workspace_write=ok)
+if "%APP_URL%"=="" goto noappurl
+curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1
+if errorlevel 1 (echo TO-PROBE app_url=UNREACHABLE from this target & >>"%L%" echo TO-PROBE app_url=UNREACHABLE from this target) else (echo TO-PROBE app_url=reachable & >>"%L%" echo TO-PROBE app_url=reachable)
+goto appdone
+:noappurl
+call :p app_url=not-configured
+:appdone
+call :p done=1
+exit /b 0
+:p
+>>"%L%" echo TO-PROBE %*
+echo TO-PROBE %*
+exit /b 0
+"""
+
+# Helper invoked as 'call toolchk.cmd <tool>' from inside the probe's
+# for-loop — 'call :label' is illegal inside for-DO, 'call file.cmd'
+# is legal everywhere. %L% is inherited from the caller's env.
+TOOLCHK_CMD = r"""@echo off
+where %1 >nul 2>&1
+if errorlevel 1 (echo TO-PROBE tool_%1=absent & >>"%L%" echo TO-PROBE tool_%1=absent) else (echo TO-PROBE tool_%1=present & >>"%L%" echo TO-PROBE tool_%1=present)
+exit /b 0
+"""
+
+
 def probe_scripts(app_url: str = "") -> dict:
     """Readiness — toolchain presence markers; binaries themselves
     are validated per-run (prebuilt or configured build steps)."""
-    return {"probe.sh": PROBE_SH.replace("%APP_URL%", app_url or "")}
+    return {
+        "probe.sh": PROBE_SH.replace("%APP_URL%", app_url or ""),
+        "probe.cmd": PROBE_CMD.replace("%APP_URL%", app_url or "")
+                              .replace("\n", "\r\n"),
+        "toolchk.cmd": TOOLCHK_CMD.replace("\n", "\r\n"),
+    }
 
 
 def probe_argv(os_arch: str) -> list:
+    """argv for the probe on the worker — batch file on Windows (no
+    Bash dependency), POSIX sh elsewhere."""
     win = (os_arch or "").lower().startswith("win")
-    return ["cmd", "/c", "echo", "TO-PROBE gtest=unsupported-on-windows"] \
-        if win else ["sh", "probe.sh"]
+    return ["cmd", "/c", "probe.cmd"] if win else ["sh", "probe.sh"]

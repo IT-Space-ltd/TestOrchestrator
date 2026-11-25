@@ -158,12 +158,70 @@ p "done=1"
 """
 
 
+PROBE_CMD = r"""@echo off
+rem TestOrchestrator postman readiness probe (Windows cmd).
+if not exist Reports mkdir Reports
+set L=Reports\probe.txt
+type nul > "%L%"
+rem cmd.exe constraints: 'call :label' is illegal inside if/for parens;
+rem .cmd shims (newman/postman/npx) invoked bare transfer control and
+rem never return — 'call' is mandatory; 'X && (...) || (...)' can emit
+rem BOTH sides, so every conditional is a two-line '<test>' +
+rem 'if errorlevel 1 (...) else (...)' pair.
+call :p connectivity=ok
+where node >nul 2>&1
+if errorlevel 1 (echo TO-PROBE node=missing & >>"%L%" echo TO-PROBE node=missing) else (for /f "delims=" %%v in ('node --version 2^>nul') do (echo TO-PROBE node=%%v & >>"%L%" echo TO-PROBE node=%%v))
+where npx >nul 2>&1
+if errorlevel 1 (echo TO-PROBE npx=missing & >>"%L%" echo TO-PROBE npx=missing) else (for /f "delims=" %%v in ('call npx --version 2^>nul') do (echo TO-PROBE npx=%%v & >>"%L%" echo TO-PROBE npx=%%v))
+where newman >nul 2>&1
+if errorlevel 1 goto nn_npx
+for /f "delims=" %%v in ('call newman --version 2^>nul') do (echo TO-PROBE newman=%%v & >>"%L%" echo TO-PROBE newman=%%v)
+goto nn_done
+:nn_npx
+call npx --no-install newman --version >nul 2>&1
+if errorlevel 1 (echo TO-PROBE newman=missing ^(no binary, npx --no-install failed^) & >>"%L%" echo TO-PROBE newman=missing ^(no binary, npx --no-install failed^)) else (for /f "delims=" %%v in ('call npx --no-install newman --version 2^>nul') do (echo TO-PROBE newman=%%v via npx & >>"%L%" echo TO-PROBE newman=%%v via npx))
+:nn_done
+where postman >nul 2>&1
+if errorlevel 1 (echo TO-PROBE postman_cli=missing & >>"%L%" echo TO-PROBE postman_cli=missing) else (for /f "delims=" %%v in ('call postman --version 2^>nul') do (echo TO-PROBE postman_cli=%%v & >>"%L%" echo TO-PROBE postman_cli=%%v))
+where newman >nul 2>&1
+if not errorlevel 1 goto eng_yes
+where postman >nul 2>&1
+if not errorlevel 1 goto eng_yes
+call :p postman=missing ^(no newman/postman CLI on PATH^)
+goto eng_done
+:eng_yes
+call :p postman=engine-present
+:eng_done
+call postman collection run --help 2>nul | findstr /c:"junit" >nul
+if errorlevel 1 (echo TO-PROBE postman_junit=unverified ^(check installed version docs^) & >>"%L%" echo TO-PROBE postman_junit=unverified ^(check installed version docs^)) else (echo TO-PROBE postman_junit=supported & >>"%L%" echo TO-PROBE postman_junit=supported)
+rmdir Reports\.wtest 2>nul & mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul
+if errorlevel 1 (echo TO-PROBE workspace_write=denied & >>"%L%" echo TO-PROBE workspace_write=denied) else (echo TO-PROBE workspace_write=ok & >>"%L%" echo TO-PROBE workspace_write=ok)
+if "%APP_URL%"=="" goto noappurl
+curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1
+if errorlevel 1 (echo TO-PROBE app_url=UNREACHABLE from this target & >>"%L%" echo TO-PROBE app_url=UNREACHABLE from this target) else (echo TO-PROBE app_url=reachable & >>"%L%" echo TO-PROBE app_url=reachable)
+goto appdone
+:noappurl
+call :p app_url=not-configured
+:appdone
+call :p done=1
+exit /b 0
+:p
+>>"%L%" echo TO-PROBE %*
+echo TO-PROBE %*
+exit /b 0
+"""
+
+
 def probe_scripts(app_url: str = "") -> dict:
-    return {"probe.sh": PROBE_SH.replace("%APP_URL%", app_url or "")}
+    return {
+        "probe.sh": PROBE_SH.replace("%APP_URL%", app_url or ""),
+        "probe.cmd": PROBE_CMD.replace("%APP_URL%", app_url or "")
+                              .replace("\n", "\r\n"),
+    }
 
 
 def probe_argv(os_arch: str) -> list:
+    """argv for the probe on the worker — batch file on Windows (no
+    Bash dependency), POSIX sh elsewhere."""
     win = (os_arch or "").lower().startswith("win")
-    return ["cmd", "/c", "echo",
-            "TO-PROBE postman=unsupported-on-windows"] \
-        if win else ["sh", "probe.sh"]
+    return ["cmd", "/c", "probe.cmd"] if win else ["sh", "probe.sh"]

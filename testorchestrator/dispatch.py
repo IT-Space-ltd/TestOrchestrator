@@ -2146,8 +2146,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                 projects=rc.get("projects") or (),
                 test_pattern=rc.get("test_pattern") or "")
             npx_forced = False
-        node_env = nodefw.junit_env(node_kind)
         win = (runner.os_arch or "").lower().startswith("win")
+        node_env = nodefw.junit_env(node_kind, win=win)
         # npm sits next to npx — an explicit executable_path resolves
         # the sibling, otherwise PATH does. Native collection runs
         # the .js collector under `node` directly.

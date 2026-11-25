@@ -114,7 +114,7 @@ def build_args(kind: str, browser: str = "", spec: str = "",
     return args
 
 
-def junit_env(kind: str) -> dict:
+def junit_env(kind: str, win: bool = False) -> dict:
     """Extra environment the exec step needs — playwright's junit
     reporter writes nowhere without this."""
     env = {}
@@ -123,8 +123,13 @@ def junit_env(kind: str) -> dict:
             "Reports/junit/results.xml"
     # A leaked ELECTRON_RUN_AS_NODE in the worker/SSH environment runs
     # Cypress' Electron binary as plain Node and fails with cryptic
-    # cached-data errors — empty string is falsy, which disables it.
-    env["ELECTRON_RUN_AS_NODE"] = ""
+    # cached-data errors — empty string is falsy, which disables it on
+    # POSIX. On Windows an env entry with an empty value is still
+    # present in the process environment block and Electron honours it
+    # (MODULE_NOT_FOUND / empty requireStack) — the key must be omitted
+    # entirely there (an env map can only set, never unset).
+    if not win:
+        env["ELECTRON_RUN_AS_NODE"] = ""
     return env
 
 
@@ -205,34 +210,58 @@ setlocal enabledelayedexpansion
 if not exist Reports mkdir Reports
 set L=Reports\probe.txt
 type nul > "%L%"
+rem cmd.exe constraints honoured below: 'call :label' aborts the script
+rem inside if/for parens (inline echo pairs used instead); npx/npm
+rem resolve to .cmd shims — invoking one bare transfers control and
+rem never returns, so inline invocations go through 'call'; and
+rem 'X && (...) || (...)' can emit BOTH branches when the middle group
+rem leaves a nonzero code — every conditional therefore sits on a
+rem two-line '<test>' + 'if errorlevel 1 (...) else (...)' pair.
 call :p connectivity=ok
-where node >nul 2>&1 && (for /f "delims=" %%v in ('node --version 2^>nul') do call :p node=%%v) || call :p node=missing
-where npx >nul 2>&1 && (for /f "delims=" %%v in ('npx --version 2^>nul') do call :p npx=%%v) || call :p npx=missing
-where npm >nul 2>&1 && (for /f "delims=" %%v in ('npm --version 2^>nul') do call :p npm=%%v) || call :p npm=missing (needed for pinned project deps)
-if "%KIND%"=="playwright" (
-  npx --no-install playwright --version >nul 2>&1 && (for /f "delims=" %%v in ('npx --no-install playwright --version 2^>nul') do call :p playwright=%%v) || call :p playwright=missing
-)
-if "%KIND%"=="cypress" (
-  npx --no-install cypress version >nul 2>&1 && call :p cypress=installed || call :p cypress=missing
-  npx --no-install cypress verify >nul 2>&1 && call :p cypress_binary=ok || call :p cypress_binary=unavailable to this account
-)
-if "%KIND%"=="jest" (
-  npx --no-install jest --version >nul 2>&1 && (for /f "delims=" %%v in ('npx --no-install jest --version 2^>nul') do call :p jest=%%v) || call :p jest=missing
-)
-for %%b in (chrome.exe msedge.exe firefox.exe) do (
-  where %%b >nul 2>&1 && call :p browser_%%b=present
-)
-mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul && call :p workspace_write=ok || call :p workspace_write=denied
-if not "%APP_URL%"=="" (
-  curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1 && call :p app_url=reachable || call :p app_url=UNREACHABLE from this target
-) else (
-  call :p app_url=not-configured
-)
+where node >nul 2>&1
+if errorlevel 1 (echo TO-PROBE node=missing & >>"%L%" echo TO-PROBE node=missing) else (for /f "delims=" %%v in ('node --version 2^>nul') do (echo TO-PROBE node=%%v & >>"%L%" echo TO-PROBE node=%%v))
+where npx >nul 2>&1
+if errorlevel 1 (echo TO-PROBE npx=missing & >>"%L%" echo TO-PROBE npx=missing) else (for /f "delims=" %%v in ('call npx --version 2^>nul') do (echo TO-PROBE npx=%%v & >>"%L%" echo TO-PROBE npx=%%v))
+where npm >nul 2>&1
+if errorlevel 1 (echo TO-PROBE npm=missing ^(needed for pinned project deps^) & >>"%L%" echo TO-PROBE npm=missing ^(needed for pinned project deps^)) else (for /f "delims=" %%v in ('call npm --version 2^>nul') do (echo TO-PROBE npm=%%v & >>"%L%" echo TO-PROBE npm=%%v))
+if not "%KIND%"=="playwright" goto nopw
+call npx --no-install playwright --version >nul 2>&1
+if errorlevel 1 (echo TO-PROBE playwright=missing & >>"%L%" echo TO-PROBE playwright=missing) else (for /f "delims=" %%v in ('call npx --no-install playwright --version 2^>nul') do (echo TO-PROBE playwright=%%v & >>"%L%" echo TO-PROBE playwright=%%v))
+:nopw
+if not "%KIND%"=="cypress" goto nocy
+call npx --no-install cypress version >nul 2>&1
+if errorlevel 1 (echo TO-PROBE cypress=missing & >>"%L%" echo TO-PROBE cypress=missing) else (echo TO-PROBE cypress=installed & >>"%L%" echo TO-PROBE cypress=installed)
+call npx --no-install cypress verify >nul 2>&1
+if errorlevel 1 (echo TO-PROBE cypress_binary=unavailable to this account & >>"%L%" echo TO-PROBE cypress_binary=unavailable to this account) else (echo TO-PROBE cypress_binary=ok & >>"%L%" echo TO-PROBE cypress_binary=ok)
+:nocy
+if not "%KIND%"=="jest" goto noje
+call npx --no-install jest --version >nul 2>&1
+if errorlevel 1 (echo TO-PROBE jest=missing & >>"%L%" echo TO-PROBE jest=missing) else (for /f "delims=" %%v in ('call npx --no-install jest --version 2^>nul') do (echo TO-PROBE jest=%%v & >>"%L%" echo TO-PROBE jest=%%v))
+:noje
+for %%b in (chrome.exe msedge.exe firefox.exe) do call browserchk.cmd %%b
+rmdir Reports\.wtest 2>nul & mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul
+if errorlevel 1 (echo TO-PROBE workspace_write=denied & >>"%L%" echo TO-PROBE workspace_write=denied) else (echo TO-PROBE workspace_write=ok & >>"%L%" echo TO-PROBE workspace_write=ok)
+if "%APP_URL%"=="" goto noappurl
+curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1
+if errorlevel 1 (echo TO-PROBE app_url=UNREACHABLE from this target & >>"%L%" echo TO-PROBE app_url=UNREACHABLE from this target) else (echo TO-PROBE app_url=reachable & >>"%L%" echo TO-PROBE app_url=reachable)
+goto appdone
+:noappurl
+call :p app_url=not-configured
+:appdone
 call :p done=1
 exit /b 0
 :p
-echo TO-PROBE %*>>"%L%"
+>>"%L%" echo TO-PROBE %*
 echo TO-PROBE %*
+exit /b 0
+"""
+
+# Helper invoked as 'call browserchk.cmd <exe>' from inside the probe's
+# for-loop — 'call :label' is illegal inside for-DO, 'call file.cmd'
+# is legal everywhere. %L% is inherited from the caller's env.
+BROWSERCHK_CMD = r"""@echo off
+where %1 >nul 2>&1
+if not errorlevel 1 (echo TO-PROBE browser_%1=present & >>"%L%" echo TO-PROBE browser_%1=present)
 exit /b 0
 """
 
@@ -243,7 +272,9 @@ def probe_scripts(kind: str, app_url: str = "") -> dict:
         "probe.sh": PROBE_SH.replace("%KIND%", kind)
                             .replace("%APP_URL%", app_url or ""),
         "probe.cmd": PROBE_CMD.replace("%KIND%", kind)
-                              .replace("%APP_URL%", app_url or ""),
+                              .replace("%APP_URL%", app_url or "")
+                              .replace("\n", "\r\n"),
+        "browserchk.cmd": BROWSERCHK_CMD.replace("\n", "\r\n"),
     }
 
 
