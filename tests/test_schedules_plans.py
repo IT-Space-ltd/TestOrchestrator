@@ -140,6 +140,7 @@ def _gating_env(tmp_path):
     rt = RuntimeConnection(
         name="fixture-kre", runner_id=runner.id,
         executable_path="/bin/true", detected_version="8.0.0",
+        licensing_mode="offline",
         workspace_root=str(tmp_path))
     db.session.add(rt); db.session.commit()
     return s
@@ -212,6 +213,7 @@ def _one_slot_env(tmp_path):
     rt = RuntimeConnection(
         name="fixture-kre", runner_id=runner.id,
         executable_path="/bin/true", detected_version="8.0.0",
+        licensing_mode="offline",
         workspace_root=str(tmp_path))
     db.session.add(rt); db.session.commit()
     return p, s, runner, rt

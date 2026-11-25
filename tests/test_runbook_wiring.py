@@ -256,6 +256,7 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
         from testorchestrator import readiness
         rt = RuntimeConnection.query.filter_by(name="kre-1").first()
         rt.detected_version = "9.0.0"
+        rt.licensing_mode = "offline"
         readiness.record_verified(f"engine_{rt.id}",
                                   readiness._engine_fp(rt))
         r = Runner.query.filter_by(name="local-1").first()
