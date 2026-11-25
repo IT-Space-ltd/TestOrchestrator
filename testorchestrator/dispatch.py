@@ -2118,7 +2118,11 @@ def _normalize(ex: Execution) -> None:
                 key = (case.classname, case.name)
                 seen_names[key] = seen_names.get(key, 0) + 1
                 cases.append((case, seen_names[key], parsed))
-    completed = ex.exit_status is not None
+    # ISS-014: an interrupted run (killed step, nonzero exit) may assert
+    # observed failures but never a pass — all-pass evidence that
+    # survived a kill cannot prove the untested remainder passed.
+    completed = (ex.exit_status == 0) or any(
+        c.status in ("failed", "error") for c, _, _ in cases)
     for case, occurrence, parsed in cases:
         db.session.add(TestResult(
             execution_id=ex.id,
@@ -2135,6 +2139,13 @@ def _normalize(ex: Execution) -> None:
     ex.outcome = Outcome(
         aggregate_outcome([c[0] for c in cases], completed=completed)
     )
+    if (ex.outcome == Outcome.INCOMPLETE
+            and ex.exit_status not in (None, 0) and cases):
+        record_audit(
+            "system", "execution.interrupted_partial",
+            f"{ex.id}: exit={ex.exit_status} — {len(cases)} collected "
+            "case(s) from interrupted run; no-failure evidence cannot "
+            "assert a pass")
     # Stamp dedup fingerprints so repository imports match this
     # live run — same canonicalisation the importer applies.
     try:

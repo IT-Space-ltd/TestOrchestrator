@@ -141,3 +141,49 @@ def test_dedup_never_spans_executions(tmp_path, app):
         from testorchestrator.execution import TestResult
         assert TestResult.query.filter_by(execution_id=ex1.id).count() == 2
         assert TestResult.query.filter_by(execution_id=ex2.id).count() == 2
+
+
+def test_interrupted_run_partial_pass_is_incomplete(tmp_path, app):
+    """ISS-014: a killed/interrupted run whose surviving junit is
+    all-pass must not report PASSED — the untested remainder is
+    unproven, so the outcome caps at INCOMPLETE."""
+    with app.app_context():
+        ex, rd = _mk_execution(tmp_path)
+        _junit_artifact(ex, "Reports/junit.xml",
+                        _write(rd, "Reports/junit.xml", JUNIT))
+        ex.exit_status = 1          # nonzero — killed step / interrupted
+        db.session.commit()
+        d._normalize(ex)
+        db.session.commit()
+        assert ex.outcome == Outcome.INCOMPLETE
+        from testorchestrator.execution import TestResult
+        assert TestResult.query.filter_by(execution_id=ex.id).count() == 2
+
+
+def test_interrupted_run_with_observed_failure_is_failed(tmp_path, app):
+    """ISS-014: a real failure observed before the kill is still an
+    honest FAILED verdict — only passes are capped."""
+    with app.app_context():
+        ex, rd = _mk_execution(tmp_path)
+        _junit_artifact(ex, "Reports/junit.xml",
+                        _write(rd, "Reports/junit.xml", JUNIT))
+        _junit_artifact(ex, "Reports/fail.xml",
+                        _write(rd, "Reports/fail.xml", JUNIT_OTHER))
+        ex.exit_status = 1
+        db.session.commit()
+        d._normalize(ex)
+        db.session.commit()
+        assert ex.outcome == Outcome.FAILED
+
+
+def test_clean_run_all_pass_stays_passed(tmp_path, app):
+    """Uninterrupted runs are unaffected by the ISS-014 gate."""
+    with app.app_context():
+        ex, rd = _mk_execution(tmp_path)
+        _junit_artifact(ex, "Reports/junit.xml",
+                        _write(rd, "Reports/junit.xml", JUNIT))
+        ex.exit_status = 0
+        db.session.commit()
+        d._normalize(ex)
+        db.session.commit()
+        assert ex.outcome == Outcome.PASSED

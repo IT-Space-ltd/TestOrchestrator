@@ -124,6 +124,18 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   and `kre_cred_exec:` errors were unconditionally classified `config`
   (credential value/content problems stay `config`; file, permission,
   and missing-executable problems now classify `infrastructure`).
+- **Interrupted runs can no longer report PASSED from partial
+  evidence.** `exit_status` was set on every reconciled run, so
+  `_normalize`'s `completed` flag was always true and a killed run
+  (exec_timeout, watchdog, worker loss) whose surviving junit was
+  all-pass reported outcome PASSED — a false-pass surface for
+  API/CI consumers (ISS-014). An interrupted run now asserts only
+  observed failures: nonzero exit + all-pass/no-failure evidence →
+  `incomplete` with an `execution.interrupted_partial` audit
+  record; observed failures still classify `failed`. Clean exits
+  are unaffected. Verified live on Windows PB (gtest
+  `--gtest_repeat=-1` killed at watchdog) and Linux PB
+  (exec_timeout).
 - **SSH transport: license rejection no longer masked as `config`.**
   A failed KRE activation still prints KRE's argv-validation complaints
   ("Cannot find project"), which outranked the generic license fallback
@@ -315,10 +327,16 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 
 ### Known limitations (2.7.0 draft)
 
-- S3 verified against SeaweedFS 4.55 only; not universal-provider
-  evidence. Insecure endpoints are a test-only flag.
-- Playwright/Cypress packaged cells used orchestration-proof fake
-  toolchains; real engine binaries remain product-owner acceptance.
+- S3 adapter verified against SeaweedFS (S3 stand-in, not GCS or
+  AWS-provider acceptance); Azure verified against Azurite 3.34.0
+  emulator over loopback+SSH tunnel, not live Azure. Insecure
+  endpoints are a test-only flag.
+- Playwright/Cypress real-engine acceptance verified on a Linux PB
+  worker (Playwright 1.65.1, Cypress 16.3.0/Electron 43): collect,
+  pass/fail, exec_timeout kill, cancel, junit + native artifacts
+  all exercised live — including the ISS-015/ISS-016 defects found
+  and fixed during those runs. Windows engine coverage remains
+  dev-stack-only until the Windows guest gains a node toolchain.
 - One production-issuer-key test remains blocked
   (`test_production_key_auto_loaded` — declared skip; documented
   boundary in `docs/licensing.md`). `test_payload_fields_signed`
@@ -332,18 +350,26 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   overlap must not be read as licensed KRE concurrency.
 - Packaged-acceptance topology collapsed server+worker into one
   disposable VM — not independent-host partition evidence.
-- KRE secrets are name-scoped only: any `runtime`-kind secret may be
-  referenced by any runtime configuration — there is no per-project
-  secret ACL (secrets are admin-managed; the kind gate keeps
-  git/ssh/buildbot secrets unusable for KRE invocation). Resolved
-  credential values ARE delivered to execution targets by design —
-  per-project/target scoping is pending (proposal under review).
-- GoogleTest on Windows: native PB-worker execution is implemented
-  (staged Python driver, posix=False/Job-object semantics). Coverage
-  beyond the verified pass/fail matrix — timeout/cancel, spaces and
-  Unicode paths, parameterized tests, native collection, installed-
-  package execution — remains in the acceptance queue; installed-
-  package re-verification pending.
+- Secret authorization is implemented and verified at the
+  application level (default-deny grants: project/runner/runtime
+  dimensions, claim-time revocation, denial before decryption or
+  delivery, pending-association recording, audited admin edits —
+  `tests/test_secret_scope_acceptance.py`, upgrade migration
+  `n2b3c4d5e6f7` backfills grants from existing associations and
+  flags `migration_pending` for admin review). Two owner-accepted
+  residuals: the `-apiKey=` argv exposure boundary (same-account
+  visibility, documented disposable-target exception) and live
+  Katalon key rotation pending on the owner's replacement key.
+- GoogleTest on Windows: native PB-worker execution verified live
+  end-to-end (native collection, exact subset, spaces/Unicode
+  paths, timeout/kill, cancel, junit retrieval, worker-service
+  termination + recovery without duplicate dispatch). Parameterized
+  test identity and installed-package re-verification remain
+  residual (fixture binary exposes no parameterized tests).
+- ISS-014 (open, needs product decision): a timeout/kill-
+  interrupted run whose engine wrote partial per-iteration junit
+  reports outcome PASSED from the surviving results — interrupted-
+  run outcome semantics under review.
 
 ## [2.6.0] — 2026-11-24
 
