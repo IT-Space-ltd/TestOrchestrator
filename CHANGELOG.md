@@ -366,10 +366,7 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   termination + recovery without duplicate dispatch). Parameterized
   test identity and installed-package re-verification remain
   residual (fixture binary exposes no parameterized tests).
-- ISS-014 (open, needs product decision): a timeout/kill-
-  interrupted run whose engine wrote partial per-iteration junit
-  reports outcome PASSED from the surviving results — interrupted-
-  run outcome semantics under review.
+
 
 ## [2.6.0] — 2026-11-24
 
