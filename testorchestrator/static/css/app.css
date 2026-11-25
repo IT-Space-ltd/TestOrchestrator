@@ -813,7 +813,7 @@ html[data-theme="dark"] {
 
 /* project dashboard chart */
 .dash-chart { display: flex; align-items: flex-end; gap: 4px;
-  height: 90px; padding: .5rem 0; }
+  height: 90px; padding: .5rem 0; overflow: hidden; }
 .dash-chart .bar-col { display: flex; flex-direction: column;
   justify-content: flex-end; align-items: center; gap: 2px;
   flex: 1; }

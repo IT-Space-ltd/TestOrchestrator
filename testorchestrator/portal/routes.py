@@ -313,6 +313,9 @@ def project_detail(project_id):
                 status="failed").count(),
             "recent": _qs.order_by(
                 Execution.created_at.desc()).limit(8).all()}
+    dash["trend_peak"] = max(
+        (d["passed"] + d["failed"] for d in dash["trend"]),
+        default=0)
     # per-release testing progress: latest outcome per scoped target
     # (path+kind+binding+config), not all history.
     progress = {}

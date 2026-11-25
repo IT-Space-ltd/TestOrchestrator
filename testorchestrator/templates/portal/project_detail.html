@@ -56,10 +56,11 @@
   </div>
   {% if dash.trend %}
   <div class="dash-chart" id="proj-chart">
+    {% set peak = dash.trend_peak or 1 %}
     {% for d in dash.trend %}
     <div class="bar-col" title="{{ d.day }}: {{ d.passed }} passed, {{ d.failed }} failed">
-      <div class="bar pass" style="height:{{ 2 + d.passed * 14 }}px"></div>
-      <div class="bar fail" style="height:{{ 2 + d.failed * 14 }}px"></div>
+      <div class="bar pass" style="height:{{ 2 + (d.passed * 52) // peak }}px"></div>
+      <div class="bar fail" style="height:{{ 2 + (d.failed * 52) // peak }}px"></div>
       <span class="bar-day">{{ d.day[8:] }}</span></div>
     {% endfor %}
   </div>
