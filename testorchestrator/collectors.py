@@ -249,16 +249,19 @@ try {
   // the title path, so an identical title in the same file+project
   // cannot be selected uniquely; those stay candidates.
   const walk = (suite, parent) => {
-    const loc = (suite.location || {}).file || "";
+    // --list schema moved file from suite.location.file (older) to
+    // suite.file / spec.file (1.4x+). Accept all three.
+    const loc = (suite.location || {}).file || suite.file || "";
     for (const spec of suite.specs || []) {
+      const specloc = loc || spec.file || "";
       for (const t of spec.tests || []) {
         const proj = t.projectName || "";
         const title = [parent, suite.title || "",
                        spec.title || ""].filter(Boolean).join(" > ");
-        const key = `${loc}::${proj}::${title}`;
+        const key = `${specloc}::${proj}::${title}`;
         const dup = seen[key]; seen[key] = true;
         items.push({
-          kind: "test", path: loc, name: spec.title || "",
+          kind: "test", path: specloc, name: spec.title || "",
           node_id: dup ? "" : ("t:" + title + ";;" + proj),
           granularity: "test", parent: suite.title || "",
           tags: proj ? [proj] : [],
@@ -360,7 +363,7 @@ CYPRESS_COLLECT = r'''// Cypress collector (node) — no native list command exi
 const fs = require("fs");
 fs.mkdirSync("Reports", { recursive: true });
 fs.writeFileSync("Reports/collect.json", JSON.stringify({
-  framework: "cypress", items: [],
+  framework: "cypress", items: [], noop: true,
   warnings: ["cypress has no native list command — file-level " +
              "inventory comes from static specPattern resolution " +
              "(literal config)"] }));

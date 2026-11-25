@@ -848,3 +848,97 @@ def test_bruno_and_postmanfw_args():
                               paths=["colls/orders/requests/list.yaml"],
                               collection_format="v3")
     assert "--output" in p3 and "--reporters" not in p3
+
+
+# ---------- ISS-015: playwright --list schema drift ----------
+
+def test_playwright_collect_parses_15x_schema(tmp_path):
+    """playwright 1.4x+ --list --reporter=json puts `file` on suite /
+    spec entries, not suite.location.file — collected items must keep
+    their file path or selection/dispatch breaks (ISS-015)."""
+    import os, shutil, subprocess
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed — collector executes under node")
+    from testorchestrator import collectors
+    # Canned --list output matching the 1.65 schema observed on the
+    # acceptance guest (suite.file / spec.file, no .location).
+    doc = {"suites": [{
+        "title": "smoke.spec.js", "file": "smoke.spec.js",
+        "specs": [{"title": "smoke", "file": "smoke.spec.js",
+                   "line": 2, "column": 1,
+                   "tests": [{"projectId": "", "projectName": "",
+                              "status": "skipped"}]}]},
+        {"title": "nest", "suites": [{
+            "title": "deep.spec.js", "file": "deep.spec.js",
+            "specs": [{"title": "deep", "file": "deep.spec.js",
+                       "tests": [{"projectId": "", "projectName": "chromium",
+                                  "status": "skipped"}]}]}]}]}
+    fake_npx = tmp_path / "bin" / "npx"
+    fake_npx.parent.mkdir()
+    fake_npx.write_text("#!/bin/sh\n"
+                        "cat <<'JSON'\n" + json.dumps(doc) + "\nJSON\n")
+    fake_npx.chmod(0o755)
+    script = tmp_path / "collect.js"
+    script.write_text(collectors.COLLECT_SCRIPTS["playwright"])
+    env = dict(os.environ, PATH=f"{fake_npx.parent}:{os.environ['PATH']}")
+    subprocess.run([node, str(script)], cwd=tmp_path, env=env,
+                   check=True, timeout=60)
+    out = json.loads((tmp_path / "Reports" / "collect.json").read_text())
+    by_name = {i["name"]: i for i in out["items"]}
+    assert by_name["smoke"]["path"] == "smoke.spec.js"
+    assert by_name["smoke"]["node_id"].startswith("t:smoke.spec.js")
+    assert by_name["deep"]["path"] == "deep.spec.js"
+    assert by_name["deep"]["tags"] == ["chromium"]
+
+
+def test_playwright_collect_parses_legacy_location_schema(tmp_path):
+    """Older playwright --list put file at suite.location.file."""
+    import os, shutil, subprocess
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node not installed — collector executes under node")
+    from testorchestrator import collectors
+    doc = {"suites": [{
+        "title": "a.spec.js",
+        "location": {"file": "a.spec.js", "line": 0, "column": 0},
+        "specs": [{"title": "t1",
+                   "location": {"file": "a.spec.js", "line": 1},
+                   "tests": [{"projectId": "", "projectName": "",
+                              "status": "skipped"}]}]}]}
+    fake_npx = tmp_path / "bin" / "npx"
+    fake_npx.parent.mkdir()
+    fake_npx.write_text("#!/bin/sh\n"
+                        "cat <<'JSON'\n" + json.dumps(doc) + "\nJSON\n")
+    fake_npx.chmod(0o755)
+    script = tmp_path / "collect.js"
+    script.write_text(collectors.COLLECT_SCRIPTS["playwright"])
+    env = dict(os.environ, PATH=f"{fake_npx.parent}:{os.environ['PATH']}")
+    subprocess.run([node, str(script)], cwd=tmp_path, env=env,
+                   check=True, timeout=60)
+    out = json.loads((tmp_path / "Reports" / "collect.json").read_text())
+    assert out["items"][0]["path"] == "a.spec.js"
+
+
+def test_native_collect_noop_preserves_status(app, tmp_path):
+    """ISS-016: a by-design no-op collector (cypress has no native
+    list) must not mark discovery failed and poison the dispatch
+    gate — status + inventory stay as they were."""
+    with app.app_context():
+        wt = _write(tmp_path, {
+            "cypress.config.js": "module.exports={e2e:{specPattern:"
+                                 "'e2e/**/*.cy.js'}};",
+            "e2e/a.cy.js": "describe('a',()=>{it('x',()=>{})});",
+        })
+        p, b, fp = _mk(app, wt, fw="cypress", test_roots=["e2e"])
+        gitsync.sync_framework_project(fp, b)
+        assert fp.discovery_status == "ok"
+        ex = _ex_for(fp, b)
+        cj = tmp_path / "collect.json"
+        cj.write_text(json.dumps({
+            "framework": "cypress", "items": [], "noop": True,
+            "warnings": ["cypress has no native list command"]}))
+        out = gitsync.apply_native_inventory(ex, cj)
+        assert out.get("noop") and not out.get("error")
+        db.session.refresh(fp)
+        assert fp.discovery_status == "ok"

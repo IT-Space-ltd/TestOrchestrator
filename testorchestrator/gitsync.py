@@ -642,6 +642,15 @@ def apply_native_inventory(ex, collect_path) -> dict:
         return {"error": f"collect.json unreadable: {exc}"}
     items = doc.get("items") or []
     warnings = doc.get("warnings") or []
+    if doc.get("noop"):
+        # By-design no-op collector (cypress has no native list
+        # command): informational only — never touches inventory or
+        # discovery status, so a collect run cannot poison the
+        # dispatch gate. The warning is still surfaced on the run.
+        fp.discovery_warnings_json = json.dumps(warnings)[:4096]
+        db.session.commit()
+        return {"items": 0, "added": 0, "upgraded": 0,
+                "warnings": warnings, "noop": True}
     sha = ex.source_sha or ""
     fp.discovery_fingerprint = fingerprint(fp)
     existing = {(i.kind, i.path, i.name): i for i in

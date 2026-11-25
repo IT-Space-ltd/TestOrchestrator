@@ -135,6 +135,20 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   `config`. Verified live on the SSH transport with real `katalonc`
   rejecting a synthetic key (`error_kind=license`, ex
   4da4bae36ad04e4c98f84615792a48bd).
+- **Playwright native collector: file path for `--list` 1.4x+ schema.**
+  `playwright test --list --reporter=json` moved the file path from
+  `suite.location.file` to `suite.file` / `spec.file`; collected items
+  came back with an empty `path`, producing unusable native inventory
+  rows (ISS-015). The collector accepts all three locations; verified
+  live against Playwright 1.65.1 on a Linux PB worker.
+- **Cypress native collect no longer poisons discovery status.**
+  Cypress has no native list command, so its collector is an
+  intentional no-op — but `apply_native_inventory` treated the empty
+  item list as a failed collection and set
+  `fp.discovery_status = "failed"`, blocking every subsequent cypress
+  execution through the `_fp_item_gate` (ISS-016). No-op collect runs
+  (`"noop": true`) now leave inventory and discovery status untouched;
+  the informational warning still surfaces on the run. Verified live.
 - **Busy runtimes no longer fail auto-picked executions.**
   `pick_runtime` excluded any runtime at its concurrency cap, so a
   queued execution on a single-capacity runtime failed "no enabled
