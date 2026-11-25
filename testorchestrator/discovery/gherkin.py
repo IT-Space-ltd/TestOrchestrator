@@ -97,10 +97,3 @@ def parse_feature(text, rel=""):
             "localized Gherkin is not supported; inventory may be "
             "partial")
     return out
-
-
-def scenario_node_id(path, scenario_name):
-    """Exact selector for behave/pytest-bdd scenarios: path:line —
-    behave's native `path:LINE` selector is precise to a scenario
-    within a file (duplicates disambiguated by line)."""
-    return path

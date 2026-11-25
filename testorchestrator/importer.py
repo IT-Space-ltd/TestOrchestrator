@@ -913,7 +913,7 @@ def _confirm_import_inner(session: ImportSession, selected_ids: list,
             continue
         try:
             pi = _reparse_candidate(base, cand)
-            decision, match_id, warnings = classify(
+            decision, match_id, _warnings = classify(
                 session.project_id, pi)
             if decision == DECISION_AMBIGUOUS \
                     and cand.id in force_new_ids:

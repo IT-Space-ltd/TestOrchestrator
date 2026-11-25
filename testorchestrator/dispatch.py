@@ -2511,7 +2511,6 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             # not npx.
             node_args = [".to_collect.js"]
             npx_path = "node"        # collector interpreter
-            npx_forced = True
         else:
             node_args = nodefw.build_args(
                 node_kind, browser_val,
@@ -2521,7 +2520,6 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                 shard=_shard,
                 projects=rc.get("projects") or (),
                 test_pattern=rc.get("test_pattern") or "")
-            npx_forced = False
         win = (runner.os_arch or "").lower().startswith("win")
         node_env = nodefw.junit_env(node_kind, win=win)
         # npm sits next to npx — an explicit executable_path resolves
@@ -4144,7 +4142,6 @@ def _record_buildbot_attempts(adapter: BuildbotAdapter,
         return
     snap = ex.snapshot()
     attempts = snap.setdefault("bb_attempts", [])
-    known = {a.get("buildid") for a in attempts}
     for b in sorted(builds, key=lambda x: x.get("number", 0)):
         entry = next(
             (a for a in attempts

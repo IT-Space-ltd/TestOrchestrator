@@ -18,7 +18,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import os
-from flask import (abort, after_this_request, current_app, flash,
+from flask import (abort, current_app, flash,
                    redirect, render_template, request, Response,
                    send_file, session, url_for)
 from flask_login import current_user, login_required
@@ -29,7 +29,7 @@ from ..execution import (ArtifactStore, DiscoveredItem, Execution,
                          ExecutionState, FrameworkProject,
                          ReleaseItem, RuntimeConnection,
                        GitBinding, OutboxEvent,
-                         Outcome, Project, Release,
+                         Outcome, Plan, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)
 from ..extensions import db
 from ..models import Role, User, record_audit
@@ -875,7 +875,7 @@ def fp_edit(fp_id):
     fp = db.session.get(FrameworkProject, fp_id)
     if fp is None:
         abort(404)
-    binding = _binding_or_404(fp.binding_id)
+    _binding_or_404(fp.binding_id)
     form = _fp_form()
     if form.validate_on_submit():
         fp = _fp_from_form(form, fp)
@@ -1326,7 +1326,7 @@ def store_edit(store_id):
     if store is None:
         abort(404)
     PlainForm().validate_on_submit()
-    kind, name, cfg, credential_ref, err = _store_form_fields(
+    kind, name, cfg, _cred_ref, err = _store_form_fields(
         store.project_id, existing_ref=store.credential_ref)
     if kind != store.kind:
         flash("A destination's provider cannot be changed — create "
@@ -3734,7 +3734,7 @@ def run_schedule_now(schedule_id):
                 current_user.username, suite, binding=binding,
                 source_sha=sha, run_config=cfg, schedule_id=sched.id)
         elif sched.target_type == "plan" and sched.plan_id:
-            plan = None
+            plan = db.session.get(Plan, sched.plan_id)
             if plan is None:
                 raise dispatch.DispatchError("scheduled plan no longer exists")
             _, exs = dispatch.queue_plan_executions(

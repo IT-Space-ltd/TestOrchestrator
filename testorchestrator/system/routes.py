@@ -2710,8 +2710,9 @@ def _add_runtime_create_kre(request, runner):
             "system.add_runtime_wizard", framework="katalon"))
     try:
         conc = int((request.form.get("cfg_concurrency") or "1").strip())
-        assert conc >= 1
-    except (ValueError, AssertionError):
+        if conc < 1:
+            raise ValueError
+    except ValueError:
         flash("Max parallel sessions must be an integer ≥ 1.",
               "error")
         return redirect(url_for(

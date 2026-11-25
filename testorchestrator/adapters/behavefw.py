@@ -33,13 +33,6 @@ def build_args(targets=(), tags=(), dry_run: bool = False) -> list:
     return args
 
 
-def collect_args(targets=()) -> list:
-    """Native-collection argv — lists scenarios without executing
-    steps. Output is parsed worker-side and returned as inventory."""
-    return ["-m", "behave", "--dry-run", "--no-skipped",
-            "-f", "steps.catalog", "--no-summary"] + list(targets)
-
-
 def classify_exit(rc: int) -> tuple:
     """(severity, label) for a behave process exit status.
 

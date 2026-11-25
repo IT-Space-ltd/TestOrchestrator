@@ -250,11 +250,6 @@ def run_manifest(runs, prepare="", configure="", build="",
         "list_tests": bool(list_tests), "posix": bool(posix)})
 
 
-def list_args(executable: str) -> list:
-    """Native-collection argv — lists suites/cases without running."""
-    return [executable, "--gtest_list_tests"]
-
-
 def classify_exit(rc: int) -> tuple:
     labels = {
         0: ("ok", "all tests passed"),
