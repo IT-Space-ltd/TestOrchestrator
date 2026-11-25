@@ -70,9 +70,9 @@ Per-adapter contract depth is partially delivered. Honest per-framework state:
 | robot | real robot 7.5.1 packaged run; real-framework matrix cell (pass+fail, worker+SSH) | accepted | template rows, listeners, remote library — unsupported |
 | playwright (JS) | real playwright 1.65.1 browsers; matrix cell pass+fail both transports | accepted | --test-list, project/repeat identities not verified end-to-end |
 | playwright-pytest | real pytest-playwright run; matrix cell pass+fail both transports | accepted | — |
-| cypress | real cypress 13.15.0 binary; matrix cell pass+fail both transports | accepted | @cypress/grep integration, per-test selection — gated/unverified |
+| cypress | real cypress 13.15.0 + 16.3.0 binaries; matrix cell pass+fail both transports; installed-package dispatch (16.3.0, ex 439cddb5/e1b3b3b3) | accepted | per-`it()` selection needs the optional `@cypress/grep` plugin — Cypress has no native list/per-test selector; out of 2.7.0 scope by design (`--spec` file granularity verified) |
 | jest | real jest 30.5.2; matrix cell pass+fail both transports; `parse_jest` ingest of `Reports/jest.json` (fix `a3ebeeed`) | accepted | per-test (-t) selection path verified via -t validation only |
-| gtest | real gtest binaries (libgtest 1.14); matrix cell pass+fail both transports; per-binary flag-support probe + result-XML guard (fix `a3ebeeed`) | accepted | suite/binary granularity only — no per-test selection proven |
+| gtest | real gtest binaries (libgtest 1.14 + MinGW); matrix cell pass+fail both transports; per-binary flag-support probe + result-XML guard (fix `a3ebeeed`); per-test + parameterized-instance selection proven — `<exe>||Suite.Test` → exact `--gtest_filter` (ISS-018: Windows PB ex 10ad9dbb/16af2b94, installed pkg ex 23d77887/edcb6a20/38064e38) | accepted | — |
 | behave | real behave 1.3.3; matrix cell pass+fail both transports | accepted | — |
 | pytest-bdd | real pytest-bdd; scenario-granularity cell pass+fail both transports | accepted | file/suite-granularity items fail "node id not found" — gap recorded |
 | postman-newman | real newman 6.2.1; matrix cell pass+fail both transports | accepted | — |
@@ -84,8 +84,10 @@ Phase B (Windows 11 KVM, SYSTEM session-0 PB worker) re-exercised every
 framework above on the Windows transport: all probes ready, pass/fail
 cells green/honest for pytest, pytest-bdd, behave, robot, jest,
 playwright, playwright-pytest, cypress 16.3.0, newman 6.2.3, bru 4.4.0,
-postman-cli. gtest Windows exec remains config-gated (POSIX-only in
-2.7.0). KRE verified **through TestOrchestrator dispatch** on all three
+postman-cli. gtest Windows exec was config-gated at that stage —
+superseded by ISS-012 (staged `.to_gtest_run.py` driver, verified
+live on Windows PB including parameterized selection, ISS-018).
+KRE verified **through TestOrchestrator dispatch** on all three
 remote topologies (see §KRE-remote below) in addition to the earlier
 direct on-guest baseline (TS1 pass, TS2 fail, TSC1 collection).
 
@@ -193,8 +195,9 @@ Single-VM collapses host+worker — recorded limitation.
   Windows 11 (26300) KVM guest, SYSTEM session-0 buildbot worker;
   12 runtime probes ready; 11 pass cells COMPLETED exit 0; 11 fail cells
   honest FAILED; timeout/cancel/empty/import-error/missing-exe/KRE-
-  missing-cred exercised; gtest Windows exec config-gated (declared
-  POSIX-only for 2.7.0); 6 product defects fixed (`00ea5722`: probe
+  missing-cred exercised; gtest Windows exec was config-gated then
+  (superseded — ISS-012 ungated, verified live incl. param
+  selection ISS-018); 6 product defects fixed (`00ea5722`: probe
   posix flag, probe.cmd cmd-semantics rewrites, win cleanup exit code,
   ELECTRON_RUN_AS_NODE env-block leak, real postman/bruno/gtest probes,
   robot 251-exit probe).

@@ -371,6 +371,18 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
     runtime columns (`executable_path`, `credential_ref`,
     `credential_file`, `concurrency`).
 
+Engine acceptance (all verified live — dev stack + installed
+package): Playwright 1.65.1 and Cypress 16.3.0/Electron 43 real
+runs on Linux PB, Windows PB and the final installed payload —
+collect, pass/fail, exec-timeout kill, cancel, junit + native
+artifacts on every topology. GoogleTest verified end-to-end —
+native collection, parameterized-instance identity and exact
+`--gtest_filter` selection, spaces/Unicode paths, timeout/kill,
+cancel, junit retrieval, worker-service termination + recovery —
+on Windows PB and on the installed package (worker-compiled
+MinGW/g++ binary). ISS-015/016/017/018 were found and fixed during
+this acceptance; no engine-coverage residuals remain.
+
 ### Dependencies
 
 - Added runtime deps (pinned): `boto3==1.44.10`, `botocore`,
@@ -383,12 +395,6 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   AWS-provider acceptance); Azure verified against Azurite 3.34.0
   emulator over loopback+SSH tunnel, not live Azure. Insecure
   endpoints are a test-only flag.
-- Playwright/Cypress real-engine acceptance passed on Linux and
-  Windows — dev-stack PB workers (Playwright 1.65.1, Cypress
-  16.3.0/Electron 43; Windows guest node v22.17.0 toolchain:
-  collect, pass/fail, exec_timeout kill, cancel, junit + native
-  artifacts on both OSes, incl. ISS-015/ISS-016 found and fixed
-  live) and installed-package PB dispatch.
 - One production-issuer-key test remains blocked
   (`test_production_key_auto_loaded` — declared skip; documented
   boundary in `docs/licensing.md`). `test_payload_fields_signed`
@@ -412,13 +418,6 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   residuals: the `-apiKey=` argv exposure boundary (same-account
   visibility, documented disposable-target exception) and live
   Katalon key rotation pending on the owner's replacement key.
-- GoogleTest verified live end-to-end on dev stack (native
-  collection, parameterized-instance identity and exact param
-  selection, exact subset, spaces/Unicode paths, timeout/kill,
-  cancel, junit retrieval, worker-service termination + recovery
-  without duplicate dispatch) and on the installed package
-  (Linux acceptance guest: collect + param-exact + param-fail
-  cells on a worker-compiled MinGW/g++ binary).
 
 
 ## [2.6.0] — 2026-11-24
