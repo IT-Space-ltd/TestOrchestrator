@@ -2257,6 +2257,13 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             _helper_text
         import hashlib as _hl
         _helper_sha = _hl.sha256(_helper_text.encode()).hexdigest()
+    if (_kind0 == "gtest"
+            and (runner.target_type or "local") != "ssh"
+            and (runner.os_arch or "").lower().startswith("win")):
+        # Windows PB gtest: the Python run driver is staged beside the
+        # collector — no sh dependency on the target.
+        _cscripts = dict(_cscripts or {})
+        _cscripts[".to_gtest_run.py"] = gtestfw.RUN_PY
     buildbot_cfg.stage_source(ex, source, scripts=_cscripts)
     # Slot-builders: a (builder, worker) pair runs one build at a time,
     # so the runner's admitted slots map to distinct builders. Pick a
@@ -2554,21 +2561,22 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                   "no test executable selected — discovery lists "
                   "binaries from build_dir + executables patterns")
             return
-        if win := (runner.os_arch or "").lower().startswith("win"):
-            _fail(ex, "config",
-                  "GoogleTest runs require a POSIX worker in 2.7.0 "
-                  "(Windows gtest workers are a follow-up)")
-            return
+        win = ((runner.target_type or "local") != "ssh"
+               and (runner.os_arch or "").lower().startswith("win"))
+        # gtest runtimes' executable_path is the interpreter used for
+        # collection and the Windows run driver — the test binary comes
+        # from discovery/selection, never this field.
+        py = ((runtime.executable_path or "").strip()
+              or ("python.exe" if win else "python3"))
         if rc.get("native_collect"):
             # The gtest collector lists each configured/discovered
             # binary via --gtest_list_tests; its interpreter is the
-            # runtime's configured python3.
+            # runtime's configured python.
             gexes = list(g.get("executables") or [])
             exe_items = (rc.get("collect_roots") or []) + \
                 [e for e in gexes if e]
-            py = (runtime.executable_path or "").strip() or "python3"
             spec = buildbot_cfg.node_exec_spec(
-                ex, py, [".to_collect.py"] + exe_items, posix=True)
+                ex, py, [".to_collect.py"] + exe_items, posix=not win)
             buildbot_cfg.run_specs_dir().mkdir(parents=True,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
@@ -2611,8 +2619,27 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                     / "to_ssh_exec.py"),
                 spec_file=str(spec_file))
         else:
-            spec = buildbot_cfg.node_exec_spec(
-                ex, "sh", ["-c", script], posix=True)
+            if win:
+                # Windows PB: staged Python driver — subprocess argv
+                # lists, no cmd quoting, Job-object kill semantics via
+                # posix=False.
+                manifest = gtestfw.run_manifest(
+                    runs,
+                    prepare=str(g.get("prepare_cmd") or ""),
+                    configure=str(g.get("configure_cmd") or ""),
+                    build=str(g.get("build_cmd") or ""),
+                    extra_args=list(g.get("gtest_args") or []),
+                    timeout_s=int(rc.get("timeout_seconds") or 0),
+                    run_disabled=bool(g.get("run_disabled")),
+                    fail_if_no_test=bool(
+                        g.get("fail_if_no_test", True)),
+                    posix=False)
+                spec = buildbot_cfg.node_exec_spec(
+                    ex, py, [".to_gtest_run.py", manifest],
+                    posix=False)
+            else:
+                spec = buildbot_cfg.node_exec_spec(
+                    ex, "sh", ["-c", script], posix=True)
             buildbot_cfg.run_specs_dir().mkdir(parents=True,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"

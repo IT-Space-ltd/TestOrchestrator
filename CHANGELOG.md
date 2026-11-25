@@ -48,6 +48,19 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   is not covered by an emulator on this environment — see the storage
   verification report.
 
+- **Native GoogleTest execution on Windows workers.** The POSIX-only
+  gate is removed: Windows PB workers now run gtest suites through a
+  staged Python driver (`.to_gtest_run.py`) executed by the runtime's
+  configured interpreter — subprocess argv lists (no cmd quoting),
+  per-binary `--gtest_filter`/`--gtest_output=xml` runs, sha256
+  build-manifest, prepare/configure/build steps, `fail_if_no_test`
+  probing, list-tests support, and exit codes matching
+  `classify_exit`. Execution uses the `posix=False` spec path —
+  Job-object kill-on-close semantics on cancel/master-loss, no sh
+  or pidfile dependency. The runtime's `executable_path` is the
+  interpreter (e.g. `C:\Python312\python.exe`); the test binary comes
+  from discovery/selection as before.
+
 - **Runtime concurrency enforcement.** A KRE runtime's saved "Max
   parallel sessions" is now effective at dispatch: executions beyond
   the cap stay queued with a capacity reason instead of starting
@@ -285,9 +298,12 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   git/ssh/buildbot secrets unusable for KRE invocation). Resolved
   credential values ARE delivered to execution targets by design —
   per-project/target scoping is pending (proposal under review).
-- GoogleTest execution on Windows workers is config-gated —
-  toolchain probing works; exec remains POSIX-only pending the
-  Windows gtest worker follow-up.
+- GoogleTest on Windows: native PB-worker execution is implemented
+  (staged Python driver, posix=False/Job-object semantics). Coverage
+  beyond the verified pass/fail matrix — timeout/cancel, spaces and
+  Unicode paths, parameterized tests, native collection, installed-
+  package execution — remains in the acceptance queue; installed-
+  package re-verification pending.
 
 ## [2.6.0] — 2026-11-24
 

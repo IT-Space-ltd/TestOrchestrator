@@ -861,3 +861,63 @@ def test_sweep_removes_terminal_leftovers_keeps_live(app, tmp_path):
         assert not (sd / f"{done.id}.tar").exists()
         assert (sd / f"{live.id}.tar").exists()
         assert (sd / "no-such-exec.tar").exists()
+
+
+def test_gtest_windows_pb_uses_python_driver(app, monkeypatch, tmp_path):
+    """Windows PB runner + gtest runtime: no POSIX gate — the spec runs
+    the staged Python driver with posix=False and carries the run
+    manifest as argv."""
+    stub = _BBProbe()
+    monkeypatch.setattr(BuildbotAdapter, "from_settings",
+                        classmethod(lambda cls: stub))
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        _s.update({"buildbot_endpoint": "http://stub",
+                   "buildbot_home": "/tmp/bb-test-home"})
+        r = Runner(name="bb-win", connection_mode="remote",
+                   target_type="buildbot-worker",
+                   os_arch="windows-x86_64", max_slots=2)
+        db.session.add(r)
+        db.session.flush()
+        rt = RuntimeConnection(
+            name="gt", runner_id=r.id, runtime_kind="gtest",
+            executable_path=r"C:\Python312\python.exe", enabled=True,
+            readiness_state="ready-execution")
+        db.session.add(rt)
+        db.session.flush()
+        p = Project(name="p")
+        db.session.add(p)
+        db.session.flush()
+        cfg = rt.config()
+        cfg["_exec_ready"] = {p.id: {"validated_at": "now"}}
+        rt.config_json = json.dumps(cfg)
+        wt = tmp_path / "wt"
+        (wt / "gtest" / "build").mkdir(parents=True)
+        (wt / "gtest" / "build" / "to_gtest.exe").write_text("pe")
+        b = GitBinding(project_id=p.id, name="b", url="/x",
+                       worktree_path=str(wt))
+        db.session.add(b)
+        db.session.flush()
+        di = DiscoveredItem(project_id=p.id, binding_id=b.id,
+                            kind="suite", path="gtest/build", name="gt",
+                            sha="s", order_idx=0)
+        db.session.add(di)
+        db.session.commit()
+        ex = d.create_execution(
+            "u", None, run_config={
+                "runtime_id": rt.id,
+                "spec": "gtest/build/to_gtest.exe",
+                "gtest_filter": "Smoke.*"},
+            source_item=db.session.get(DiscoveredItem, di.id))
+        d._handle_event(_event_for(ex))
+        ex = db.session.get(Execution, ex.id)
+        assert ex.state == ExecutionState.DISPATCHED, (
+            ex.state, ex.error_kind, ex.error_text)
+        assert len(stub.submits) == 1
+        spec = json.loads(stub.submits[0][2]["exec_spec"])
+        assert spec["posix"] is False
+        assert spec["args"][0] == ".to_gtest_run.py"
+        manifest = json.loads(spec["args"][1])
+        assert manifest["runs"] == [["gtest/build/to_gtest.exe",
+                                     "Smoke.*", "to_gtest.exe"]]
+        assert manifest["posix"] is False

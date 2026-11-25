@@ -15,6 +15,7 @@ Failure taxonomy (classify_exit): 0 ok · 1 tests failed ·
 2 build/prepare failure · 3 collection failure ·
 4 infrastructure (missing binary).
 """
+import json
 
 KIND = "gtest"
 
@@ -109,6 +110,144 @@ def build_script(runs, prepare="", configure="", build="",
             "report' >&2; exit 1; fi")
     lines.append('echo "}" >> "$MANIFEST"')
     return "\n".join(lines)
+
+
+RUN_PY = r'''"""gTest run driver (Windows/POSIX-neutral) — staged as
+.to_gtest_run.py inside the exec source. Contract:
+  python .to_gtest_run.py '<json>'
+  json = {"runs": [[exe, filter, junit_name], ...],
+          "prepare": "", "configure": "", "build": "",
+          "extra_args": [...], "timeout_s": 0,
+          "run_disabled": false, "fail_if_no_test": false,
+          "list_tests": false, "posix": false}
+Exit codes mirror gtestfw.classify_exit: 0 ok · 1 tests failed ·
+2 prepare/configure/build failure · 3 collection failure ·
+4 missing binary · 124 timeout."""
+import hashlib
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+_GTEST_ENV = ("GTEST_FILTER", "GTEST_OUTPUT", "GTEST_SHARD_INDEX",
+              "GTEST_TOTAL_SHARDS", "GTEST_REPEAT", "GTEST_SHUFFLE",
+              "GTEST_ALSO_RUN_DISABLED_TESTS",
+              "GTEST_FAIL_IF_NO_TEST_SELECTED")
+
+
+def _run(cmd, timeout, logfile=None):
+    try:
+        p = subprocess.run(cmd, timeout=timeout or None,
+                           stdout=(open(logfile, "wb") if logfile
+                                   else subprocess.DEVNULL),
+                           stderr=subprocess.STDOUT)
+        return p.returncode
+    except subprocess.TimeoutExpired:
+        return 124
+    except OSError as exc:
+        print(f"RUN DRV spawn failed {cmd[0]!r}: {exc}",
+              file=sys.stderr)
+        return 127
+
+
+def main():
+    spec = json.loads(sys.argv[1])
+    posix = bool(spec.get("posix"))
+    shell = (["sh", "-c"] if posix else ["cmd", "/c"])
+    for k in _GTEST_ENV:
+        os.environ.pop(k, None)
+    rep = Path("Reports")
+    (rep / "junit").mkdir(parents=True, exist_ok=True)
+    manifest = rep / "build-manifest.json"
+    steps = []
+    for label in ("prepare", "configure", "build"):
+        cmd = (spec.get(label) or "").strip()
+        if not cmd:
+            continue
+        print(f"RUN {label}: {cmd}")
+        rc = _run(shell + [cmd], spec.get("timeout_s") or 0,
+                  logfile=str(rep / f"{label}.log"))
+        steps.append({"step": label, "command": cmd, "rc": rc})
+        if rc != 0:
+            manifest.write_text(json.dumps(
+                {"steps": steps}, indent=1))
+            try:
+                print((rep / f"{label}.log").read_text()[-3000:])
+            except OSError:
+                pass
+            sys.exit(2 if rc != 124 else 124)
+    timeout_s = int(spec.get("timeout_s") or 0)
+    extra = list(spec.get("extra_args") or [])
+    binaries = []
+    for exe, filt, jname in spec.get("runs") or []:
+        if not Path(exe).is_file():
+            print(f"MISSING BINARY {exe}", file=sys.stderr)
+            manifest.write_text(json.dumps(
+                {"steps": steps, "binary": exe}, indent=1))
+            sys.exit(4)
+        entry = {"binary": exe,
+                 "sha256": hashlib.sha256(
+                     Path(exe).read_bytes()).hexdigest()}
+        if spec.get("list_tests"):
+            rc = _run([exe, "--gtest_list_tests"], timeout_s,
+                      logfile=str(rep / f"list-{jname}.txt"))
+            if rc != 0:
+                manifest.write_text(json.dumps(
+                    {"steps": steps, "binary": exe}, indent=1))
+                sys.exit(3 if rc != 124 else 124)
+        nz = ""
+        if spec.get("fail_if_no_test"):
+            help_rc = subprocess.run(
+                [exe, "--gtest_help"], capture_output=True,
+                text=True)
+            if "gtest_fail_if_no_test_selected" in (
+                    help_rc.stdout + help_rc.stderr):
+                nz = "--gtest_fail_if_no_test_selected"
+        argv = ([exe, "--gtest_color=no", "--gtest_brief=1"]
+                + (["--gtest_also_run_disabled_tests"]
+                   if spec.get("run_disabled") else [])
+                + ([nz] if nz else [])
+                + [f"--gtest_output=xml:Reports/junit/{jname}.xml"]
+                + ([f"--gtest_filter={filt}"] if filt else [])
+                + extra)
+        rc = _run(argv, timeout_s)
+        entry["rc"] = rc
+        binaries.append(entry)
+        xml = rep / "junit" / f"{jname}.xml"
+        if rc != 0:
+            manifest.write_text(json.dumps(
+                {"steps": steps, "binaries": binaries}, indent=1))
+            sys.exit(124 if rc == 124 else 1)
+        if not xml.is_file() or xml.stat().st_size == 0:
+            print(f"NO RESULT XML {jname} — binary produced no "
+                  f"report", file=sys.stderr)
+            manifest.write_text(json.dumps(
+                {"steps": steps, "binaries": binaries}, indent=1))
+            sys.exit(1)
+    manifest.write_text(json.dumps(
+        {"steps": steps, "binaries": binaries}, indent=1))
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()
+'''
+
+
+def run_manifest(runs, prepare="", configure="", build="",
+                 extra_args=(), list_tests=False, timeout_s=0,
+                 run_disabled=False, fail_if_no_test=False,
+                 posix=False) -> str:
+    """JSON argv for RUN_PY — the Windows/driver alternative to
+    build_script's inline sh."""
+    return json.dumps({
+        "runs": [list(r) for r in runs],
+        "prepare": prepare, "configure": configure, "build": build,
+        "extra_args": list(extra_args), "timeout_s": int(timeout_s),
+        "run_disabled": bool(run_disabled),
+        "fail_if_no_test": bool(fail_if_no_test),
+        "list_tests": bool(list_tests), "posix": bool(posix)})
 
 
 def list_args(executable: str) -> list:
