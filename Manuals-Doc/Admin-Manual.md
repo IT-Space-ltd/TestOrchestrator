@@ -1009,37 +1009,47 @@ on port 443 to Katalon.
 
 **TestOrchestrator's side.**
 
-- **Where the key lives:** on the execution host only, in a
-  **credential file** — a regular `0600` file owned by the account
-  that runs KRE. The runtime's `credential_file` field carries the
-  *path*; the key value is never stored in the portal database on
-  remote topologies, never appears in Buildbot properties, specs,
-  logs or argv — only the file path travels.
-- **Three topologies:** on a *controller-local* runner the portal
-  may resolve a `credential_ref` secret-store entry into a per-run
-  `0600` file (cleaned after the run); on *remote Buildbot workers*
-  and *SSH targets* `credential_ref` is **rejected** (portal-side
-  only) — the administrator places the credential file on the
-  worker/remote host and sets `credential_file` to its path.
-- **How it reaches KRE:** the execution spec invokes
-  `kre_cred_exec.py` (shipped with the product) with the
-  credential-file path. The helper is staged **per execution**, never
-  referenced from a controller-host path: on Buildbot-PB workers it
-  travels inside the execution source archive as
-  `src/.to_kre_cred_exec.py` and runs under the worker's own Python
-  (`python` on Windows, `python3` on POSIX — the readiness probe
-  verifies both interpreter presence and staged-helper
-  executability); on agentless-SSH targets it is SFTP'd into the
-  remote workdir (`0700`) as `kre_cred_exec.py`. The wrapper
-  validates the file (regular file, no symlink, owner-only mode,
-  no group/other bits, narrowly-shaped key — our VM acceptance saw
-  it refuse a `0644` file), then execs KRE with `-apiKey=<value>` in
-  the child's argv — the only command-line mechanism KRE offers —
-  and byte-scrubs the value out of the child's stdout/stderr at the
-  source, before Buildbot step capture or portal collection can see
-  it. A pre-supplied `-apiKey` in run flags is rejected: exactly one
-  credential source. `run_invocation` additionally scrubs a
-  `user:pass@` embedded in a remote WebDriver URL the same way.
+- **Supported setup (all topologies):** store the KRE API key as a
+  `runtime`-kind secret under **System → Secrets**, then select it as
+  the runtime's **Credential reference**. The value is held encrypted
+  in the secrets store, is never displayed back, and never travels in
+  Buildbot properties, run specs, logs, argv (except KRE's own
+  invocation — see the residual-risk note), reports, or exports.
+- **How the key reaches the target:** per execution the portal
+  resolves the reference into a per-run `0600` staging file and
+  delivers it over the transport already in use — Buildbot
+  `FileDownload` as `.to_kre_cred` at the build root on remote PB
+  workers (a step-removed path from the exec workdir), SFTP as
+  `run.cred` inside the per-run workdir on SSH targets, and a direct
+  staged file on controller-local workers. Each delivery is isolated
+  per execution id, outside the source archive and artifact
+  collection, and removed by the cleanup path on success, failure,
+  timeout, and cancel — the SSH kill batch wipes it even when the
+  remote process group is being terminated. Nothing needs to be
+  copied to a worker or SSH host by hand, and replacing a disposable
+  worker requires no credential re-provisioning.
+- **How it reaches KRE:** the run argv invokes a target-native
+  launcher staged per execution — `kre_cred_exec.sh` under `sh`
+  (POSIX) or `.to_kre_cred_exec.ps1` under `powershell -File`
+  (Windows) — so no helper-specific Python is required on any
+  target. The launcher validates the file (regular non-symlink file,
+  owner-only, no group/other bits, narrowly-shaped token), rejects a
+  pre-supplied `-apiKey` (exactly one credential source), starts KRE
+  with `-apiKey=<value>` in the child's argv — the only mechanism
+  KRE offers — and byte-scrubs the value out of the child's merged
+  output before step capture or portal collection can see it. On
+  POSIX, KRE shares the launcher's process group so Buildbot's step
+  kill and the SSH group kill both terminate the whole engine tree
+  (and a pid-directed signal kills the tree recursively); on
+  Windows a kill-on-close Job Object plus `taskkill /T` removes it.
+  The staged launcher's sha256 is recorded per run as provenance.
+  `run_invocation` additionally scrubs a `user:pass@` embedded in a
+  remote WebDriver URL the same way.
+- **Legacy mode:** the runtime's `credential_file` field — an
+  operator-placed `0600` file on the target — remains supported for
+  compatibility. It is no longer required on any topology; prefer
+  `credential_ref`, which needs no manual file placement and
+  survives worker replacement.
 - **Concurrency rule:** per execution target,
   `capacity_limit = min(max_slots, license_slots)` — the declared
   hardware slots and the **License slots** field set on the runner

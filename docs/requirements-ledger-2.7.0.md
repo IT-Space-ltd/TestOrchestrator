@@ -78,7 +78,7 @@ Per-adapter contract depth is partially delivered. Honest per-framework state:
 | postman-newman | real newman 6.2.1; matrix cell pass+fail both transports | accepted | — |
 | postman-cli | real postman-cli 1.94.0; matrix cell pass+fail both transports | accepted | — |
 | bruno | real bru 2.14.1; matrix cell pass+fail both transports | accepted | — |
-| KRE | real katalonc 11.7.0 + supplied API key; suite+collection pass, suite fail, missing-cred classify — both transports AND all three remote topologies (Windows PB worker, Linux PB worker, Linux SSH-only) through TestOrchestrator dispatch (staged credential resolver, fix `2ab52aed`+`d4fa8967`) | accepted | execution profiles beyond default not exercised; optional cloud publication not enabled; remote targets require a Python interpreter + operator-placed credential file |
+| KRE | real katalonc 11.7.0 + supplied API key; suite+collection pass, suite fail, missing-cred classify — both transports AND all three remote topologies (Windows PB worker, Linux PB worker, Linux SSH-only) through TestOrchestrator dispatch with **managed `credential_ref` delivery** and target-native launchers (`2ab52aed`+`d4fa8967`, managed-delivery `9fe5e8c1`, kill-tree `178593b4`) | accepted | execution profiles beyond default not exercised; optional cloud publication not enabled |
 
 Phase B (Windows 11 KVM, SYSTEM session-0 PB worker) re-exercised every
 framework above on the Windows transport: all probes ready, pass/fail
@@ -135,12 +135,32 @@ Single-VM collapses host+worker — recorded limitation.
   both honest failures, no false pass.
 - **KRE on remote PB workers — FIXED** (`2ab52aed`, `d4fa8967`; was
   recorded as unsupported): the credential resolver is staged per
-  execution inside the source tar (`src/.to_kre_cred_exec.py`, run
-  under the worker interpreter) / SFTP'd on SSH targets; the script
-  is now portable (Windows job-object kill, POSIX process-group
+  execution inside the source tar / SFTP'd on SSH targets; the script
+  is portable (Windows job-object kill, POSIX process-group
   kill). Readiness probes validate interpreter + staged helper on
   the actual target. Accepted through TestOrchestrator on all three
   remote topologies at `d4fa8967`:
+- **Managed credential delivery — FIXED** (`9fe5e8c1`, `178593b4`):
+  the interim Python helper and the operator-placed target key file
+  are gone. `credential_ref` resolves a `runtime`-kind secret
+  per execution; the portal stages a 0600 file and delivers it via
+  Buildbot FileDownload (`.to_kre_cred`) or SFTP (`run.cred`) —
+  removed on every terminal path. The launcher is now
+  `kre_cred_exec.sh` (`sh`) / `.to_kre_cred_exec.ps1`
+  (`powershell -File`) — no helper Python on any target, staged +
+  sha256'd per run, output scrubbed at source. POSIX kill fixed:
+  KRE shares the launcher group (Buildbot killpg / SSH group kill
+  reach it; setsid had shielded it) and pid-directed signals kill
+  the whole tree. Credential failures classify `config` (unknown
+  ref, wrong kind) / `infrastructure` (undecryptable) / `license`
+  (genuine KRE rejection). Re-accepted on all three topologies with
+  zero placed files: Linux PB + SSH (probe `helper_launcher=sh`,
+  TS1/TS2/TSC1, timeout+cancel with **zero orphans**, wrong-kind +
+  unknown-ref → `config`, no-cred → `license`, bad-suite →
+  `config`, 2-way concurrency, fixed-string key scan clean) and
+  Windows PB (probe `helper_launcher=powershell`, `-apiKey=***`
+  scrubbed in KRE's echoed argv, FileDownload+cleanup verified,
+  timeout `exec_timeout=1` killed the tree — follow-up run clean).
   - Windows 11 PB worker (SYSTEM session-0): probe green, TS1 pass
     (2 TestResult rows), TS2 honest `TC3 FAILED`, collection pass,
     missing-cred→`license`, timeout 20s→`infrastructure`, cancel→

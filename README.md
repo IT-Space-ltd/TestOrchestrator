@@ -316,13 +316,23 @@ reconciliation belong to this application. KRE stays operator-installed
 and licensed; a version probe is never claimed as a licensed run.
 
 On remote targets (Buildbot-PB workers and agentless-SSH), credentialed
-runs are driven by a small credential resolver (`kre_cred_exec.py`)
-that is staged **per execution** — inside the source archive on PB
-workers, into the remote workdir on SSH targets — never referenced
-from a controller-host path. PB workers therefore need a Python
-interpreter on the worker (`python` on Windows, `python3` on POSIX);
-the readiness probe validates it. The credential itself stays an
-operator-placed file on the execution host — only its path travels.
+runs use **managed credential delivery**: the KRE API key is stored as
+a `runtime` secret (System → Secrets) and the runtime's
+`credential_ref` selects it by name — never by value. Per execution the
+portal stages a 0600 file and delivers it over the transport already in
+use (Buildbot `FileDownload` → `.to_kre_cred`; SFTP → `run.cred`),
+isolated per run and removed on every completion, failure, timeout, or
+cancel path.
+
+Runs are driven by target-native launchers staged per execution —
+`kre_cred_exec.sh` under plain `sh` on POSIX, `kre_cred_exec.ps1`
+under `powershell -File` on Windows — so no helper-specific Python is
+needed on any target. The launcher validates the delivered file
+(0600, owner-only, token shape), injects `-apiKey=` into KRE's argv,
+and scrubs the key from KRE's echoed output before step capture; its
+sha256 is recorded per run. A legacy operator-placed
+`credential_file` (0600 on the target) remains supported but is no
+longer required.
 
 ## Execution targets (Buildbot)
 

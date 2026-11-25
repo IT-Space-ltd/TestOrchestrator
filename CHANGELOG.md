@@ -139,6 +139,39 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
 - **Offline packaged install** — the vendored wheel set now includes
   the pinned boto3 dependencies (boto3/botocore/jmespath/
   python-dateutil/s3transfer) so S3 support resolves without network.
+- **Managed KRE credential delivery + target-native launchers**
+  (replaces the interim `.py` helper and the operator-placed key
+  file on remote targets):
+  - `credential_ref` is now the supported path on every topology:
+    an authorized user stores the KRE API key as a `runtime` secret
+    (System → Secrets) and selects the reference on the runtime.
+    Per execution, the portal stages a 0600 file and delivers it —
+    Buildbot `FileDownload` (`.to_kre_cred` at the build root) on PB
+    workers, SFTP `run.cred` into the run workdir on SSH targets.
+    No operator-placed file, no manual copying, nothing inside the
+    source archive or artifacts; every kill/cleanup path removes it.
+  - The credential resolver is now `kre_cred_exec.sh` (POSIX,
+    plain `sh` — no `python3` requirement) and
+    `kre_cred_exec.ps1` (Windows `powershell -File`, kill-on-close
+    Job Object — no `python` requirement). Both are staged per
+    execution with a `helper_sha256` provenance record; the helper
+    scrubs `-apiKey=` from KRE's own echoed argv before step
+    capture, and the key never appears in helper argv.
+  - POSIX kill semantics fixed: KRE runs in the launcher's process
+    group so Buildbot's step `killpg` and the SSH group kill both
+    reach it (a `setsid`'ed engine escaped both and could orphan a
+    licensed run); a pid-directed signal now kills the whole child
+    tree so `katalonc`'s java grandchild cannot survive holding the
+    license.
+  - Credential failure kinds are distinct: unknown reference and
+    wrong-kind secret → `config`; undecryptable material →
+    `infrastructure`; only a genuine KRE rejection → `license`.
+  - The legacy `credential_file` (operator-placed 0600 file on the
+    target) remains supported for compatibility — it is no longer
+    required or default.
+  - UI: "Register KRE" flow gained per-field platform examples and
+    a credential-reference selector; connection-requirements help
+    no longer overflows.
 
 ### Dependencies
 
@@ -156,10 +189,11 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   boundary in `docs/licensing.md`).
 - Packaged-acceptance topology collapsed server+worker into one
   disposable VM — not independent-host partition evidence.
-- KRE on remote PB workers and SSH targets requires a Python
-  interpreter on the target (`python` on Windows, `python3` on
-  POSIX) and an operator-placed credential file — validated by the
-  readiness probe.
+- KRE secrets are name-scoped only: any `runtime`-kind secret may be
+  referenced by any runtime configuration — there is no per-project
+  secret ACL (secrets are admin-managed and values never leave the
+  server; the kind gate keeps git/ssh/buildbot secrets unusable for
+  KRE invocation).
 - GoogleTest execution on Windows workers is config-gated —
   toolchain probing works; exec remains POSIX-only pending the
   Windows gtest worker follow-up.
