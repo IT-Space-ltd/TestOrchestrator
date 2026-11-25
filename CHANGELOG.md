@@ -331,12 +331,12 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   AWS-provider acceptance); Azure verified against Azurite 3.34.0
   emulator over loopback+SSH tunnel, not live Azure. Insecure
   endpoints are a test-only flag.
-- Playwright/Cypress real-engine acceptance verified on a Linux PB
-  worker (Playwright 1.65.1, Cypress 16.3.0/Electron 43): collect,
-  pass/fail, exec_timeout kill, cancel, junit + native artifacts
-  all exercised live — including the ISS-015/ISS-016 defects found
-  and fixed during those runs. Windows engine coverage remains
-  dev-stack-only until the Windows guest gains a node toolchain.
+- Playwright/Cypress real-engine acceptance passed on Linux —
+  dev-stack PB worker (Playwright 1.65.1, Cypress 16.3.0/Electron
+  43: collect, pass/fail, exec_timeout kill, cancel, junit +
+  native artifacts, incl. ISS-015/ISS-016 found and fixed live)
+  and installed-package PB dispatch. Residual: Windows engine
+  coverage unexercised — the Windows guest has no node toolchain.
 - One production-issuer-key test remains blocked
   (`test_production_key_auto_loaded` — declared skip; documented
   boundary in `docs/licensing.md`). `test_payload_fields_signed`
@@ -360,12 +360,13 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   residuals: the `-apiKey=` argv exposure boundary (same-account
   visibility, documented disposable-target exception) and live
   Katalon key rotation pending on the owner's replacement key.
-- GoogleTest on Windows: native PB-worker execution verified live
-  end-to-end (native collection, exact subset, spaces/Unicode
-  paths, timeout/kill, cancel, junit retrieval, worker-service
-  termination + recovery without duplicate dispatch). Parameterized
-  test identity and installed-package re-verification remain
-  residual (fixture binary exposes no parameterized tests).
+- GoogleTest on Windows verified live end-to-end on dev stack
+  (native collection, exact subset, spaces/Unicode paths,
+  timeout/kill, cancel, junit retrieval, worker-service
+  termination + recovery without duplicate dispatch). Residuals:
+  parameterized test identity unproven (fixture binary exposes no
+  parameterized tests) and no installed-package re-verification
+  (acceptance VM is Linux-only).
 
 
 ## [2.6.0] — 2026-11-24
