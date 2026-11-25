@@ -77,6 +77,26 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
     libgtest 1.14) print help and exit 0 having run nothing — a
     silent vacuous pass. The driver now probes `--gtest_help` per
     binary and fails when no result XML was produced.
+- **Windows worker defects** (found during Windows 11 PB-worker
+  acceptance against real toolchains):
+  - Probe spec never set `posix` — Windows workers were sent POSIX
+    `sh` probe scripts.
+  - `probe.cmd` scripts (pytest/robot/node) used cmd constructs that
+    abort or double-fire: `call :label` inside `if`/`for` parens,
+    bare `npx`/`npm` (.cmd shims transfer control permanently),
+    `A && (B) || (C)` emitting both branches, unescaped parens in
+    marker text. Rewritten errorlevel-style with `.cmd` helper files.
+  - `_cleanup_win_argv` exited 1 — suppressed `Remove-Item` errors
+    still propagated through `$?` to `powershell -Command`.
+  - `ELECTRON_RUN_AS_NODE=""` in the exec env map broke Cypress on
+    Windows — an empty-valued variable is still present in the
+    environment block and Electron honours it (`MODULE_NOT_FOUND`,
+    empty requireStack). The key is omitted on Windows workers.
+  - postman/bruno/gtest had `unsupported-on-windows` probe
+    short-circuits despite Windows exec paths — replaced with real
+    `probe.cmd` implementations.
+  - Robot probe treated `python -m robot --version`'s exit 251
+    (informational) as missing — now output-based like POSIX.
 - **S3 artifact retrieval** after staging removal — objects now stream
   via `open()` to a bounded staging file with sha256 verification and
   deterministic cleanup (concurrency cap, size ceiling, ENOSPC
@@ -107,8 +127,13 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   boundary in `docs/licensing.md`).
 - Packaged-acceptance topology collapsed server+worker into one
   disposable VM — not independent-host partition evidence.
-- jest/gtest/behave/pytest-bdd/postman/bruno adapters have unit
-  coverage but no live packaged acceptance yet.
+- KRE on remote PB workers is unsupported — `kre_cred_exec.py` is a
+  controller-host path (and POSIX-only); local-worker and SSH KRE
+  paths are unaffected. A portable wrapper staged into the exec
+  source is the recorded follow-up.
+- GoogleTest execution on Windows workers is config-gated —
+  toolchain probing works; exec remains POSIX-only pending the
+  Windows gtest worker follow-up.
 
 ## [2.6.0] — 2026-11-24
 

@@ -78,7 +78,15 @@ Per-adapter contract depth is partially delivered. Honest per-framework state:
 | postman-newman | real newman 6.2.1; matrix cell pass+fail both transports | accepted | — |
 | postman-cli | real postman-cli 1.94.0; matrix cell pass+fail both transports | accepted | — |
 | bruno | real bru 2.14.1; matrix cell pass+fail both transports | accepted | — |
-| KRE | real katalonc 11.7.0 + supplied API key; suite+collection pass, suite fail, missing-cred classify — both transports | accepted | execution profiles beyond default not exercised; optional cloud publication not enabled |
+| KRE | real katalonc 11.7.0 + supplied API key; suite+collection pass, suite fail, missing-cred classify — both transports | accepted | execution profiles beyond default not exercised; optional cloud publication not enabled; KRE on remote PB workers unsupported (wrapper is controller-local, POSIX-only) |
+
+Phase B (Windows 11 KVM, SYSTEM session-0 PB worker) re-exercised every
+framework above on the Windows transport: all probes ready, pass/fail
+cells green/honest for pytest, pytest-bdd, behave, robot, jest,
+playwright, playwright-pytest, cypress 16.3.0, newman 6.2.3, bru 4.4.0,
+postman-cli. gtest Windows exec remains config-gated (POSIX-only in
+2.7.0). KRE verified on-guest directly (supplied key): TS1 pass, TS2
+fail, TSC1 collection.
 
 ## 8 — Failure & security matrix
 
@@ -120,11 +128,18 @@ Single-VM collapses host+worker — recorded limitation.
 
 - **Blocked**: 2 prod-key tests (boundary documented, `docs/licensing.md`).
 - **Not-yet-run**: crafted malformed-report cells; adversarial executed-identity
-  fixtures; accessibility/keyboard checks; independent-host partition topology;
-  Windows worker matrix (Phase B — pending host hypervisor approval).
+  fixtures; accessibility/keyboard checks; independent-host partition topology.
 - **Recorded asymmetry**: exit-5 (no tests) / exit-127 (missing executable)
   classify specifically on SSH, generically on the registered-worker path —
   both honest failures, no false pass.
+- **KRE on remote PB workers**: `scripts/kre_cred_exec.py` is a
+  controller-host path embedded in the exec argv — remote workers cannot
+  resolve it, and the script itself is POSIX-only (geteuid/O_NOFOLLOW).
+  KRE suite/collection on a remote Windows (or Linux) PB worker is
+  **unsupported in 2.7.0** — follow-up: stage a portable wrapper inside
+  the source tar. Verified on Windows: katalonc executes directly
+  (missing-cred → `license` classification; supplied API key + TS1/TS2/
+  TSC1 run green/honest-fail on the guest).
 - Linux matrix evidence: `~/to-acceptance-evidence/matrix/` —
   13 frameworks × {worker, SSH-only} pass cells all green at `a3ebeeed`
   (package sha256 e5b31c97…); 26 fail cells honest `failed`; timeout/
@@ -132,3 +147,12 @@ Single-VM collapses host+worker — recorded limitation.
   exercised; 7 product defects fixed (extglobs, probe markers,
   Reports dir, jest spec mapping, KRE license classification,
   jest ingest, gtest flag guard).
+- Windows matrix evidence: `~/to-acceptance-evidence/matrix-win/` —
+  Windows 11 (26300) KVM guest, SYSTEM session-0 buildbot worker;
+  12 runtime probes ready; 11 pass cells COMPLETED exit 0; 11 fail cells
+  honest FAILED; timeout/cancel/empty/import-error/missing-exe/KRE-
+  missing-cred exercised; gtest Windows exec config-gated (declared
+  POSIX-only for 2.7.0); 6 product defects fixed (`00ea5722`: probe
+  posix flag, probe.cmd cmd-semantics rewrites, win cleanup exit code,
+  ELECTRON_RUN_AS_NODE env-block leak, real postman/bruno/gtest probes,
+  robot 251-exit probe).
