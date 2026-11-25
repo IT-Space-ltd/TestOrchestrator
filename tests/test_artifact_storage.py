@@ -324,7 +324,10 @@ def test_storage_tab_guided_form(tmp_path):
     assert rv.status_code == 200
     assert 'data-kind="local"' in body
     assert 'data-kind="mounted"' in body
-    assert 'data-kind="s3"' in body
+    assert 'data-kind="object"' in body
+    for provider in ("amazon", "azure", "google", "manual"):
+        assert f'data-provider="{provider}"' in body
+    assert "Object Storage Provider" in body
     assert "Test connection" in body
     assert "Git publication" in body
     assert "disabled" in body            # hidden groups are disabled
@@ -590,3 +593,191 @@ def test_s3_non_tls_endpoint_refused(tmp_path):
         app.config["TO_S3_ALLOW_INSECURE_ENDPOINTS"] = True
         backend = storage.backend_for(st)
         assert backend.bucket == "b"
+
+
+# ---------- provider selector (§8) ----------
+
+def test_azure_string_to_sign_matches_documented_example():
+    """Shared-Key string-to-sign constructed byte-for-byte per the
+    Microsoft-published sample (Authorize with Shared Key): GET
+    mycontainer?restype=container&comp=metadata."""
+    sts = storage._AzureStore._string_to_sign(
+        "myaccount", "GET",
+        "https://myaccount.blob.core.windows.net/mycontainer"
+        "?restype=container&comp=metadata",
+        {"x-ms-date": "Fri, 17 Nov 2005 01:37:34 GMT",
+         "x-ms-version": "2009-09-19"})
+    assert sts == (
+        "GET\n\n\n\n\n\n\n\n\n\n\n\n"
+        "x-ms-date:Fri, 17 Nov 2005 01:37:34 GMT\n"
+        "x-ms-version:2009-09-19\n"
+        "/myaccount/mycontainer\n"
+        "comp:metadata\n"
+        "restype:container")
+
+
+def test_azure_sign_is_hmac_sha256():
+    import base64
+    import hmac as _h
+    key = base64.b64encode(b"k" * 32).decode()
+    sig = storage._AzureStore._sign(
+        "acct", key, "PUT",
+        "https://acct.blob.core.windows.net/c/b",
+        {"x-ms-date": "d", "x-ms-version": "2020-10-02",
+         "Content-Length": "5", "x-ms-blob-type": "BlockBlob"})
+    sts = storage._AzureStore._string_to_sign(
+        "acct", "PUT",
+        "https://acct.blob.core.windows.net/c/b",
+        {"x-ms-date": "d", "x-ms-version": "2020-10-02",
+         "Content-Length": "5", "x-ms-blob-type": "BlockBlob"})
+    assert sig == base64.b64encode(_h.new(
+        base64.b64decode(key), sts.encode(),
+        storage.hashlib.sha256).digest()).decode()
+
+
+def test_gcs_store_pins_interop_endpoint(tmp_path):
+    """GCS routes through boto3 pinned to the documented XML-API
+    interop endpoint, path-style, region auto."""
+    app = _app(tmp_path, tmp_path / "r")
+    with app.app_context():
+        st = ArtifactStore(project_id="p1", name="S", kind="gcs",
+                           config_json=json.dumps({"bucket": "b"}))
+        backend = storage.backend_for(st)
+        assert backend.bucket == "b"
+        assert backend.cfg["endpoint_url"] == \
+            "https://storage.googleapis.com"
+        assert backend.cfg["path_style"] is True
+        assert backend.cfg["region"] == "auto"
+
+
+def test_azure_store_validation(tmp_path):
+    """Azure requires endpoint+container, a supported auth mode,
+    TLS (same policy as s3), and the matching credential."""
+    app = _app(tmp_path, tmp_path / "r")
+    with app.app_context():
+        base = dict(project_id="p1", name="S", kind="azure")
+        with pytest.raises(storage.StoreError,
+                           match="container"):
+            storage.backend_for(ArtifactStore(
+                **base, config_json=json.dumps(
+                    {"account_url": "https://a.blob.core.windows.net"})))
+        with pytest.raises(storage.StoreError,
+                           match="auth mode"):
+            storage.backend_for(ArtifactStore(
+                **base, config_json=json.dumps(
+                    {"account_url": "https://a.blob.core.windows.net",
+                     "container": "c", "auth_mode": "oauth"})))
+        with pytest.raises(storage.StoreError, match="non-TLS"):
+            storage.backend_for(ArtifactStore(
+                **base, config_json=json.dumps(
+                    {"account_url": "http://a.blob.core.windows.net",
+                     "container": "c", "auth_mode": "sas"})))
+
+
+def test_store_form_provider_mapping(tmp_path):
+    """The provider selector maps to backend kinds — amazon/gcs/s3
+    get bucket configs, azure gets account_url/container/auth."""
+    roots = tmp_path / "approved"
+    app = _app(tmp_path, roots)
+    with app.app_context():
+        pid, _, _ = _ex(app, tmp_path, roots)
+    client = app.test_client()
+    from tests.conftest import login
+    login(client, "admin")
+
+    def post(data):
+        return client.post(
+            f"/projects/{pid}/artifact-stores/new", data=data)
+
+    post({"kind": "object", "provider": "amazon", "name": "a1",
+          "bucket": "bkt", "region": "eu-central-1"})
+    post({"kind": "object", "provider": "azure", "name": "a2",
+          "account_url": "https://a.blob.core.windows.net",
+          "container": "cont", "auth_mode": "sas",
+          "credential_ref": "az-sas"})
+    post({"kind": "object", "provider": "google", "name": "a3",
+          "bucket": "bkt2", "credential_ref": "gcs-hmac"})
+    post({"kind": "object", "provider": "manual", "name": "a4",
+          "bucket": "bkt3", "endpoint_url": "https://minio.local"})
+    # forged unknown provider is refused server-side
+    post({"kind": "object", "provider": "oracle", "name": "bad",
+          "bucket": "x"})
+    with app.app_context():
+        stores = {s.name: s for s in ArtifactStore.query.all()}
+        assert stores["a1"].kind == "s3"
+        assert stores["a1"].config()["provider"] == "amazon"
+        assert stores["a2"].kind == "azure"
+        assert stores["a2"].config()["auth_mode"] == "sas"
+        assert stores["a2"].credential_ref == "az-sas"
+        assert stores["a3"].kind == "gcs"
+        assert stores["a3"].credential_ref == "gcs-hmac"
+        assert stores["a4"].kind == "s3"
+        assert stores["a4"].config()["provider"] == "manual"
+        assert "bad" not in stores
+
+
+def test_store_edit_reopens_and_preserves_provider(tmp_path):
+    """Edit posts the same provider fields; kind is immutable and a
+    blank credential_ref keeps the saved reference."""
+    roots = tmp_path / "approved"
+    app = _app(tmp_path, roots)
+    with app.app_context():
+        pid, _, _ = _ex(app, tmp_path, roots)
+        st = ArtifactStore(
+            project_id=pid, name="S", kind="azure",
+            config_json=json.dumps(
+                {"account_url": "https://a.blob.core.windows.net",
+                 "container": "c1", "prefix": "p",
+                 "auth_mode": "account_key", "provider": "azure"}),
+            credential_ref="az-key")
+        db.session.add(st); db.session.commit()
+        sid = st.id
+    client = app.test_client()
+    from tests.conftest import login
+    login(client, "admin")
+    client.post(f"/artifact-stores/{sid}/edit", data={
+        "kind": "object", "provider": "azure", "name": "S2",
+        "account_url": "https://a.blob.core.windows.net",
+        "container": "c2", "auth_mode": "sas",
+        "credential_ref": ""})
+    with app.app_context():
+        st = db.session.get(ArtifactStore, sid)
+        assert st.name == "S2"
+        assert st.config()["container"] == "c2"
+        assert st.config()["auth_mode"] == "sas"
+        assert st.credential_ref == "az-key"      # blank = unchanged
+    # kind cannot change under existing refs
+    client.post(f"/artifact-stores/{sid}/edit", data={
+        "kind": "local", "name": "S3", "root": "/x"})
+    with app.app_context():
+        st = db.session.get(ArtifactStore, sid)
+        assert st.kind == "azure" and st.name == "S2"
+
+
+def test_store_edit_legacy_s3_reopens_as_manual(tmp_path):
+    """Pre-provider s3 rows (no cfg.provider) reopen in the Other
+    (Manual) mode — no destructive migration of stored configs."""
+    roots = tmp_path / "approved"
+    app = _app(tmp_path, roots)
+    with app.app_context():
+        pid, _, _ = _ex(app, tmp_path, roots)
+        st = ArtifactStore(
+            project_id=pid, name="S", kind="s3",
+            config_json=json.dumps({"bucket": "b", "prefix": "",
+                                    "endpoint_url":
+                                        "https://minio.local"}))
+        db.session.add(st); db.session.commit()
+        sid = st.id
+    client = app.test_client()
+    from tests.conftest import login
+    login(client, "admin")
+    client.post(f"/artifact-stores/{sid}/edit", data={
+        "kind": "object", "provider": "manual", "name": "S",
+        "bucket": "b", "endpoint_url": "https://minio2.local",
+        "path_style": "1"})
+    with app.app_context():
+        st = db.session.get(ArtifactStore, sid)
+        assert st.kind == "s3"
+        cfg = st.config()
+        assert cfg["endpoint_url"] == "https://minio2.local"
+        assert cfg["path_style"] is True

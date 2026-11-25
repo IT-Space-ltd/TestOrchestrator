@@ -15,7 +15,18 @@ Backends:
   separately approved mounted-share list (administrator-mounted
   SMB/NFS; direct share management is out of scope).
 - ``s3``      — boto3-gated: reports unavailable until the
-  dependency is approved+installed (separately gated — §2).
+  dependency is approved+installed (separately gated — §2). Two
+  provider modes: ``amazon`` (default AWS endpoints) and ``manual``
+  (explicit S3-compatible endpoint + addressing options).
+- ``gcs``     — Google Cloud Storage via its documented XML-API
+  interoperability mode: the boto3 machinery of ``s3`` pinned to
+  https://storage.googleapis.com with path-style addressing and
+  HMAC credentials (``access_key:secret_key`` refs). Not the JSON
+  API — that mode would need a separately-approved SDK.
+- ``azure``   — Azure Blob Storage via its REST API (Shared Key or
+  SAS authentication) over stdlib+requests — no SDK dependency.
+  Azure has NO native S3 protocol; routing it through endpoint
+  substitution is not supported.
 
 Every write is idempotent: the key is
 ``<project_id>/<execution_id>/<attempt>/<rel_path>`` — re-storing
@@ -320,6 +331,265 @@ class _S3Store:
         return False, f"{bad[0]}: {bad[2]}"
 
 
+class _GCSStore(_S3Store):
+    """Google Cloud Storage via its documented XML-API
+    interoperability mode — boto3 machinery pinned to the GCS XML
+    endpoint, path-style addressing, HMAC credentials in the
+    'access_key:secret_key' ref format, region 'auto'. The native
+    JSON API (service-account OAuth) would require the
+    separately-approved google-cloud-storage SDK — not bundled."""
+
+    def __init__(self, cfg: dict, credential_ref: str = ""):
+        cfg = dict(cfg)
+        cfg["endpoint_url"] = "https://storage.googleapis.com"
+        cfg["path_style"] = True
+        cfg["region"] = "auto"     # GCS V4-interop accepts 'auto'
+        super().__init__(cfg, credential_ref)
+
+
+class _AzureStore:
+    """Azure Blob Storage REST adapter (Shared Key or SAS).
+
+    Azure has no native S3 protocol — this implements the
+    documented Blob REST API directly over `requests`, with
+    Shared-Key HMAC signing per
+    https://learn.microsoft.com/rest/api/storageservices/authorize-with-shared-key
+
+    Config: account_url (e.g. https://acct.blob.core.windows.net or
+    an emulator endpoint), container, prefix, auth_mode
+    (account_key|sas). credential_ref holds the account key
+    (base64) or the SAS token (without the leading '?')."""
+
+    API_VERSION = "2020-10-02"
+
+    def __init__(self, cfg: dict, credential_ref: str = ""):
+        import requests  # pinned runtime dep
+        self._requests = requests
+        self.cfg = cfg
+        url = (cfg.get("account_url") or "").strip().rstrip("/")
+        if url.startswith("http://") and not current_app.config.get(
+                "TO_S3_ALLOW_INSECURE_ENDPOINTS"):
+            raise StoreError(
+                "non-TLS Azure endpoint refused — set TLS or mark "
+                "the endpoint test-only in config")
+        if not url.startswith("https://") and not (
+                url.startswith("http://")
+                and current_app.config.get(
+                    "TO_S3_ALLOW_INSECURE_ENDPOINTS")):
+            raise StoreError(
+                "Azure store requires a service endpoint URL "
+                "(https://<account>.blob.core.windows.net)")
+        self.base = url
+        self.container = (cfg.get("container") or "").strip()
+        if not self.container:
+            raise StoreError("Azure store requires a container")
+        self.prefix = (cfg.get("prefix") or "").strip("/")
+        self.auth_mode = (cfg.get("auth_mode") or "account_key")
+        if self.auth_mode not in ("account_key", "sas"):
+            raise StoreError(
+                f"unknown Azure auth mode {self.auth_mode!r}")
+        from urllib.parse import urlparse
+        self.account = urlparse(url).hostname.split(".")[0] \
+            if urlparse(url).hostname else ""
+        credential = ""
+        if credential_ref:
+            from .secrets_store import SecretError, read_secret
+            try:
+                credential = read_secret(
+                    current_app._get_current_object(), credential_ref)
+            except SecretError as exc:
+                raise StoreError(
+                    f"credential {credential_ref!r}: {exc}") from exc
+        self._key = ""
+        self._sas = ""
+        if self.auth_mode == "account_key":
+            # Accept 'key' or 'account:key' forms.
+            if ":" in credential:
+                acct, _, k = credential.partition(":")
+                if acct and "=" not in acct and "/" not in acct:
+                    self.account = acct
+                    credential = k
+            self._key = credential.strip()
+            if not self._key:
+                raise StoreError(
+                    "Azure account-key authentication requires a "
+                    "credential reference holding the account key")
+        else:
+            self._sas = credential.strip().lstrip("?")
+            if not self._sas:
+                raise StoreError(
+                    "Azure SAS authentication requires a credential "
+                    "reference holding a SAS token")
+
+    # ---- Shared Key signing ----
+
+    @staticmethod
+    def _string_to_sign(account: str, method: str, url: str,
+                        headers: dict) -> str:
+        """The documented string-to-sign for Shared Key auth —
+        separated from signing so the exact construction is unit
+        testable against Microsoft's published example."""
+        from urllib.parse import parse_qsl, urlparse
+        content_length = headers.get("Content-Length", "")
+        if content_length in (None, "0"):
+            content_length = ""
+        std = "\n".join([
+            method.upper(),
+            headers.get("Content-Encoding", ""),
+            headers.get("Content-Language", ""),
+            content_length,
+            headers.get("Content-MD5", ""),
+            headers.get("Content-Type", ""),
+            "",                                   # Date (x-ms-date)
+            headers.get("If-Modified-Since", ""),
+            headers.get("If-Match", ""),
+            headers.get("If-None-Match", ""),
+            headers.get("If-Unmodified-Since", ""),
+            headers.get("Range", ""),
+        ])
+        ms = sorted(
+            (k.lower(), " ".join(str(v).split()))
+            for k, v in headers.items()
+            if k.lower().startswith("x-ms-"))
+        canon_headers = "".join(f"{k}:{v}\n" for k, v in ms)
+        parts = urlparse(url)
+        qmap: dict = {}
+        for k, v in parse_qsl(parts.query, keep_blank_values=True):
+            qmap.setdefault(k.lower(), []).append(v)
+        canon_res = f"/{account}{parts.path}"
+        for k in sorted(qmap):
+            canon_res += f"\n{k}:{','.join(sorted(qmap[k]))}"
+        return std + "\n" + canon_headers + canon_res
+
+    @classmethod
+    def _sign(cls, account: str, key_b64: str, method: str,
+              url: str, headers: dict) -> str:
+        import base64
+        import hmac as _hmac
+        sts = cls._string_to_sign(account, method, url, headers)
+        digest = _hmac.new(base64.b64decode(key_b64),
+                           sts.encode("utf-8"),
+                           hashlib.sha256).digest()
+        return base64.b64encode(digest).decode()
+
+    def _call(self, method: str, url: str, data=None,
+              headers=None, stream=False):
+        headers = dict(headers or {})
+        if self._sas:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}{self._sas}"
+        else:
+            from email.utils import formatdate
+            headers["x-ms-date"] = formatdate(usegmt=True)
+            headers["x-ms-version"] = self.API_VERSION
+            if data is not None:
+                headers["Content-Length"] = str(len(data))
+            sig = self._sign(self.account, self._key, method,
+                             url, headers)
+            headers["Authorization"] = \
+                f"SharedKey {self.account}:{sig}"
+        resp = self._requests.request(
+            method, url, data=data, headers=headers,
+            stream=stream, timeout=20)
+        return resp
+
+    def _blob_url(self, key: str) -> str:
+        return f"{self.base}/{self.container}/{key}"
+
+    def _key_name(self, key: str) -> str:
+        return f"{self.prefix}/{key}" if self.prefix else key
+
+    def put(self, src: Path, key: str) -> str:
+        k = self._key_name(key)
+        resp = self._call(
+            "PUT", self._blob_url(k), data=src.read_bytes(),
+            headers={"x-ms-blob-type": "BlockBlob"})
+        if resp.status_code not in (200, 201):
+            raise StoreError(
+                f"azure put failed ({resp.status_code}): "
+                f"{resp.text[:200]}")
+        head = self._call("HEAD", self._blob_url(k))
+        if head.status_code == 200 and \
+                head.headers.get("Content-Length") != \
+                str(src.stat().st_size):
+            raise StoreError("azure size verification failed")
+        return k
+
+    def open(self, ref: str):
+        resp = self._call("GET", self._blob_url(ref), stream=True)
+        if resp.status_code != 200:
+            raise StoreError(
+                f"azure get failed ({resp.status_code}): "
+                f"{resp.text[:200]}")
+        return resp.raw
+
+    def delete(self, ref: str) -> bool:
+        resp = self._call("DELETE", self._blob_url(ref))
+        if resp.status_code not in (200, 202, 404):
+            raise StoreError(
+                f"azure delete failed ({resp.status_code}): "
+                f"{resp.text[:200]}")
+        return True
+
+    def probe_steps(self):
+        steps = [("destination reachable", True,
+                  f"container {self.container}")]
+        url = f"{self.base}/{self.container}?restype=container"
+        try:
+            resp = self._call("GET", url)
+            if resp.status_code != 200:
+                steps[0] = ("destination reachable", False,
+                            f"{resp.status_code}: "
+                            f"{resp.text[:200]}")
+                return steps
+        except Exception as exc:
+            steps[0] = ("destination reachable", False, str(exc))
+            return steps
+        steps.append(("authentication", True,
+                      f"{self.auth_mode}"))
+        k = self._key_name(f".to-probe-{secrets.token_hex(4)}")
+        try:
+            resp = self._call("PUT", self._blob_url(k),
+                              data=b"probe",
+                              headers={"x-ms-blob-type": "BlockBlob"})
+            ok = resp.status_code in (200, 201)
+            steps.append(("temporary write", ok,
+                          "" if ok else f"{resp.status_code}: "
+                                        f"{resp.text[:200]}"))
+            if not ok:
+                return steps
+        except Exception as exc:
+            steps.append(("temporary write", False, str(exc)))
+            return steps
+        try:
+            resp = self._call("GET", self._blob_url(k))
+            ok = resp.status_code == 200 and resp.content == b"probe"
+            steps.append(("read-back + checksum", ok,
+                          "" if ok else f"{resp.status_code}"))
+            if not ok:
+                return steps
+        except Exception as exc:
+            steps.append(("read-back + checksum", False, str(exc)))
+            return steps
+        try:
+            resp = self._call("DELETE", self._blob_url(k))
+            ok = resp.status_code in (200, 202)
+            steps.append(("temporary delete", ok,
+                          "" if ok else f"{resp.status_code} — "
+                                        f"leftover blob {k}"))
+        except Exception as exc:
+            steps.append(("temporary delete", False,
+                          f"{exc} — leftover blob {k}"))
+        return steps
+
+    def probe(self) -> tuple:
+        steps = self.probe_steps()
+        bad = next((s for s in steps if not s[1]), None)
+        if bad is None:
+            return True, "write/read/delete verified"
+        return False, f"{bad[0]}: {bad[2]}"
+
+
 def backend_for(store) -> object:
     """Materialize the backend for an ArtifactStore row. Roots are
     checked against the administrator-approved lists on EVERY use —
@@ -352,6 +622,12 @@ def backend_for(store) -> object:
         if not cfg.get("bucket"):
             raise StoreError("s3 store requires a bucket")
         return _S3Store(cfg, store.credential_ref)
+    if store.kind == "gcs":
+        if not cfg.get("bucket"):
+            raise StoreError("gcs store requires a bucket")
+        return _GCSStore(cfg, store.credential_ref)
+    if store.kind == "azure":
+        return _AzureStore(cfg, store.credential_ref)
     raise StoreError(f"unknown store kind {store.kind!r}")
 
 

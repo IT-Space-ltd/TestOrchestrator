@@ -1,6 +1,7 @@
 /* Guided Add Storage: show only the field group for the chosen
- * destination type; hidden groups are disabled so incompatible
- * settings are never submitted. */
+ * destination type and, inside object storage, the chosen provider;
+ * hidden groups are disabled so incompatible settings are never
+ * submitted. */
 (function () {
   var form = document.getElementById("add-store-form");
   if (!form) return;
@@ -8,6 +9,14 @@
     var kind = form.querySelector("input[name=kind]:checked");
     form.querySelectorAll(".store-cfg").forEach(function (fs) {
       var on = kind && fs.dataset.kind === kind.value;
+      fs.hidden = !on;
+      fs.disabled = !on;
+    });
+    var provider = form.querySelector("select[name=provider]");
+    var pv = provider && provider.value;
+    form.querySelectorAll(".provider-cfg").forEach(function (fs) {
+      var on = kind && kind.value === "object" &&
+               fs.dataset.provider === pv;
       fs.hidden = !on;
       fs.disabled = !on;
     });

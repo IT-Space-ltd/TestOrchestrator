@@ -1008,15 +1008,18 @@ def _native_collect_targets(fp) -> list:
 
 # ---------- Results & Artifacts storage (M9–M11) ----------
 
-def _store_form_fields(project_id):
+def _store_form_fields(project_id, existing_ref: str = ""):
     """Parse the Add-Storage form. Only fields relevant to the
-    selected kind are read — hidden incompatible settings are never
-    persisted even if submitted (§Storage UI 9). Returns
-    (kind, name, cfg, credential_ref, error)."""
+    selected kind/provider are read — hidden incompatible settings
+    are never persisted even if submitted (§Storage UI 9).
+    ``existing_ref`` is the already-saved credential on an edit —
+    credential-required providers accept a blank field as 'keep the
+    saved reference'. Returns (kind, name, cfg, credential_ref,
+    error)."""
     kind = (request.form.get("kind") or "local").strip()
     name = (request.form.get("name") or "").strip() or kind
-    # credential_ref only exists for S3 — dropped for other kinds
-    # even if a hidden field was forcibly submitted.
+    # credential_ref only exists for object stores — dropped for
+    # other kinds even if a hidden field was forcibly submitted.
     credential_ref = ""
     cfg = {}
     err = None
@@ -1025,15 +1028,59 @@ def _store_form_fields(project_id):
                "subdir": (request.form.get("subdir") or "").strip()}
         if not cfg["root"]:
             err = "A root path is required."
-    elif kind == "s3":
+    elif kind in ("s3", "object"):
+        provider = (request.form.get("provider")
+                    or "manual").strip() or "manual"
         credential_ref = (request.form.get("credential_ref")
                           or "").strip()
-        cfg = {k: (request.form.get(k) or "").strip()
-               for k in ("bucket", "prefix", "region",
-                         "endpoint_url", "ca_bundle")}
-        cfg["path_style"] = bool(request.form.get("path_style"))
-        if not cfg["bucket"]:
-            err = "S3-compatible storage requires a bucket."
+        if provider == "amazon":
+            kind = "s3"
+            cfg = {k: (request.form.get(k) or "").strip()
+                   for k in ("bucket", "prefix", "region",
+                             "ca_bundle")}
+            # Advanced endpoint override stays available (private
+            # link, GovCloud-style endpoints) but defaults to AWS.
+            cfg["endpoint_url"] = (
+                request.form.get("endpoint_url") or "").strip()
+            cfg["provider"] = "amazon"
+            if not cfg["bucket"]:
+                err = "Amazon S3 requires a bucket."
+        elif provider == "azure":
+            kind = "azure"
+            cfg = {k: (request.form.get(k) or "").strip()
+                   for k in ("account_url", "container", "prefix",
+                             "auth_mode")}
+            cfg["provider"] = "azure"
+            if not cfg["account_url"] or not cfg["container"]:
+                err = ("Azure Blob requires a service endpoint and "
+                       "a container.")
+            elif cfg["auth_mode"] not in ("account_key", "sas"):
+                err = "Azure requires a supported auth method."
+            elif not credential_ref and not existing_ref:
+                err = ("Azure requires a credential reference "
+                       "(account key or SAS token).")
+        elif provider == "google":
+            kind = "gcs"
+            cfg = {k: (request.form.get(k) or "").strip()
+                   for k in ("bucket", "prefix")}
+            cfg["provider"] = "gcs"
+            if not cfg["bucket"]:
+                err = "Google Cloud Storage requires a bucket."
+            elif not credential_ref and not existing_ref:
+                err = ("GCS interoperability requires a credential "
+                       "reference holding 'access_key:secret_key' "
+                       "HMAC credentials.")
+        elif provider == "manual":
+            kind = "s3"
+            cfg = {k: (request.form.get(k) or "").strip()
+                   for k in ("bucket", "prefix", "region",
+                             "endpoint_url", "ca_bundle")}
+            cfg["path_style"] = bool(request.form.get("path_style"))
+            cfg["provider"] = "manual"
+            if not cfg["bucket"]:
+                err = "S3-compatible storage requires a bucket."
+        else:
+            err = f"unknown storage provider {provider!r}"
     else:
         err = f"unknown store kind {kind!r}"
     return kind, name, cfg, credential_ref, err
@@ -1261,6 +1308,53 @@ def store_probe(store_id):
     _flash_probe_steps(steps)
     flash(f"Connection test {'passed' if ok else 'FAILED'}.",
           "info" if ok else "error")
+    return redirect(url_for("portal.project_detail",
+                            project_id=store.project_id,
+                            tab="storage"))
+
+
+@portal_bp.route("/artifact-stores/<store_id>/edit",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_edit(store_id):
+    """Edit a saved destination — same per-provider validation as
+    creation. Kind/provider are immutable: a destination's API
+    protocol cannot silently change under existing artifact refs.
+    Location changes (bucket/container/prefix) apply to new objects;
+    existing artifact refs stay byte-identical keys."""
+    store = db.session.get(ArtifactStore, store_id)
+    if store is None:
+        abort(404)
+    PlainForm().validate_on_submit()
+    kind, name, cfg, credential_ref, err = _store_form_fields(
+        store.project_id, existing_ref=store.credential_ref)
+    if kind != store.kind:
+        flash("A destination's provider cannot be changed — create "
+              "a new destination instead.", "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=store.project_id,
+                                tab="storage"))
+    saved_provider = (store.config().get("provider")
+                      or ("manual" if store.kind == "s3"
+                          else store.kind))
+    if err:
+        flash(err, "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=store.project_id,
+                                tab="storage"))
+    store.name = (name or store.name)[:128]
+    store.config_json = json.dumps(cfg)
+    # credential_ref is preserved when the field is left blank —
+    # masking means an empty submit is 'unchanged', not 'cleared'.
+    submitted = request.form.get("credential_ref")
+    if submitted is not None and submitted.strip():
+        store.credential_ref = submitted.strip()
+    db.session.commit()
+    record_audit(current_user.username, "artifact_store.edited",
+                 f"{store.id} {store.kind}/{saved_provider}")
+    flash(f"Store {store.name!r} updated — run Test connection to "
+          "re-verify. Changes apply to new objects; existing "
+          "artifacts keep their recorded keys.", "info")
     return redirect(url_for("portal.project_detail",
                             project_id=store.project_id,
                             tab="storage"))

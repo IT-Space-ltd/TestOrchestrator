@@ -686,9 +686,16 @@
         {%- if s.kind == "s3" -%}
           s3://{{ c.bucket }}/{{ c.prefix }}
           {%- if c.endpoint_url %} @ {{ c.endpoint_url }}{% endif %}
+        {%- elif s.kind == "gcs" -%}
+          gs://{{ c.bucket }}/{{ c.prefix }} @ storage.googleapis.com
+        {%- elif s.kind == "azure" -%}
+          {{ c.account_url }}/{{ c.container }}/{{ c.prefix }}
         {%- else -%}{{ c.root }}{{ "/" + c.subdir if c.subdir }}
         {%- endif -%}
       </code>
+      {%- set provider = c.provider or ('manual' if s.kind == 's3' else s.kind) -%}
+      {%- if s.kind in ('s3','azure','gcs') %}<br><small class="muted">provider:
+        {{ {'amazon':'Amazon','azure':'Ms Azure','gcs':'Google (interop)','google':'Google (interop)','manual':'Other (Manual)'}[provider] }}</small>{% endif %}
       {% if s.credential_ref %}<br><small class="muted">credential:
         <code>••••••</code> (reference
         <code>{{ s.credential_ref }}</code>)</small>{% endif %}</td>
@@ -712,6 +719,79 @@
             {{ "Deactivate" if s.active else "Activate" }}</button></form>
         {% endif %}
         {% if can_edit %}
+        <details class="inline-details">
+          <summary class="button sm secondary">Edit</summary>
+          <form method="post" class="edit-form"
+                action="{{ url_for('portal.store_edit', store_id=s.id) }}">
+            {{ plain_form.csrf_token }}
+            {%- set provider = c.provider or ('manual' if s.kind == 's3' else s.kind) -%}
+            <input type="hidden" name="kind"
+                   value="{{ 'object' if s.kind in ('s3','azure','gcs') else s.kind }}">
+            <input type="hidden" name="provider" value="{{ provider }}">
+            <div class="field"><label>Provider</label>
+              <input value="{{ {'amazon':'Amazon','azure':'Ms Azure','gcs':'Google','google':'Google','manual':'Other (Manual)','local':'Local folder','mounted':'Mounted folder'}[provider] }}" disabled>
+              <small class="muted">Provider/API is fixed — create a
+                new destination to change it.</small></div>
+            <div class="field"><label>Display name</label>
+              <input name="name" maxlength="128" value="{{ s.name }}"></div>
+            {% if s.kind in ("local", "mounted") %}
+            <div class="field"><label>{{ "Mounted folder" if s.kind == "mounted" else "Storage folder" }}</label>
+              <input name="root" maxlength="512" value="{{ c.root }}"></div>
+            <div class="field"><label>Subdirectory (optional)</label>
+              <input name="subdir" maxlength="256" value="{{ c.subdir }}"></div>
+            {% elif provider == "amazon" %}
+            <div class="field"><label>Bucket</label>
+              <input name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
+            <div class="field"><label>Region</label>
+              <input name="region" maxlength="64" value="{{ c.region }}"></div>
+            <div class="field"><label>Key prefix (optional)</label>
+              <input name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label>Endpoint override (advanced)</label>
+              <input name="endpoint_url" maxlength="256" value="{{ c.endpoint_url }}"></div>
+            <div class="field"><label>Custom CA bundle (optional)</label>
+              <input name="ca_bundle" maxlength="256" value="{{ c.ca_bundle }}"></div>
+            {% elif provider == "azure" %}
+            <div class="field"><label>Service endpoint</label>
+              <input name="account_url" maxlength="256" value="{{ c.account_url }}"></div>
+            <div class="field"><label>Container</label>
+              <input name="container" maxlength="128" value="{{ c.container }}"></div>
+            <div class="field"><label>Blob prefix (optional)</label>
+              <input name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label>Authentication</label>
+              <select name="auth_mode">
+                <option value="account_key" {% if c.auth_mode == "account_key" %}selected{% endif %}>Account key (Shared Key)</option>
+                <option value="sas" {% if c.auth_mode == "sas" %}selected{% endif %}>SAS token</option>
+              </select></div>
+            {% elif provider == "gcs" or provider == "google" %}
+            <div class="field"><label>Bucket</label>
+              <input name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
+            <div class="field"><label>Key prefix (optional)</label>
+              <input name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            {% else %}
+            <div class="field"><label>Endpoint (compatible services)</label>
+              <input name="endpoint_url" maxlength="256" value="{{ c.endpoint_url }}"></div>
+            <div class="field"><label>Bucket</label>
+              <input name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
+            <div class="field"><label>Key prefix (optional)</label>
+              <input name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label>Region (if required)</label>
+              <input name="region" maxlength="64" value="{{ c.region }}"></div>
+            <div class="field"><label><input type="checkbox" name="path_style"
+                  value="1" {% if c.path_style %}checked{% endif %}> path-style addressing</label></div>
+            <div class="field"><label>Custom CA bundle (optional)</label>
+              <input name="ca_bundle" maxlength="256" value="{{ c.ca_bundle }}"></div>
+            {% endif %}
+            {% if s.kind not in ("local", "mounted") %}
+            <div class="field"><label>Credential reference</label>
+              <input name="credential_ref" maxlength="64" value=""
+                     placeholder="{{ s.credential_ref or 'approved secret name' }}">
+              <small class="muted">Leave blank to keep
+                {% if s.credential_ref %}<code>{{ s.credential_ref }}</code>{% else %}unset{% endif %}
+                — secrets are never displayed.</small></div>
+            {% endif %}
+            <button type="submit" class="button">Save</button>
+            <button type="button" class="button danger" data-cancel-details>Cancel</button>
+          </form></details>
         <form method="post" class="inline"
               action="{{ url_for('portal.store_delete', store_id=s.id) }}"
               data-confirm="Remove or retire this destination? If stored artifacts still reference it, the destination is retired — configuration kept for retrieval, no new writes. Otherwise it is removed.">
@@ -749,11 +829,11 @@
         This does not mount a share or change host
         permissions.</small></div>
       <div class="field">
-        <label><input type="radio" name="kind" value="s3">
-          S3-compatible storage</label>
-        <small class="muted">An object-storage bucket reached over
-        the network. Requires the separately-approved boto3
-        dependency.</small></div>
+        <label><input type="radio" name="kind" value="object">
+          Object storage (cloud)</label>
+        <small class="muted">A cloud object-storage destination —
+        pick the provider below; each provider uses its real
+        API.</small></div>
     </fieldset>
 
     <fieldset>
@@ -788,40 +868,128 @@
                  placeholder="e.g. project-a"></div>
       </fieldset>
 
-      <fieldset class="store-cfg" data-kind="s3" disabled hidden>
-        <div class="grid-2">
-          <div class="field"><label for="store-endpoint">Endpoint (compatible services)</label>
-            <input id="store-endpoint" name="endpoint_url" maxlength="256"
-                   placeholder="https://s3.storage.example.com"></div>
-          <div class="field"><label for="store-bucket">Bucket</label>
-            <input id="store-bucket" name="bucket" maxlength="128"
-                   placeholder="qa-test-artifacts"></div>
-          <div class="field"><label for="store-prefix">Key prefix (optional)</label>
-            <input id="store-prefix" name="prefix" maxlength="256"
-                   placeholder="testorchestrator/">
-            <small class="muted">The prefix groups TestOrchestrator
-            files inside the bucket. It is not a local filesystem
-            path.</small></div>
-          <div class="field"><label for="store-region">Region (if required)</label>
-            <input id="store-region" name="region" maxlength="64"></div>
-          <div class="field"><label for="store-cred">Credential reference</label>
-            <input id="store-cred" name="credential_ref" maxlength="64"
-                   placeholder="approved secret name — never a value">
-            <small class="muted">Credentials stay masked and
-            reference-based — never embedded in endpoints, previews,
-            or logs.</small></div>
-          <div class="field"><label><input type="checkbox"
-                name="path_style" value="1"> path-style
-            addressing (some S3-compatible services)</label></div>
-          <div class="field"><label for="store-ca">Custom CA bundle
-            (optional)</label>
-            <input id="store-ca" name="ca_bundle" maxlength="256"
-                   placeholder="/var/lib/testorchestrator/tls/ca.pem">
-            <small class="muted">PEM file on the TestOrchestrator
-            host, inside an administrator-approved storage root.
-            TLS verification is always on — this only changes
-            which certificate authority is trusted.</small></div>
-        </div>
+      <fieldset class="store-cfg" data-kind="object" disabled hidden>
+        <div class="field"><label for="store-provider">Object Storage Provider</label>
+          <select id="store-provider" name="provider">
+            <option value="amazon">Amazon</option>
+            <option value="azure">Ms Azure</option>
+            <option value="google">Google</option>
+            <option value="manual" selected>Other (Manual)</option>
+          </select>
+          <small class="muted">The provider chooses the API —
+            Amazon/Other use the S3 protocol, Azure uses the Blob
+            REST API, Google uses Cloud Storage's documented
+            XML interoperability mode.</small></div>
+
+        <fieldset class="provider-cfg" data-provider="amazon" disabled hidden>
+          <div class="grid-2">
+            <div class="field"><label for="s-bucket-amz">Bucket</label>
+              <input id="s-bucket-amz" name="bucket" maxlength="128"
+                     placeholder="qa-test-artifacts"></div>
+            <div class="field"><label for="s-region-amz">Region</label>
+              <input id="s-region-amz" name="region" maxlength="64"
+                     placeholder="e.g. eu-central-1"></div>
+            <div class="field"><label for="s-prefix-amz">Key prefix (optional)</label>
+              <input id="s-prefix-amz" name="prefix" maxlength="256"
+                     placeholder="testorchestrator/"></div>
+            <div class="field"><label for="s-cred-amz">Credential reference</label>
+              <input id="s-cred-amz" name="credential_ref" maxlength="64"
+                     placeholder="approved secret — 'access:secret'">
+              <small class="muted">Holds AWS access/secret key as
+                <code>access_key:secret_key</code> — never the
+                value itself.</small></div>
+            <div class="field"><label for="s-endpoint-amz">Endpoint override (advanced, optional)</label>
+              <input id="s-endpoint-amz" name="endpoint_url" maxlength="256"
+                     placeholder="default AWS endpoints"></div>
+            <div class="field"><label for="s-ca-amz">Custom CA bundle (optional)</label>
+              <input id="s-ca-amz" name="ca_bundle" maxlength="256"
+                     placeholder="/var/lib/testorchestrator/tls/ca.pem"></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="provider-cfg" data-provider="azure" disabled hidden>
+          <div class="grid-2">
+            <div class="field"><label for="s-url-az">Service endpoint</label>
+              <input id="s-url-az" name="account_url" maxlength="256"
+                     placeholder="https://<account>.blob.core.windows.net">
+              <small class="muted">Azure Blob Storage endpoint —
+                not an S3 URL; Azure has no native S3 API.</small></div>
+            <div class="field"><label for="s-container-az">Container</label>
+              <input id="s-container-az" name="container" maxlength="128"
+                     placeholder="testorchestrator"></div>
+            <div class="field"><label for="s-prefix-az">Blob prefix (optional)</label>
+              <input id="s-prefix-az" name="prefix" maxlength="256"
+                     placeholder="testorchestrator/"></div>
+            <div class="field"><label for="s-auth-az">Authentication</label>
+              <select id="s-auth-az" name="auth_mode">
+                <option value="account_key">Account key (Shared Key)</option>
+                <option value="sas">SAS token</option>
+              </select></div>
+            <div class="field"><label for="s-cred-az">Credential reference</label>
+              <input id="s-cred-az" name="credential_ref" maxlength="64"
+                     placeholder="approved secret name">
+              <small class="muted">Account key: the base64 key (or
+                <code>account:key</code>). SAS: the token without
+                the leading <code>?</code>. Values stay masked —
+                never in URLs, previews, or logs.</small></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="provider-cfg" data-provider="google" disabled hidden>
+          <div class="grid-2">
+            <div class="field"><label for="s-bucket-gcs">Bucket</label>
+              <input id="s-bucket-gcs" name="bucket" maxlength="128"
+                     placeholder="qa-test-artifacts"></div>
+            <div class="field"><label for="s-prefix-gcs">Key prefix (optional)</label>
+              <input id="s-prefix-gcs" name="prefix" maxlength="256"
+                     placeholder="testorchestrator/"></div>
+            <div class="field"><label for="s-cred-gcs">Credential reference</label>
+              <input id="s-cred-gcs" name="credential_ref" maxlength="64"
+                     placeholder="approved secret — HMAC 'access:secret'">
+              <small class="muted">Google Cloud Storage
+                <strong>interoperability mode</strong>: HMAC
+                access/secret keys (<code>access_key:secret_key</code>)
+                against <code>storage.googleapis.com</code>. Service-
+                account/JSON API auth is not supported by this
+                mode.</small></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="provider-cfg" data-provider="manual" disabled hidden>
+          <div class="grid-2">
+            <div class="field"><label for="store-endpoint">Endpoint (compatible services)</label>
+              <input id="store-endpoint" name="endpoint_url" maxlength="256"
+                     placeholder="https://s3.storage.example.com"></div>
+            <div class="field"><label for="store-bucket">Bucket</label>
+              <input id="store-bucket" name="bucket" maxlength="128"
+                     placeholder="qa-test-artifacts"></div>
+            <div class="field"><label for="store-prefix">Key prefix (optional)</label>
+              <input id="store-prefix" name="prefix" maxlength="256"
+                     placeholder="testorchestrator/">
+              <small class="muted">The prefix groups TestOrchestrator
+              files inside the bucket. It is not a local filesystem
+              path.</small></div>
+            <div class="field"><label for="store-region">Region (if required)</label>
+              <input id="store-region" name="region" maxlength="64"></div>
+            <div class="field"><label for="store-cred">Credential reference</label>
+              <input id="store-cred" name="credential_ref" maxlength="64"
+                     placeholder="approved secret name — never a value">
+              <small class="muted">Credentials stay masked and
+              reference-based — never embedded in endpoints, previews,
+              or logs.</small></div>
+            <div class="field"><label><input type="checkbox"
+                  name="path_style" value="1"> path-style
+              addressing (some S3-compatible services)</label></div>
+            <div class="field"><label for="store-ca">Custom CA bundle
+              (optional)</label>
+              <input id="store-ca" name="ca_bundle" maxlength="256"
+                     placeholder="/var/lib/testorchestrator/tls/ca.pem">
+              <small class="muted">PEM file on the TestOrchestrator
+              host, inside an administrator-approved storage root.
+              TLS verification is always on — this only changes
+              which certificate authority is trusted.</small></div>
+          </div>
+        </fieldset>
       </fieldset>
     </fieldset>
 
