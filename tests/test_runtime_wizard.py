@@ -132,9 +132,9 @@ def test_katalon_wizard_creates_kre(app, client):
         assert rt.runner_id == rid
 
 
-def test_project_associations_non_kre_only(app, client):
-    """allowed_projects editable for non-KRE; a kre runtime is
-    refused (its association path stays unchanged)."""
+def test_project_associations_all_kinds(app, client):
+    """allowed_projects editable for every runtime kind — for KRE
+    this scopes where its managed credential may be delivered."""
     from tests.conftest import login
     from testorchestrator.execution import Project
     rid = _runner(app)
@@ -159,7 +159,54 @@ def test_project_associations_non_kre_only(app, client):
                 data={"project_ids": [pid]})
     with app.app_context():
         rt = db.session.get(RuntimeConnection, kre_id)
-        assert json.loads(rt.allowed_projects or "[]") == []
+        assert json.loads(rt.allowed_projects or "[]") == [pid]
+
+
+def test_explicit_runtime_pick_enforces_project_scope(app):
+    """A direct runtime_id submission is gated by allowed_projects
+    on both the runtime and its bound target — a project-scoped
+    caller cannot route a run (and for KRE its credential) through
+    an association restricted to other projects."""
+    from testorchestrator import dispatch
+    from testorchestrator.execution import (
+        DiscoveredItem, GitBinding, Project)
+    rid = _runner(app)
+    with app.app_context():
+        pa = Project(name="PA")
+        pb = Project(name="PB")
+        db.session.add_all([pa, pb]); db.session.flush()
+        b = GitBinding(project_id=pa.id, name="b", url="x",
+                       worktree_path="/x", last_synced_sha="sha1",
+                       status="synced")
+        db.session.add(b); db.session.flush()
+        item = DiscoveredItem(binding_id=b.id, project_id=pa.id,
+                              sha="sha1", kind="suite",
+                              path="Test Suites/S1", name="S1",
+                              framework="katalon")
+        db.session.add(item)
+        rt = RuntimeConnection(
+            name="k", runner_id=rid, transport="buildbot-worker",
+            executable_path="/kre", runtime_kind="kre",
+            allowed_projects=json.dumps([pb.id]))
+        db.session.add(rt); db.session.commit()
+        try:
+            dispatch.create_execution(
+                "tester", source_item=item, binding=b,
+                source_sha="sha1",
+                run_config={"runtime_id": rt.id})
+            assert False, "expected project-scope refusal"
+        except dispatch.DispatchError as exc:
+            assert "restricted to other projects" in str(exc)
+        item2 = DiscoveredItem(binding_id=b.id, project_id=pb.id,
+                               sha="sha1", kind="suite",
+                               path="Test Suites/S1", name="S1",
+                               framework="katalon")
+        db.session.add(item2); db.session.commit()
+        ex2 = dispatch.create_execution(
+            "tester", source_item=item2, binding=b,
+            source_sha="sha1",
+            run_config={"runtime_id": rt.id})
+        assert ex2 is not None
 
 
 def test_probe_blocked_runtime_not_dispatchable(app, client):

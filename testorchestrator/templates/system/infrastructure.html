@@ -335,6 +335,29 @@ or license KRE.</p>
                 <button type="button" class="button danger" data-cancel-details>Cancel</button>
               </form></details>
             {% endif %}
+            <details class="inline-details">
+              <summary class="button secondary sm">Projects</summary>
+              <form method="post"
+                    action="{{ url_for('system.runtime_projects',
+                                       runtime_id=rt.id) }}"
+                    class="edit-form">
+                {{ runtime_form.csrf_token }}
+                <div class="field"><label>Allowed projects</label>
+                  {% set rt_projects = rt.allowed_projects | default('[]') %}
+                  {% for p in all_projects %}
+                  <label class="check-label">
+                    <input type="checkbox" name="project_ids"
+                           value="{{ p.id }}"
+                           {% if p.id in rt_projects %}checked{% endif %}>
+                    <span>{{ p.name }}</span></label>
+                  {% endfor %}
+                  <small class="muted">Unchecked all = usable by every
+                    project. Checking any restricts the runtime — and
+                    for KRE, where its credential is delivered — to
+                    the listed projects.</small></div>
+                <button type="submit" class="button">Apply</button>
+                <button type="button" class="button danger" data-cancel-details>Cancel</button>
+              </form></details>
             <form method="post" action="{{ url_for('system.toggle_runtime', runtime_id=rt.id) }}" class="inline">
               {{ runtime_form.csrf_token }}
               <button type="submit" class="button secondary sm">{{ "Disable" if rt.enabled else "Enable" }}</button></form>

@@ -2610,17 +2610,16 @@ def _add_runtime_create_kre(request, runner):
 @system_bp.route("/runtimes/<runtime_id>/projects", methods=["POST"])
 @role_required(Role.ADMIN)
 def runtime_projects(runtime_id):
-    """Manage project associations for a non-KRE runtime profile.
-    Refuses KRE runtimes — their association path is unchanged."""
+    """Manage project associations for a runtime profile. Also applies
+    to KRE: an admin can scope a KRE runtime (and therefore where its
+    managed credential may be delivered) to named projects; the
+    dispatch gate and the run-UI selectors honor the list for every
+    runtime kind."""
     from ..execution import Project, RuntimeConnection
     ApplyForm().validate_on_submit()
     rt = db.session.get(RuntimeConnection, runtime_id)
     if rt is None:
         abort(404)
-    if (rt.runtime_kind or "kre") == "kre":
-        flash("KRE associations are managed by the existing flow — "
-              "this action is for non-KRE runtimes.", "error")
-        return redirect(url_for("system.infrastructure"))
     selected = request.form.getlist("project_ids")
     known = {p.id for p in Project.query.all()}
     rt.allowed_projects = json.dumps(

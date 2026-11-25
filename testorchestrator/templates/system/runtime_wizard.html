@@ -101,6 +101,12 @@ on the selected target.</p>
             {% for s in runtime_secret_names %}
             <option value="{{ s }}">{{ s }}</option>
             {% endfor %}</select>
+          {% if not runtime_secret_names %}
+          <small class="warn">No runtime-kind secrets exist — an
+            administrator must create one under System → Secrets
+            (kind <code>runtime</code>) before managed credential
+            delivery can be used.</small>
+          {% endif %}
         {% elif kind == "kv" %}
           <textarea id="cfg-{{ fw }}-{{ key }}" name="cfg_{{ key }}"
                     rows="3" placeholder="KEY=VALUE"></textarea>

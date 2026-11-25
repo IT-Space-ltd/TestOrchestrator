@@ -515,6 +515,26 @@ def create_execution(username: str, suite: Suite = None,
                                        run_config or {})
         if exec_block:
             raise DispatchError(exec_block)
+        # Project-scope authorization on an explicit pick — the same
+        # gate pick_runtime/pick_runner apply to auto-selection:
+        # a scoped submitter (API token, project member) must not
+        # route a run through a runtime (or its bound target) an
+        # admin restricted to other projects — for KRE runtimes this
+        # also decides where the managed credential may be sent.
+        _rt_allowed = json.loads(_rt.allowed_projects or "[]")
+        if _rt_allowed and project_id not in _rt_allowed:
+            raise DispatchError(
+                f"runtime {_rt.name!r} is restricted to other "
+                "projects — an administrator must associate it "
+                "before it can run this project")
+        if _rt.runner is not None:
+            _rn_allowed = json.loads(
+                _rt.runner.allowed_projects or "[]")
+            if _rn_allowed and project_id not in _rn_allowed:
+                raise DispatchError(
+                    f"target {_rt.runner.name!r} is restricted to "
+                    "other projects — an administrator must "
+                    "associate it before it can run this project")
         # worker_label runtimes are bindings to a removed worker
         # transport. They fail VISIBLY here rather than silently
         # rerouting: the runtime must be re-registered against a
@@ -2704,9 +2724,14 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         # resolved portal-side, written as a per-run 0600 staging
         # file, and SFTP'd into the run workdir as .to_kre_cred —
         # isolated per execution, removed with remote cleanup.
+        # Precedence: a managed credential_ref wins over the legacy
+        # operator-placed credential_file when both are set — the
+        # UI documents the reference as the override, and the managed
+        # path is the supported workflow. The file remains the
+        # fallback when no reference is configured.
         cred_file = runtime.credential_file or ""
         cred_stage = ""
-        if runtime.credential_ref and not cred_file:
+        if runtime.credential_ref:
             try:
                 cred_stage = buildbot_cfg.write_run_credential(
                     ex.id, _resolve_runtime_secret(runtime))
@@ -2750,9 +2775,12 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         # used directly on controller-local workers, delivered by
         # FileDownload to remote workers (build/.to_kre_cred; the
         # exec workdir is build/src so the path is ../.to_kre_cred).
+        # Precedence: managed credential_ref wins over the legacy
+        # operator-placed credential_file (same rule as the SSH
+        # branch) — the reference is the documented override.
         cred_file = runtime.credential_file or ""
         cred_mastersrc = ""
-        if not cred_file and runtime.credential_ref:
+        if runtime.credential_ref:
             try:
                 staged = buildbot_cfg.write_run_credential(
                     ex.id, _resolve_runtime_secret(runtime))
@@ -2764,7 +2792,9 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                 cred_file = staged
             else:
                 cred_mastersrc = staged
-                cred_file = "../.to_kre_cred"
+                # The FileDownload lands inside the prep-created
+                # restricted drop dir (0700 / SYSTEM+Admins DACL).
+                cred_file = "../.to_cred/cred"
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             project_path=".",

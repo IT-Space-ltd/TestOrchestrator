@@ -143,7 +143,12 @@ def _prepare(client, spec) -> None:
             client,
             f"mkdir -p {q(wd)} && "
             f"touch {q(wd)}/.to_write_test && "
-            f"rm -f {q(wd)}/.to_write_test")
+            f"rm -f {q(wd)}/.to_write_test && "
+            # The per-execution workdir is locked to the SSH user
+            # BEFORE any staging — a delivered credential file must
+            # never sit inside a directory other users can list/read,
+            # not even between put and chmod.
+            f"chmod 700 {q(wd)}")
         if rc != 0:
             detail = (err or out).strip()
             raise RuntimeError(

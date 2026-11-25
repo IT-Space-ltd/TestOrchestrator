@@ -440,11 +440,16 @@ def kre_exec_spec(ex, runtime, args: list,
 def write_run_credential(execution_id: str, value: str) -> str:
     """Controller-local runs (to-local worker): portal resolves the
     runtime credential to a per-run 0600 file the wrapper reads — the
-    value never enters properties/argv/logs."""
-    staging_dir().mkdir(parents=True, exist_ok=True)
-    path = staging_dir() / f"{execution_id}.cred"
-    path.write_text(value)
-    os.chmod(path, 0o600)
+    value never enters properties/argv/logs. Mode is applied at
+    creation (umask-independent) so secret bytes are never written
+    to a readable file."""
+    sd = staging_dir()
+    sd.mkdir(parents=True, exist_ok=True)
+    os.chmod(sd, 0o700)
+    path = sd / f"{execution_id}.cred"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(value)
     return str(path)
 
 
