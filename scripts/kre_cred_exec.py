@@ -200,13 +200,25 @@ def main(argv: list) -> int:
         _fail("KRE executable not found at the configured path")
     # argv list only — Popen, no shell. Child output is scrubbed so the
     # coordinator's own step capture never persists the value.
+    # POSIX: run the engine in its own process group so a kill signal
+    # reaches the whole tree — katalonc is a launcher whose java
+    # children would otherwise survive the wrapper's death and keep
+    # holding the license (the Windows equivalent is the kill-on-close
+    # job object in _assign_kill_on_close).
     proc = subprocess.Popen(
         [katalonc, *kre_args, "-apiKey=" + key.decode()],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        start_new_session=(os.name != "nt"))
     _job = _assign_kill_on_close(proc) if os.name == "nt" else None
 
     def _term(_sig, _frm):
-        proc.terminate()
+        if os.name == "nt":
+            proc.terminate()
+        else:
+            try:
+                os.killpg(proc.pid, signal.SIGTERM)
+            except (ProcessLookupError, PermissionError):
+                proc.terminate()
 
     signal.signal(signal.SIGTERM, _term)
     signal.signal(signal.SIGINT, _term)

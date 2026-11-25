@@ -341,6 +341,96 @@ def test_kre_buildbot_failure_classifies_license(
         assert "license" in ex.error_text.lower()
 
 
+def test_kre_ssh_failure_classifies_via_run_out(
+        app, monkeypatch, tmp_path):
+    """Agentless-SSH runs have no worker step log — the remote output
+    lands as a run.out artifact. Classification must read it: a
+    missing credential is 'license', never bare 'infrastructure'."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 2,
+                          "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub,
+                               target_type="ssh")
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.DISPATCHED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        src = buildbot_cfg.artifacts_dir() / ex.id
+        src.mkdir(parents=True)
+        (src / "run.out").write_text(
+            "Activation failed: No Offline License or you have "
+            "forgot to put in your -apiKey command for online "
+            "activation.\nKRE exit code: 2\n")
+        stub.run_log = lambda *a, **k: ""  # no 'ssh-run' step match
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "license"
+        assert "license" in ex.error_text.lower()
+
+
+def test_failed_ssh_run_confirms_remote_death(
+        app, monkeypatch, tmp_path):
+    """A failed/timed-out SSH run leaves the detached remote group
+    running — terminal failure must confirm remote death (§6 timeout
+    stops the full process tree)."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 2,
+                          "claimed": True}
+    kills = []
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        monkeypatch.setattr(d, "_ssh_remote_cancel",
+                            lambda ex: kills.append(ex.id) or True)
+        rid, rtid, diid = _env(app, monkeypatch, stub,
+                               target_type="ssh")
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.DISPATCHED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert kills == [ex.id]
+        assert "[ssh remote group terminated]" in ex.error_text
+
+
+def test_redrive_cancels_reissues_until_complete(
+        app, monkeypatch, tmp_path):
+    """request_cancel's buildrequest cancel is best-effort — a
+    transient failure must not strand the remote run: each tick
+    re-issues cancel while the buildrequest stays incomplete."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": False, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.CANCEL_REQUESTED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        assert d._redrive_cancels() == 1
+        assert stub.cancels == ["7"]
+        # Already-complete buildrequests are left alone.
+        stub.br_state["7"] = {"complete": True, "results": 6}
+        assert d._redrive_cancels() == 0
+        assert stub.cancels == ["7"]
+
+
 def test_kre_classify_ignores_benign_testcloud_fallback():
     """KRE logs "Failed to activate with TestCloud license" in every
     run before acquiring the KRE license. A run that activates fine
@@ -401,6 +491,17 @@ def test_kre_classify_ignores_benign_testcloud_fallback():
     assert kre.classify_error(
         testfail, "Test suite 'TS2' — Test Cases/TC3 FAILED: "
         "element not found on page") != "config"
+
+    # A truncated tail can lose the "Activated successfully" line
+    # while keeping stray "Failed to activate with TestCloud" noise —
+    # the suite-not-found marker only appears after activation, so it
+    # outranks generic license words.
+    truncated = InvocationResult(exit_status=4)
+    assert kre.classify_error(
+        truncated,
+        "Failed to activate with TestCloud license. "
+        "Test suite 'Test Suites/NOPE' not found. "
+        "KRE exit code: 4") == "config"
 
 
 def test_kre_exec_spec_staged_helper(app):

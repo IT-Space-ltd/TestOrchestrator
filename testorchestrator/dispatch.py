@@ -987,8 +987,13 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
             if transport == "buildbot":
                 # One call covers queued AND running (verified 4.3.0):
                 # a claimed buildrequest's cancel stops the build and
-                # the worker kills the remote process tree.
-                BuildbotAdapter.from_settings().cancel(_bb_brid(ex))
+                # the worker kills the remote process tree. A refused
+                # call is surfaced — _redrive_cancels re-issues it each
+                # tick until the buildrequest completes.
+                if not BuildbotAdapter.from_settings().cancel(
+                        _bb_brid(ex)):
+                    reason = (reason + " " if reason else "") \
+                        + "[buildrequest cancel unconfirmed]"
         except Exception:
             pass  # flag + lease expiry still bound the run
     # Agentless-SSH runs detach via setsid and the buildbot worker
@@ -3320,6 +3325,34 @@ def _resolve_unlaunched_cancels() -> int:
     return n
 
 
+def _redrive_cancels() -> int:
+    """Re-issue buildrequest cancels for CANCEL_REQUESTED executions
+    whose run is still live — request_cancel's call is best-effort and
+    a transient orchestrator error must not strand the remote run for
+    the full timeout_s. Idempotent: cancelling an already-complete or
+    already-cancelled buildrequest is a no-op."""
+    n = 0
+    adapter = None
+    for ex in Execution.query.filter(
+            Execution.state == ExecutionState.CANCEL_REQUESTED,
+            Execution.role != "parent",
+            Execution.dispatch_id.like("bb:%")).all():
+        if adapter is None:
+            try:
+                adapter = BuildbotAdapter.from_settings()
+            except Exception:
+                break
+        try:
+            br = adapter.buildrequest(_bb_brid(ex))
+            if not br or br.get("complete"):
+                continue
+            adapter.cancel(_bb_brid(ex))
+            n += 1
+        except Exception:
+            continue  # orchestrator unreachable — retry next cycle
+    return n
+
+
 def _redrive_queued_remote(limit: int = 10) -> int:
     """Capacity-blocked executions: their dispatch outbox event is
     consumed once — a lost capacity CAS or a no-runner tick must not
@@ -3370,7 +3403,7 @@ def worker_once() -> int:
             pass  # orchestrator unreachable — retry next cycle
     n += (reconcile_stale() + fire_due_schedules() + process_outbox()
           + enforce_plan_policies() + _resolve_unlaunched_cancels()
-          + aggregate_parent_runs()
+          + _redrive_cancels() + aggregate_parent_runs()
           + _release_terminal_reservations() + _expire_queue_deadlines()
           + _enqueue_terminal_notifications()
           + _heartbeat_local_runners() + _redrive_queued_remote())
@@ -3556,12 +3589,20 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                     (rt0.runtime_kind or "kre") == "kre":
                 # KRE failure kinds come from the run log (license,
                 # config, infrastructure) — a bare results=FAILURE
-                # alone is not an actionable classification.
-                try:
-                    tail = (log_dir / "kre-remote-run.log") \
-                        .read_text(errors="replace")[-4000:]
-                except OSError:
-                    tail = ""
+                # alone is not an actionable classification. SSH runs
+                # capture the remote output as a run.out artifact
+                # instead of a worker step log; both sources are
+                # combined because each truncation window can lose a
+                # marker the other still holds.
+                parts = []
+                for cand in (log_dir / "kre-remote-run.log",
+                             report_dir / "run.out"):
+                    try:
+                        parts.append(cand.read_text(
+                            errors="replace")[-4000:])
+                    except OSError:
+                        continue
+                tail = "\n".join(parts)
                 class _R:  # classify_error reads .canceled/.timed_out/.exit_status
                     canceled = False
                     timed_out = False
@@ -3619,6 +3660,18 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
             ex.error_text = (f"buildbot run {ex.dispatch_id} ended "
                              f"results={results_code} with no result "
                              f"data{detail}")
+        # Agentless-SSH runs detach via setsid: a timed-out or failed
+        # dispatcher leaves the remote process group running (license
+        # still held) unless the portal kills it directly. Terminal
+        # failure must confirm remote death — returns None for non-SSH
+        # executions (no spec file), True when nothing survived.
+        ssh_kill = _ssh_remote_cancel(ex)
+        if ssh_kill is True:
+            ex.error_text = ((ex.error_text or "")
+                             + " [ssh remote group terminated]")
+        elif ssh_kill is False:
+            ex.error_text = ((ex.error_text or "")
+                             + " [ssh remote kill UNCONFIRMED]")
     db.session.commit()
 
 

@@ -370,6 +370,22 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
             "invalid api key", "incorrect api key",
             "no license available", "insufficient license")):
         return "license"
+    # Bad project/config markers — but never the argv echo: the
+    # logged invocation always carries "-projectPath=<dir>", which is
+    # data, not an error. Real KRE complaints phrase the path problem
+    # out, so the bare "projectpath" substring is only meaningful when
+    # it is not the "-projectPath=" option itself. These markers only
+    # appear AFTER activation succeeds, so they outrank the generic
+    # license text below — a truncated tail can lose the
+    # "Activated successfully" line while keeping stray
+    # "Failed to activate with TestCloud" noise.
+    if any(s in text for s in ("no such file", "cannot find project",
+                               "project not found", "invalid project")) \
+            or ("projectpath" in text and "projectpath=" not in text) \
+            or re.search(
+                r"test suite(?: collection)? '[^']*' not found",
+                text) is not None:
+        return "config"
     # Generic license text only counts when the KRE license was never
     # acquired — a successful activation proves licensing was not the
     # failure.
@@ -378,18 +394,6 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
                 s in text for s in ("license", "licence",
                                     "activation"))):
         return "license"
-    # Bad project/config markers — but never the argv echo: the
-    # logged invocation always carries "-projectPath=<dir>", which is
-    # data, not an error. Real KRE complaints phrase the path problem
-    # out, so the bare "projectpath" substring is only meaningful when
-    # it is not the "-projectPath=" option itself.
-    if any(s in text for s in ("no such file", "cannot find project",
-                               "project not found", "invalid project")) \
-            or ("projectpath" in text and "projectpath=" not in text) \
-            or re.search(
-                r"test suite(?: collection)? '[^']*' not found",
-                text) is not None:
-        return "config"
     if result.exit_status not in (0, 1):
         return "infrastructure"
     return ""
