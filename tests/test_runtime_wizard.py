@@ -1,6 +1,7 @@
-"""M16 Add Runtime wizard — non-KRE runtime profiles. KRE stays
-out of the flow; framework-adapted fields land in config_json;
-incompatible hidden fields are dropped server-side."""
+"""M16 Add Runtime wizard — runtime profiles, KRE included. The
+katalon profile maps onto the KRE RuntimeConnection columns;
+framework-adapted fields land in config_json; incompatible hidden
+fields are dropped server-side."""
 
 import json
 
@@ -17,21 +18,20 @@ def _runner(app, name="w1", kind="buildbot-worker"):
         return r.id
 
 
-def test_wizard_lists_frameworks_no_kre(app, client):
-    """Step 1 offers all non-KRE frameworks — never KRE."""
+def test_wizard_lists_frameworks_incl_kre(app, client):
+    """Step 1 offers every framework including KRE (katalon)."""
     from tests.conftest import login
     _runner(app)
     login(client, "admin")
     body = client.get("/system/infrastructure/add-runtime").get_data(
         as_text=True)
-    for fw in ("pytest", "pytest-bdd", "behave", "robot", "jest",
-               "playwright", "playwright-pytest", "cypress",
+    for fw in ("katalon", "pytest", "pytest-bdd", "behave", "robot",
+               "jest", "playwright", "playwright-pytest", "cypress",
                "gtest", "postman", "bruno"):
         assert f'value="{fw}"' in body, fw
-    assert 'value="katalon"' not in body
-    assert 'value="kre"' not in body
     assert "Engine" in body                    # postman engine field
     assert "does not install software" in body
+    assert "Credential reference" in body      # kre secret select
 
 
 def test_create_profile_pytest(app, client):
@@ -79,17 +79,57 @@ def test_postman_requires_engine(app, client):
         assert rt.config()["engine"] == "postman-cli"
 
 
-def test_katalon_rejected(app, client):
-    """framework=katalon (or kre) is refused — KRE keeps its own
-    flow, untouched (§1 hard boundary)."""
+def test_unknown_framework_rejected(app, client):
+    """Bogus/non-profile frameworks are refused."""
     from tests.conftest import login
     rid = _runner(app)
     login(client, "admin")
-    for fw in ("katalon", "kre", "bogus"):
+    for fw in ("kre", "bogus"):
         client.post("/system/infrastructure/add-runtime", data={
             "framework": fw, "runner_id": rid, "name": "x"})
     with app.app_context():
         assert RuntimeConnection.query.count() == 0
+
+
+def test_katalon_wizard_creates_kre(app, client):
+    """framework=katalon maps onto the KRE columns — exec path is
+    required, credential_ref validated, concurrency parsed."""
+    from tests.conftest import login
+    from testorchestrator.secrets_store import store_secret
+    rid = _runner(app)
+    with app.app_context():
+        store_secret(app, "kre-key", "runtime", "AK-123")
+    login(client, "admin")
+    # missing executable → refused
+    client.post("/system/infrastructure/add-runtime", data={
+        "framework": "katalon", "runner_id": rid, "name": "k"})
+    # bad credential ref → refused
+    client.post("/system/infrastructure/add-runtime", data={
+        "framework": "katalon", "runner_id": rid, "name": "k",
+        "cfg_exec_path": "/usr/local/bin/katalonc",
+        "cfg_credential_ref": "nope-404"})
+    # bad concurrency → refused
+    client.post("/system/infrastructure/add-runtime", data={
+        "framework": "katalon", "runner_id": rid, "name": "k",
+        "cfg_exec_path": "/usr/local/bin/katalonc",
+        "cfg_concurrency": "zero"})
+    with app.app_context():
+        assert RuntimeConnection.query.count() == 0
+    # valid → kre runtime with the mapped columns
+    client.post("/system/infrastructure/add-runtime", data={
+        "framework": "katalon", "runner_id": rid, "name": "k",
+        "cfg_exec_path": "/usr/local/bin/katalonc",
+        "cfg_credential_ref": "kre-key",
+        "cfg_credential_file": "/opt/to/cred/k.txt",
+        "cfg_concurrency": "2"})
+    with app.app_context():
+        rt = RuntimeConnection.query.one()
+        assert rt.runtime_kind == "kre"
+        assert rt.executable_path == "/usr/local/bin/katalonc"
+        assert rt.credential_ref == "kre-key"
+        assert rt.credential_file == "/opt/to/cred/k.txt"
+        assert rt.concurrency == 2
+        assert rt.runner_id == rid
 
 
 def test_project_associations_non_kre_only(app, client):

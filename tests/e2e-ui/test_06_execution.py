@@ -74,10 +74,10 @@ def _register_runtime(page, name, kind, runner_text, exe, cred_file):
     if name in page.inner_text("body"):
         return
     page.locator("summary",
-                 has_text="Register a test runtime").click()
+                 has_text="Add Runtime (Manual)").click()
     form = page.locator(
-        "details.block-details:has(summary:text('Register a test "
-        "runtime')) form")
+        "details.block-details:has(summary:text('Add Runtime "
+        "(Manual)')) form")
     form.locator("select[name=runtime_kind]").select_option(kind)
     form.locator("input[name=name]").fill(name)
     form.locator("input[name=exec_location][value=remote]").check()

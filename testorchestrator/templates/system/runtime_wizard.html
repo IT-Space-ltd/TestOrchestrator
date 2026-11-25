@@ -5,8 +5,9 @@
 <h1>Add Runtime</h1>
 <p class="muted">A runtime tells TestOrchestrator which installed
 tools to use on a worker or SSH target. <strong>Adding a runtime
-does not install software.</strong> KRE is added through the
-existing Add KRE flow — it is not offered here.</p>
+does not install software.</strong> KRE (Katalon Runtime Engine)
+is included — KRE itself must already be installed and licensed
+on the selected target.</p>
 
 <form method="post" id="runtime-wizard"
       action="{{ url_for('system.add_runtime_create') }}">
@@ -88,6 +89,12 @@ existing Add KRE flow — it is not offered here.</p>
           <select id="cfg-{{ fw }}-{{ key }}" name="cfg_{{ key }}">
             {% for val, lbl in sandbox_choices %}
             <option value="{{ val }}">{{ lbl }}</option>
+            {% endfor %}</select>
+        {% elif kind == "secret" %}
+          <select id="cfg-{{ fw }}-{{ key }}" name="cfg_{{ key }}">
+            <option value="">(none)</option>
+            {% for s in runtime_secret_names %}
+            <option value="{{ s }}">{{ s }}</option>
             {% endfor %}</select>
         {% elif kind == "kv" %}
           <textarea id="cfg-{{ fw }}-{{ key }}" name="cfg_{{ key }}"

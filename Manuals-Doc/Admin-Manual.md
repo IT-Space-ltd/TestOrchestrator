@@ -1582,7 +1582,7 @@ target, once, before registering.
 6. **Execution location** = *On another machine* → pick your worker
    in **Remote runner** (e.g. `ci-worker-01`).
 
-   ![Register a test runtime — remote runner picker](Screenshot-Doc/admin/runtime-new-remote.png)
+   ![Add Runtime (Manual) — remote runner picker](Screenshot-Doc/admin/runtime-new-remote.png)
 
 7. **Executable location** — the interpreter path *as it exists on
    the worker*, e.g. `/opt/robot-venv/bin/python` or
@@ -1612,7 +1612,7 @@ target, once, before registering.
    /opt/robot-venv/bin/python -m robot --version
    ```
 
-3. Portal: **Admin → Infrastructure → Register a test runtime** →
+3. Portal: **Admin → Infrastructure → Add Runtime (Manual)** →
    Runner type `Robot Framework (Python)`, name (e.g. `robot-ssh01`),
    **On another machine** → pick the SSH target in **Remote runner**.
 4. **Executable location** = `/opt/robot-venv/bin/python` — the path
@@ -1669,7 +1669,7 @@ Only what you install and register differs.
    C:\to\pytest-venv\Scripts\python.exe -m pytest --version
    ```
 
-2. Portal → **Admin → Infrastructure → Register a test runtime**.
+2. Portal → **Admin → Infrastructure → Add Runtime (Manual)**.
 3. **Runner type** = `pytest (Python)`; **Name** e.g.
    `pytest-ci01`; **On another machine** → your worker.
 4. **Executable location** = `/opt/pytest-venv/bin/python` (or the
@@ -1687,7 +1687,7 @@ Only what you install and register differs.
    /opt/pytest-venv/bin/python -m pytest --version
    ```
 
-2. **Register a test runtime** → `pytest (Python)` → **On another
+2. **Add Runtime (Manual)** → `pytest (Python)` → **On another
    machine** → pick the SSH target → **Executable location** =
    `/opt/pytest-venv/bin/python` on *that* host → Apply →
    **Check runner readiness** over SSH.
@@ -1737,7 +1737,7 @@ browsers: you provision all three on the target first (§6.6).
    Windows worker: same commands in PowerShell;
    `npx playwright install` (no `--with-deps` needed on Windows).
 
-2. Portal → **Admin → Infrastructure → Register a test runtime**.
+2. Portal → **Admin → Infrastructure → Add Runtime (Manual)**.
 3. **Runner type** = `Playwright Test (Node.js)`; **Name** e.g.
    `pw-ci01`; **On another machine** → your worker.
 4. **Executable location** — the `npx` binary *on the worker*
@@ -1764,7 +1764,7 @@ browsers: you provision all three on the target first (§6.6).
    for the system packages — run it once with sudo, browsers stay
    usable for the account afterwards.
 
-2. **Register a test runtime** → `Playwright Test (Node.js)` →
+2. **Add Runtime (Manual)** → `Playwright Test (Node.js)` →
    **On another machine** → the SSH target → executable = the
    host's `npx` path (empty = PATH lookup) → Apply →
    **Check runner readiness** over SSH/SFTP.
@@ -1811,7 +1811,7 @@ different browser set.
    npx cypress version
    ```
 
-2. **Admin → Infrastructure → Register a test runtime** →
+2. **Admin → Infrastructure → Add Runtime (Manual)** →
    `Cypress E2E (Node.js)` → name e.g. `cy-ci01` → **On another
    machine** → your worker → executable = worker's `npx` path
    (empty = PATH) → Apply → **Check runner readiness**.
@@ -1820,7 +1820,7 @@ different browser set.
 
 1. As the SSH account: the same `node`/`npx`/`npm ci`/`npx cypress
    verify` sequence on the SSH host.
-2. **Register a test runtime** → `Cypress E2E (Node.js)` → **On
+2. **Add Runtime (Manual)** → `Cypress E2E (Node.js)` → **On
    another machine** → the SSH target → `npx` path on that host →
    Apply → **Check runner readiness**.
 

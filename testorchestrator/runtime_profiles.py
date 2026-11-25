@@ -1,8 +1,10 @@
 """Runtime-profile registry for the guided Add Runtime wizard (M16).
 
-Maps each supported NON-KRE framework to the toolchain fields the
+Maps each supported framework to the toolchain fields the
 wizard shows, contextual examples, and engine choices. KRE is
-deliberately absent — the existing Add KRE flow is untouched.
+included as the "katalon" profile — it maps onto the existing KRE
+RuntimeConnection fields (credential_ref delivery, legacy
+credential_file, concurrency), not config_json.
 
 A runtime profile = an approved toolchain + execution settings bound
 to one execution target (Runner). It holds reusable settings only;
@@ -13,9 +15,41 @@ repository-specific settings stay on the framework project.
 #   path   — absolute path on the TARGET host
 #   text   — free text
 #   select — fixed choices
+#   secret — a 'runtime'-kind secrets-store reference (never a value)
 #   kv     — approved environment overrides (KEY=VALUE lines)
 
 RUNTIME_PROFILES = {
+    "katalon": {
+        "label": "KRE — Katalon Runtime Engine",
+        "desc": "Katalon Runtime Engine (katalonc) — runs Katalon "
+                "Studio test suites and collections on the selected "
+                "target. KRE itself must be installed and licensed "
+                "on that host; the wizard never installs it.",
+        "fields": [
+            ("exec_path", "path", "KRE executable (katalonc)",
+             "Required. Absolute path on the target. Linux example: "
+             "/usr/local/bin/katalonc — Windows example: "
+             "C:\\Katalon\\Katalon_Studio_Engine\\katalonc.exe"),
+            ("credential_ref", "secret", "Credential reference",
+             "Recommended when KRE authenticates with an API key. "
+             "Name of a 'runtime'-kind secret (System → Secrets) — "
+             "delivered to the target per execution and removed "
+             "afterwards; the value is never shown. Example: "
+             "kre-api-key"),
+            ("credential_file", "text",
+             "Credential file on target (legacy)",
+             "Optional legacy mode: absolute path to an "
+             "operator-placed 0600 key file on the target — prefer a "
+             "credential reference, which needs no manual file "
+             "placement. Linux example: "
+             "/opt/to/cred/kre-api-key.txt — Windows example: "
+             "C:\\to\\cred\\kre-api-key.txt"),
+            ("concurrency", "text", "Max parallel sessions",
+             "Required. Integer ≥ 1, capped by the worker's free "
+             "slots. Example: 1 — a KRE licence typically allows "
+             "one session per key."),
+        ],
+    },
     "pytest": {
         "label": "pytest",
         "desc": "Python test framework — runs inside a project "

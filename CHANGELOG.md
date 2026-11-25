@@ -169,9 +169,11 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   - The legacy `credential_file` (operator-placed 0600 file on the
     target) remains supported for compatibility — it is no longer
     required or default.
-  - UI: "Register KRE" flow gained per-field platform examples and
-    a credential-reference selector; connection-requirements help
-    no longer overflows.
+  - UI: the manual runtime form gained per-field platform examples
+    and a credential-reference selector; connection-requirements
+    help no longer overflows. Infrastructure buttons are now "Add
+    Runtime (Guided)" (the framework wizard — KRE included) and
+    "Add Runtime (Manual)".
 
 ### Dependencies
 

@@ -2466,19 +2466,25 @@ def _wizard_targets():
 @system_bp.route("/infrastructure/add-runtime")
 @role_required(Role.ADMIN)
 def add_runtime_wizard():
-    """Guided runtime-profile creation for non-KRE frameworks.
+    """Guided runtime-profile creation, KRE included.
 
     A runtime tells TestOrchestrator which installed tools to use on
-    a worker or SSH target — adding one never installs software.
-    KRE is deliberately absent: the existing Add KRE flow is
-    untouched."""
+    a worker or SSH target — adding one never installs software."""
     from ..runtime_profiles import RUNTIME_PROFILES, sandbox_choices
+    from ..secrets_store import list_secret_meta
+    try:
+        runtime_secret_names = sorted(
+            s["name"] for s in list_secret_meta()
+            if s["kind"] == "runtime")
+    except Exception:
+        runtime_secret_names = []
     return render_template(
         "system/runtime_wizard.html",
         apply_form=ApplyForm(),
         profiles=RUNTIME_PROFILES,
         sandbox_choices=sandbox_choices(),
         targets=_wizard_targets(),
+        runtime_secret_names=runtime_secret_names,
         selected_fw=(request.args.get("framework") or ""))
 
 
@@ -2494,9 +2500,8 @@ def add_runtime_create():
     ApplyForm().validate_on_submit()
     framework = (request.form.get("framework") or "").strip()
     prof = profile(framework)
-    if framework == "katalon" or prof is None:
-        flash("Unknown framework — KRE is added through the existing "
-              "Add KRE flow, not this wizard.", "error")
+    if prof is None:
+        flash("Unknown framework.", "error")
         return redirect(url_for("system.add_runtime_wizard"))
     runner = db.session.get(Runner,
                             (request.form.get("runner_id") or ""))
@@ -2505,6 +2510,8 @@ def add_runtime_create():
               "wizard never provisions hosts.", "error")
         return redirect(url_for(
             "system.add_runtime_wizard", framework=framework))
+    if framework == "katalon":
+        return _add_runtime_create_kre(request, runner)
     cfg = {}
     for key, _kind, _label, _help in prof["fields"]:
         v = (request.form.get(f"cfg_{key}") or "").strip()
@@ -2546,6 +2553,57 @@ def add_runtime_create():
           "Run Check readiness before using it; project "
           "compatibility is validated when a repository is "
           "connected.", "info")
+    return redirect(url_for("system.infrastructure"))
+
+
+def _add_runtime_create_kre(request, runner):
+    """Wizard creation for a KRE runtime — the katalon profile maps
+    onto the existing RuntimeConnection columns (executable_path,
+    credential_ref, legacy credential_file, concurrency), not
+    config_json."""
+    from ..execution import RuntimeConnection
+    exe = (request.form.get("cfg_exec_path") or "").strip()[:512]
+    if not exe:
+        flash("KRE requires the executable path on the selected "
+              "target (katalonc / katalonc.exe).", "error")
+        return redirect(url_for(
+            "system.add_runtime_wizard", framework="katalon"))
+    cred_ref = (request.form.get("cfg_credential_ref") or "").strip()
+    cred_err = _runtime_cred_ref_error(cred_ref)
+    if cred_err:
+        flash(f"Credential reference rejected — {cred_err}", "error")
+        return redirect(url_for(
+            "system.add_runtime_wizard", framework="katalon"))
+    try:
+        conc = int((request.form.get("cfg_concurrency") or "1").strip())
+        assert conc >= 1
+    except (ValueError, AssertionError):
+        flash("Max parallel sessions must be an integer ≥ 1.",
+              "error")
+        return redirect(url_for(
+            "system.add_runtime_wizard", framework="katalon"))
+    rt = RuntimeConnection(
+        name=(request.form.get("name") or "").strip()[:128]
+            or f"KRE @ {runner.name}",
+        description=(request.form.get("description") or "")[:1024],
+        runner_id=runner.id,
+        transport=runner.target_type,
+        executable_path=exe,
+        workspace_root=(request.form.get("workspace_root")
+                        or "").strip()[:512],
+        credential_ref=cred_ref,
+        credential_file=(request.form.get("cfg_credential_file")
+                         or "").strip()[:512],
+        concurrency=conc,
+        runtime_kind="kre",
+        readiness_state="not-checked")
+    db.session.add(rt)
+    db.session.commit()
+    record_audit(current_user.username, "runtime.wizard_created",
+                 f"{rt.id} katalon on {runner.name}")
+    flash(f"KRE runtime {rt.name!r} saved — run its Check to probe "
+          "the executable, launcher, and credential delivery on the "
+          "target before using it.", "info")
     return redirect(url_for("system.infrastructure"))
 
 

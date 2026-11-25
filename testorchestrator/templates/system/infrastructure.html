@@ -378,12 +378,12 @@ or license KRE.</p>
     associated with a worker.</p></div>
   {% endif %}
   <div class="btn-row">
-    <a class="button primary" href="{{ url_for('system.add_runtime_wizard') }}">Add Runtime</a>
-    <small class="muted">Guided setup for non-KRE frameworks — a
-      runtime names the installed tools to use on a target; adding
-      one never installs software.</small>
+    <a class="button primary" href="{{ url_for('system.add_runtime_wizard') }}">Add Runtime (Guided)</a>
+    <small class="muted">Guided setup — a runtime names the installed
+      tools to use on a target; adding one never installs
+      software.</small>
   </div>
-  <details class="block-details"><summary class="button">Register KRE</summary>
+  <details class="block-details"><summary class="button">Add Runtime (Manual)</summary>
   <form method="post" action="{{ url_for('system.create_runtime') }}">
     {{ runtime_form.csrf_token }}
     <div class="field"><label>Runner type</label>
