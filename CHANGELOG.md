@@ -39,6 +39,25 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   artifacts keep their original store reference and stay retrievable
   after destination changes.
 
+- **Object Storage Provider selector.** The artifact-store form now
+  offers Amazon S3 / Azure Blob Storage / Google Cloud Storage /
+  Other S3-compatible with per-provider fieldsets and a store-edit
+  flow. Azure Blob uses the documented REST API (Shared Key or SAS,
+  no new dependency — `requests`); GCS uses its official XML-API/HMAC
+  interop on the existing boto3 stack. Live PUT/GET against Azure/GCS
+  is not covered by an emulator on this environment — see the storage
+  verification report.
+
+- **Runtime concurrency enforcement.** A KRE runtime's saved "Max
+  parallel sessions" is now effective at dispatch: executions beyond
+  the cap stay queued with a capacity reason instead of starting
+  uncontrolled processes. The cap is checked under the same atomic
+  claim as runner slot assignment, so simultaneous submissions cannot
+  over-admit; capacity is only released on confirmed termination or
+  explicit reconcile — an SSH disconnect never frees a slot. Configured
+  capacity stays distinct from KRE license entitlement, which the
+  product does not probe.
+
 - **Separate retention policies.** Artifact files and execution
   metadata/parsed summaries now have independent retention (global
   defaults + per-project overrides; operational logs keep their
@@ -51,6 +70,19 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
 
 ### Fixed
 
+- **KRE credential delivery hardening.** Delivered credentials now
+  land inside a prep-created restricted drop dir (`build/.to_cred`:
+  0700 on POSIX, SYSTEM+Administrators DACL on Windows) instead of a
+  window where the file was briefly world-readable; the POSIX writer
+  applies its mode at `open()` time and SSH workdirs are chmod 700
+  before staging. `credential_ref` correctly wins over the legacy
+  `credential_file` when both are set, matching the documented
+  precedence.
+- **Project-scope authorization on runtime picks.** An explicit
+  `runtime_id` in a run request now enforces the runtime's
+  `allowed_projects` (and the bound runner's) — the check previously
+  applied only to auto-picked runtimes. KRE runtimes can also be
+  associated to projects through the same route as other kinds.
 - **Buildbot web UI theming.** The bundled Buildbot UI now uses the
   product palette via `www.theme` (`bb-sidebar-*` variables mapped to
   the app's `--sidebar-bg`/`--sidebar-fg`/accent values) instead of
