@@ -51,6 +51,16 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
 
 ### Fixed
 
+- **Project dashboard chart blowout.** The daily pass/fail bars on
+  a project's Dashboard tab were sized `2 + count × 14` px with no
+  normalization — a busy day produced ~1300px columns inside the
+  90px chart. Bar segments now scale to the peak day's total and
+  the chart box clips overflow.
+- **Guided-wizard framework picker alignment.** Step 1 radios
+  inherited the global `.field input { width: 100% }` rule,
+  leaving each radio detached full-width above its label. The
+  picker is now a grid of clickable tiles (radio + name +
+  description per card) with an accent highlight on the selection.
 - **Real-framework matrix defects** (found during Linux worker +
   SSH-only acceptance against real toolchains):
   - Discovery glob engine could not evaluate minimatch extglobs
@@ -173,7 +183,11 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
     and a credential-reference selector; connection-requirements
     help no longer overflows. Infrastructure buttons are now "Add
     Runtime (Guided)" (the framework wizard — KRE included) and
-    "Add Runtime (Manual)".
+    "Add Runtime (Manual)". The guided wizard offers a Katalon
+    profile: executable path plus a `secret`-kind field rendered
+    as a select of `runtime`-kind secrets, mapping onto the KRE
+    runtime columns (`executable_path`, `credential_ref`,
+    `credential_file`, `concurrency`).
 
 ### Dependencies
 
