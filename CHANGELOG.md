@@ -85,6 +85,23 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   before staging. `credential_ref` correctly wins over the legacy
   `credential_file` when both are set, matching the documented
   precedence.
+- **KRE credential-error acceptance defects.** Three defects found by
+  the credential-error acceptance matrix on the remote POSIX PB
+  transport: a KRE runtime with neither `credential_ref` nor
+  `credential_file` launched KRE with no `-apiKey` and reported
+  COMPLETED (now fails `config` before any transport work);
+  `kre_cred_exec.sh` rejected the delivered `../.to_cred/cred` path
+  form so every credentialed KRE run on a remote POSIX PB worker
+  failed (now accepts absolute paths or the per-run `../<name>` form);
+  and `kre_cred_exec:` errors were unconditionally classified `config`
+  (credential value/content problems stay `config`; file, permission,
+  and missing-executable problems now classify `infrastructure`).
+- **Busy runtimes no longer fail auto-picked executions.**
+  `pick_runtime` excluded any runtime at its concurrency cap, so a
+  queued execution on a single-capacity runtime failed "no enabled
+  compatible runtime" instead of waiting for the slot. Auto-pick now
+  prefers runtimes with free capacity but falls back to a busy one —
+  the capacity claim holds the execution QUEUED.
 - **Project-scope authorization on runtime picks.** An explicit
   `runtime_id` in a run request now enforces the runtime's
   `allowed_projects` (and the bound runner's) — the check previously
