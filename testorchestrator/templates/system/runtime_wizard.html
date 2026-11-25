@@ -15,13 +15,18 @@ on the selected target.</p>
 
   <section class="card">
     <h2>Step 1 — Choose framework</h2>
-    {% for fw, p in profiles.items() %}
-    <div class="field">
-      <label><input type="radio" name="framework" value="{{ fw }}"
-             {% if selected_fw == fw %}checked{% endif %} required>
-        <strong>{{ p.label }}</strong></label>
-      <small class="muted">{{ p.desc }}</small></div>
-    {% endfor %}
+    <div class="fw-grid">
+      {% for fw, p in profiles.items() %}
+      <label class="fw-tile">
+        <input type="radio" name="framework" value="{{ fw }}"
+               {% if selected_fw == fw %}checked{% endif %} required>
+        <span class="fw-tile-body">
+          <strong>{{ p.label }}</strong>
+          <small class="muted">{{ p.desc }}</small>
+        </span>
+      </label>
+      {% endfor %}
+    </div>
   </section>
 
   <section class="card">
