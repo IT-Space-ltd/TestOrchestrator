@@ -1022,8 +1022,15 @@ on port 443 to Katalon.
   only) — the administrator places the credential file on the
   worker/remote host and sets `credential_file` to its path.
 - **How it reaches KRE:** the execution spec invokes
-  `kre_cred_exec.py` (shipped with the product; staged to the remote
-  workdir on SSH targets) with the credential-file path. The wrapper
+  `kre_cred_exec.py` (shipped with the product) with the
+  credential-file path. The helper is staged **per execution**, never
+  referenced from a controller-host path: on Buildbot-PB workers it
+  travels inside the execution source archive as
+  `src/.to_kre_cred_exec.py` and runs under the worker's own Python
+  (`python` on Windows, `python3` on POSIX — the readiness probe
+  verifies both interpreter presence and staged-helper
+  executability); on agentless-SSH targets it is SFTP'd into the
+  remote workdir (`0700`) as `kre_cred_exec.py`. The wrapper
   validates the file (regular file, no symlink, owner-only mode,
   no group/other bits, narrowly-shaped key — our VM acceptance saw
   it refuse a `0644` file), then execs KRE with `-apiKey=<value>` in
@@ -1040,11 +1047,17 @@ on port 443 to Katalon.
   per concurrent session, so dispatch never exceeds the declared
   seat count *on that runner*. This is per-runner: there is no
   cross-machine licence pool and no global seat ledger.
-- **Failure handling:** stdout containing `license` / `licence` /
-  `activation` classifies the run as `error_kind='license'` — the
-  run reports as a normal **failure** with that kind recorded.
-  TestOrchestrator shows it; it does not retry around it and cannot
-  repair the Katalon side.
+- **Failure handling:** failures classify by actual cause — a real
+  KRE activation/licence rejection is `error_kind='license'`; the
+  credential helper's own failures (missing credential file, missing
+  KRE executable, bad file mode — its `kre_cred_exec:` messages) are
+  `error_kind='config'`, never a licence verdict, because the licence
+  was never reached; missing helper/interpreter or staging problems
+  are `infrastructure`; KRE project/suite complaints ("Test suite
+  '…' not found", "cannot find project") are `config`; timeouts and
+  kills are `infrastructure`. The run reports as a normal **failure**
+  with that kind recorded. TestOrchestrator shows it; it does not
+  retry around it and cannot repair the Katalon side.
 
 **Offline licenses.** Katalon also supports an offline licence
 file under the `.katalon/license` folder of the user account that

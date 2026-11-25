@@ -107,6 +107,35 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
 - **Buildbot KRE failure classification** — license/config/
   infrastructure kinds are now derived from the run log instead of
   the generic "no result data" verdict.
+- **KRE on remote workers** (found during the remote-worker
+  acceptance matrix — the exec argv previously embedded the
+  controller-host path of `kre_cred_exec.py`, unreachable from any
+  remote worker, and the script itself was POSIX-only):
+  - The credential resolver is now staged **per execution** — inside
+    the source archive as `src/.to_kre_cred_exec.py` on PB workers
+    (run under the worker interpreter: `python` on Windows,
+    `python3` on POSIX), SFTP'd into the remote workdir on SSH
+    targets. `credential_wrapper` in the exec spec is the staged
+    name; `helper_sha256` records the staged content for evidence.
+  - `kre_cred_exec.py` is portable: Windows runs under a
+    kill-on-close job object; POSIX launches the engine in its own
+    process group and kills the pgid so `katalonc`'s java child
+    cannot outlive the wrapper while holding a license.
+  - Readiness probes validate the real remote path: KRE executable
+    version, worker interpreter, and staged-helper executability
+    (`helper_exec=ok`), not just executable presence.
+  - Classification distinguishes the layers: helper failures
+    (`kre_cred_exec:` → `config`, never a license verdict), genuine
+    KRE activation rejections (`license`), post-activation KRE
+    config complaints (`config` — outranking generic license words,
+    which fixes a truncated-tail misclassification), step kill
+    markers (`infrastructure`).
+  - Agentless-SSH: terminal failure confirms remote process-group
+    death (the detached run otherwise holds the license after a
+    timeout); SSH failure classification reads the SFTP'd `run.out`
+    artifact (SSH builds have no worker step stdout); a refused
+    buildrequest cancel is surfaced and re-issued every tick until
+    the buildrequest completes.
 - **Offline packaged install** — the vendored wheel set now includes
   the pinned boto3 dependencies (boto3/botocore/jmespath/
   python-dateutil/s3transfer) so S3 support resolves without network.
@@ -127,10 +156,10 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   boundary in `docs/licensing.md`).
 - Packaged-acceptance topology collapsed server+worker into one
   disposable VM — not independent-host partition evidence.
-- KRE on remote PB workers is unsupported — `kre_cred_exec.py` is a
-  controller-host path (and POSIX-only); local-worker and SSH KRE
-  paths are unaffected. A portable wrapper staged into the exec
-  source is the recorded follow-up.
+- KRE on remote PB workers and SSH targets requires a Python
+  interpreter on the target (`python` on Windows, `python3` on
+  POSIX) and an operator-placed credential file — validated by the
+  readiness probe.
 - GoogleTest execution on Windows workers is config-gated —
   toolchain probing works; exec remains POSIX-only pending the
   Windows gtest worker follow-up.

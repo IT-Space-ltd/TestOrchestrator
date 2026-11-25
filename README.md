@@ -315,6 +315,15 @@ no remote KRE API. Dispatch, cancellation (process-tree kill), and
 reconciliation belong to this application. KRE stays operator-installed
 and licensed; a version probe is never claimed as a licensed run.
 
+On remote targets (Buildbot-PB workers and agentless-SSH), credentialed
+runs are driven by a small credential resolver (`kre_cred_exec.py`)
+that is staged **per execution** — inside the source archive on PB
+workers, into the remote workdir on SSH targets — never referenced
+from a controller-host path. PB workers therefore need a Python
+interpreter on the worker (`python` on Windows, `python3` on POSIX);
+the readiness probe validates it. The credential itself stays an
+operator-placed file on the execution host — only its path travels.
+
 ## Execution targets (Buildbot)
 
 Every execution target is registered and managed in the Admin UI —

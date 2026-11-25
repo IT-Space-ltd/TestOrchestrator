@@ -78,15 +78,16 @@ Per-adapter contract depth is partially delivered. Honest per-framework state:
 | postman-newman | real newman 6.2.1; matrix cell pass+fail both transports | accepted | — |
 | postman-cli | real postman-cli 1.94.0; matrix cell pass+fail both transports | accepted | — |
 | bruno | real bru 2.14.1; matrix cell pass+fail both transports | accepted | — |
-| KRE | real katalonc 11.7.0 + supplied API key; suite+collection pass, suite fail, missing-cred classify — both transports | accepted | execution profiles beyond default not exercised; optional cloud publication not enabled; KRE on remote PB workers unsupported (wrapper is controller-local, POSIX-only) |
+| KRE | real katalonc 11.7.0 + supplied API key; suite+collection pass, suite fail, missing-cred classify — both transports AND all three remote topologies (Windows PB worker, Linux PB worker, Linux SSH-only) through TestOrchestrator dispatch (staged credential resolver, fix `2ab52aed`+`d4fa8967`) | accepted | execution profiles beyond default not exercised; optional cloud publication not enabled; remote targets require a Python interpreter + operator-placed credential file |
 
 Phase B (Windows 11 KVM, SYSTEM session-0 PB worker) re-exercised every
 framework above on the Windows transport: all probes ready, pass/fail
 cells green/honest for pytest, pytest-bdd, behave, robot, jest,
 playwright, playwright-pytest, cypress 16.3.0, newman 6.2.3, bru 4.4.0,
 postman-cli. gtest Windows exec remains config-gated (POSIX-only in
-2.7.0). KRE verified on-guest directly (supplied key): TS1 pass, TS2
-fail, TSC1 collection.
+2.7.0). KRE verified **through TestOrchestrator dispatch** on all three
+remote topologies (see §KRE-remote below) in addition to the earlier
+direct on-guest baseline (TS1 pass, TS2 fail, TSC1 collection).
 
 ## 8 — Failure & security matrix
 
@@ -132,14 +133,35 @@ Single-VM collapses host+worker — recorded limitation.
 - **Recorded asymmetry**: exit-5 (no tests) / exit-127 (missing executable)
   classify specifically on SSH, generically on the registered-worker path —
   both honest failures, no false pass.
-- **KRE on remote PB workers**: `scripts/kre_cred_exec.py` is a
-  controller-host path embedded in the exec argv — remote workers cannot
-  resolve it, and the script itself is POSIX-only (geteuid/O_NOFOLLOW).
-  KRE suite/collection on a remote Windows (or Linux) PB worker is
-  **unsupported in 2.7.0** — follow-up: stage a portable wrapper inside
-  the source tar. Verified on Windows: katalonc executes directly
-  (missing-cred → `license` classification; supplied API key + TS1/TS2/
-  TSC1 run green/honest-fail on the guest).
+- **KRE on remote PB workers — FIXED** (`2ab52aed`, `d4fa8967`; was
+  recorded as unsupported): the credential resolver is staged per
+  execution inside the source tar (`src/.to_kre_cred_exec.py`, run
+  under the worker interpreter) / SFTP'd on SSH targets; the script
+  is now portable (Windows job-object kill, POSIX process-group
+  kill). Readiness probes validate interpreter + staged helper on
+  the actual target. Accepted through TestOrchestrator on all three
+  remote topologies at `d4fa8967`:
+  - Windows 11 PB worker (SYSTEM session-0): probe green, TS1 pass
+    (2 TestResult rows), TS2 honest `TC3 FAILED`, collection pass,
+    missing-cred→`license`, timeout 20s→`infrastructure`, cancel→
+    `CANCELED`, missing-exe→`config`, zero orphans/leftovers,
+    zero key leakage (fixed-string scan).
+  - Linux PB worker (Ubuntu 26.04 multipass): probe green, TS1/TS2/
+    collection correct, missing-cred→`license`, timeout 8s→
+    `infrastructure` + pgid-kill verified (no orphan katalonc/java),
+    cancel→`CANCELED`, missing-exe/bad-suite→`config`.
+  - Linux SSH-only (separate runner, no PB involvement): probe green
+    (sftp+helper_exec ok), TS1/TS2/collection green, missing-cred→
+    `license`, timeout→`infrastructure` + remote pgid killed,
+    cancel→`CANCELED` + remote kill confirmed, missing-exe/bad-suite
+    →`config`, **disconnect/recovery**: port-22 DROP + VM restart
+    mid-run — remote setsid run survived, dispatcher reconnected
+    (18 logged retries), resumed, collected → `COMPLETED/PASSED`
+    (bb:166), no duplicate execution. Remote workdirs retain
+    run.sh/exit_code for reattach by design; no key material in them
+    (fixed-string scan). Package rebuilt at `d4fa8967`, sha256
+    `2e46ac30…` — shipped payload verified byte-identical to HEAD
+    for all six changed files.
 - Linux matrix evidence: `~/to-acceptance-evidence/matrix/` —
   13 frameworks × {worker, SSH-only} pass cells all green at `a3ebeeed`
   (package sha256 e5b31c97…); 26 fail cells honest `failed`; timeout/
