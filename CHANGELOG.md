@@ -124,6 +124,17 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   and `kre_cred_exec:` errors were unconditionally classified `config`
   (credential value/content problems stay `config`; file, permission,
   and missing-executable problems now classify `infrastructure`).
+- **SSH transport: license rejection no longer masked as `config`.**
+  A failed KRE activation still prints KRE's argv-validation complaints
+  ("Cannot find project"), which outranked the generic license fallback
+  in `classify_error` — genuine license rejection over SSH surfaced as
+  `config` ("ssh remote group terminated") instead of `license`.
+  Activation-failure markers (incl. "Failed to activate with API key")
+  now outrank config markers whenever activation never succeeded;
+  successful runs that later hit a real config problem still classify
+  `config`. Verified live on the SSH transport with real `katalonc`
+  rejecting a synthetic key (`error_kind=license`, ex
+  4da4bae36ad04e4c98f84615792a48bd).
 - **Busy runtimes no longer fail auto-picked executions.**
   `pick_runtime` excluded any runtime at its concurrency cap, so a
   queued execution on a single-capacity runtime failed "no enabled
