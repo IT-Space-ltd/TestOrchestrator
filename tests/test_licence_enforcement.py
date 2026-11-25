@@ -13,6 +13,7 @@ checks here.
 import base64, datetime, json
 import re
 import uuid
+from pathlib import Path
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import (
@@ -301,6 +302,11 @@ def test_rate_limit_exhaustion(tmp_path, monkeypatch):
         assert 429 in got
 
 
+@pytest.mark.skipif(
+    not Path('/tmp/to-license-issuer/private.pem').is_file(),
+    reason="blocked: requires the production issuer private key "
+           "(owner-managed, not in CI) — documents the prod-pubkey "
+           "verification path")
 def test_production_key_auto_loaded(tmp_path, monkeypatch):
     """Fresh process verifies a 'prod'-signed code WITHOUT any test-side
     register_key — proves release/licence_pubkey.pem is loaded."""
@@ -382,16 +388,19 @@ def test_tampered_stored_metadata_rejected(tmp_path, monkeypatch):
         assert st[0] != "valid", "tampered stored dates accepted"
 
 
-def test_payload_fields_signed(tmp_path):
+def test_payload_fields_signed(tmp_path, monkeypatch):
     """Swapping signed fields (customer/licence_id) in the payload
     while keeping the original signature must fail verification."""
     from tests.conftest import make_app
     from testorchestrator import licensing
     app = make_app(tmp_path)
+    monkeypatch.undo()
+    licensing._VERIFY_KEYS.clear()
+    licensing.register_key("test", PUB)
     with app.app_context():
         from testorchestrator.extensions import db
         db.create_all()
-        code = open('/tmp/lic-valid.txt').read().strip()
+        code = _code()
         parts = code.split('.')
         import json as j, base64 as b
         p = j.loads(b.urlsafe_b64decode(parts[1] + '=='))
