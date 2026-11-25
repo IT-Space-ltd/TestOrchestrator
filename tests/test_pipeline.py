@@ -522,12 +522,12 @@ def test_operational_check_names_missing_pieces(app, tmp_path):
         assert msg and "workers connected" not in msg.split("—")[0] or \
             "verified KRE" in msg or "Publishing" in msg
 _WRAP = str(Path(__file__).resolve().parent.parent
-           / "scripts" / "kre_cred_exec.py")
+            / "scripts" / "kre_cred_exec.sh")
 
 
 def _run_wrapper(cred, exe, extra=None):
     return subprocess.run(
-        [sys.executable, _WRAP, cred, exe] + (extra or []),
+        ["sh", _WRAP, cred, exe] + (extra or []),
         capture_output=True, text=True, timeout=20)
 
 
@@ -575,7 +575,7 @@ def test_wrapper_dir_escape_rejected(app, tmp_path):
     out = tmp_path/"outside"; out.write_bytes(b"KEY123"); out.chmod(0o600)
     exe = tmp_path/"x"; exe.write_text("#!/bin/sh\n"); exe.chmod(0o755)
     env = dict(os.environ, KRE_CRED_DIR=str(tmp_path/"inner"))
-    r = subprocess.run([sys.executable, _WRAP, str(out), str(exe)],
+    r = subprocess.run(["sh", _WRAP, str(out), str(exe)],
                        capture_output=True, text=True, env=env, timeout=20)
     assert "outside permitted directory" in r.stderr
 def test_wrapper_rejects_symlink_and_confines_dir(app, tmp_path):
@@ -607,7 +607,7 @@ def test_wrapper_sigterm_kills_child(app, tmp_path):
     exe = tmp_path / "sleeper"
     exe.write_text('#!/usr/bin/env bash\necho started\nsleep 120\n')
     exe.chmod(0o755)
-    p = subprocess.Popen([sys.executable, _WRAP, str(cred), str(exe)],
+    p = subprocess.Popen(["sh", _WRAP, str(cred), str(exe)],
                          stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(1.0)
     # find the fake child

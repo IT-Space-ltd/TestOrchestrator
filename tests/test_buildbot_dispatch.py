@@ -505,39 +505,52 @@ def test_kre_classify_ignores_benign_testcloud_fallback():
 
 
 def test_kre_exec_spec_staged_helper(app):
-    """Credentialed KRE on a PB worker: the resolver travels inside the
-    exec tar as src/.to_kre_cred_exec.py and runs under a named worker
-    interpreter — never a controller-host path."""
+    """Credentialed KRE on a PB worker: the launcher travels inside
+    the exec tar as src/.to_kre_cred_exec.{sh,ps1} and runs under the
+    target-native shell — never a controller-host path or a
+    PATH-resolved Python."""
     with app.app_context():
         ex = type("E", (), {})()
         ex.snapshot = lambda: {"run_config": {}}
         rt = type("R", (), {"executable_path": "/x"})()
         spec = buildbot_cfg.kre_exec_spec(
             ex, rt, ["a"], credential_file="C:/to/kre.key",
-            posix=False, helper_interp="python",
+            posix=False, helper_launch=["powershell", "-File"],
             helper_sha256="ab12")
-        assert spec["credential_wrapper"] == ".to_kre_cred_exec.py"
-        assert spec["credential_wrapper"] == buildbot_cfg.KRE_CRED_HELPER
-        assert spec["credential_interp"] == "python"
+        assert spec["credential_wrapper"] == ".to_kre_cred_exec.ps1"
+        assert spec["credential_wrapper"] == \
+            buildbot_cfg.kre_cred_helper_name(True)
+        assert spec["credential_launch"] == ["powershell", "-File"]
         assert spec["credential_file"] == "C:/to/kre.key"
         assert spec["helper_sha256"] == "ab12"
+        spec_posix = buildbot_cfg.kre_exec_spec(
+            ex, rt, ["a"], credential_file="/t/kre.key",
+            credential_mastersrc="/staging/x.cred",
+            helper_launch=["sh"], helper_sha256="cd34")
+        assert spec_posix["credential_wrapper"] == ".to_kre_cred_exec.sh"
+        assert spec_posix["credential_mastersrc"] == "/staging/x.cred"
         # No credential → no helper fields at all (missing-cred path
         # still runs the bare executable).
         spec2 = buildbot_cfg.kre_exec_spec(ex, rt, ["a"])
         assert "credential_wrapper" not in spec2
-        assert "credential_interp" not in spec2
+        assert "credential_launch" not in spec2
 
 
 def test_kre_cred_helper_source_is_portable():
-    """The staged resolver must exist in the payload and carry the
-    cross-platform guards (geteuid/O_NOFOLLOW absent on Windows,
-    kill-on-close job for process-tree control)."""
-    src = buildbot_cfg.kre_cred_helper_source()
-    assert src.is_file()
-    text = src.read_text(encoding="utf-8")
-    assert 'os.name == "nt"' in text
-    assert "AssignProcessToJobObject" in text
-    compile(text, str(src), "exec")
+    """The staged launchers must exist in the payload: the POSIX one
+    syntax-checks under sh and carries the setsid/scrub contract; the
+    Windows one carries the kill-on-close job object."""
+    import subprocess as _sp
+    sh_src = buildbot_cfg.kre_cred_helper_source(False)
+    assert sh_src.is_file()
+    text = sh_src.read_text(encoding="utf-8")
+    assert "setsid" in text and "REDACTED" in text
+    assert _sp.run(["sh", "-n", str(sh_src)]).returncode == 0
+    ps_src = buildbot_cfg.kre_cred_helper_source(True)
+    assert ps_src.is_file()
+    ps = ps_src.read_text(encoding="utf-8")
+    assert "AssignProcessToJobObject" in ps
+    assert "KILL_ON_JOB_CLOSE" in ps or "0x2000" in ps
 
 
 def test_prep_script_echo_is_not_a_retry_block(
@@ -796,14 +809,14 @@ def test_ssh_remote_cancel_kills_process_group(app, monkeypatch, tmp_path):
 
 
 def test_staging_cleared_on_predispatch_fail(app, monkeypatch, tmp_path):
-    """A _fail INSIDE _submit_buildbot (after stage_source — e.g. the
-    ssh credential gate) leaves no staged tar/cred behind."""
+    """A _fail INSIDE _submit_buildbot (after stage_source — e.g. an
+    unresolvable credential_ref) leaves no staged tar/cred behind."""
     stub = _BBProbe()
     ids = _env(app, monkeypatch, stub, target_type="ssh")
     rid, rtid, diid = ids
     with app.app_context():
         rt = db.session.get(RuntimeConnection, rtid)
-        rt.credential_ref = "portal-side-secret"   # ssh: rejected gate
+        rt.credential_ref = "portal-side-secret"   # unknown ref → fail
         db.session.commit()
         ex = d.create_execution(
             "u", None, run_config={"runtime_id": rtid},
@@ -813,7 +826,7 @@ def test_staging_cleared_on_predispatch_fail(app, monkeypatch, tmp_path):
         d._buildbot_assign_and_submit(ex)
         db.session.refresh(ex)
         assert ex.state == ExecutionState.FAILED
-        assert "credential_ref is portal-side" in ex.error_text
+        assert "does not exist" in ex.error_text
         assert not (sd / f"{ex.id}.tar").exists()
         assert not (sd / f"{ex.id}.cred").exists()
 

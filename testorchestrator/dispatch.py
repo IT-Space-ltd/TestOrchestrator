@@ -962,6 +962,9 @@ def _ssh_remote_cancel(ex: Execution) -> "bool | None":
                 return True  # never launched — nothing to kill
             _run(f"kill -TERM -{pid} 2>/dev/null; sleep 1; "
                  f"kill -KILL -{pid} 2>/dev/null; true", timeout=20)
+            # Wipe any delivered credential file — a killed run
+            # must not leave secret material on the target.
+            _run(f"rm -f {qwd}/.to_kre_cred 2>/dev/null; true")
             time.sleep(1)
             _, out = _run(f"kill -0 {pid} 2>/dev/null "
                           "&& echo alive || echo dead")
@@ -1682,6 +1685,36 @@ def run_execution(execution_id: str) -> None:
         db.session.commit()
 
 
+def _resolve_runtime_secret(runtime: RuntimeConnection) -> str:
+    """Resolve ``runtime.credential_ref`` with distinct failure
+    causes — never a secret value in the exception text.
+
+    - unknown reference (no SecretRef row) → names the missing ref
+    - denied access: ref exists but its kind is not ``runtime`` —
+      git/ssh/buildbot secrets are not usable for KRE invocation
+    - missing/undecryptable material → the store's masked SecretError
+      propagates.
+    """
+    from .execution import SecretRef
+    from .secrets_store import SecretError, read_secret
+    ref = runtime.credential_ref
+    row = SecretRef.query.filter_by(name=ref).first()
+    if row is None:
+        raise DispatchError(
+            f"runtime credential reference {ref!r} does not exist — "
+            "create it under System → Secrets (kind 'runtime')")
+    if row.kind != "runtime":
+        raise DispatchError(
+            f"credential {ref!r} is a {row.kind!r}-kind secret — only "
+            "'runtime' secrets may be used for KRE invocation")
+    try:
+        return read_secret(current_app._get_current_object(), ref)
+    except SecretError as exc:
+        raise DispatchError(
+            f"runtime credential {ref!r} could not be resolved: "
+            f"{exc}") from exc
+
+
 def _redact_values(runtime: RuntimeConnection) -> list:
     """Resolve a runtime credential ref to VALUES for log scrubbing only —
     the secret itself never enters argv, artifacts, audit, or exports."""
@@ -2107,8 +2140,11 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         # staged inside this run's source tar — remote workers can
         # never resolve controller-host paths, and each execution gets
         # its own copy under src/ (isolated, cleaned with the tree).
+        # Platform-selected: .sh under `sh` on POSIX, .ps1 under
+        # powershell on Windows — no PATH-resolved Python required.
+        _hwin = (runner.os_arch or "").lower().startswith("win")
         try:
-            _helper_text = buildbot_cfg.kre_cred_helper_source() \
+            _helper_text = buildbot_cfg.kre_cred_helper_source(_hwin) \
                 .read_text(encoding="utf-8")
         except OSError as exc:
             _fail(ex, "infrastructure",
@@ -2116,7 +2152,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                   f"controller payload: {exc}")
             return
         _cscripts = dict(_cscripts or {})
-        _cscripts[buildbot_cfg.KRE_CRED_HELPER] = _helper_text
+        _cscripts[buildbot_cfg.kre_cred_helper_name(_hwin)] = \
+            _helper_text
         import hashlib as _hl
         _helper_sha = _hl.sha256(_helper_text.encode()).hexdigest()
     buildbot_cfg.stage_source(ex, source, scripts=_cscripts)
@@ -2652,15 +2689,23 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         return
 
     if runner.target_type == "ssh":
-        cred_file = runtime.credential_file or ""
-        if runtime.credential_ref and not cred_file:
-            _fail(ex, "config",
-                  "ssh target: runtime credential_ref is portal-side "
-                  "only — configure a credential_file path on the "
-                  "remote host instead")
-            return
         buildbot_cfg.materialize_ssh_key(runner)
         remote = runner.ssh_workdir.rstrip("/") + "/" + ex.id
+        # credential_file stays the no-transfer option (operator-
+        # placed 0600 file on the remote host). credential_ref is
+        # resolved portal-side, written as a per-run 0600 staging
+        # file, and SFTP'd into the run workdir as .to_kre_cred —
+        # isolated per execution, removed with remote cleanup.
+        cred_file = runtime.credential_file or ""
+        cred_stage = ""
+        if runtime.credential_ref and not cred_file:
+            try:
+                cred_stage = buildbot_cfg.write_run_credential(
+                    ex.id, _resolve_runtime_secret(runtime))
+            except DispatchError as exc:
+                _fail(ex, "license", str(exc))
+                return
+            cred_file = remote + "/.to_kre_cred"
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             # source.tar holds a top-level src/ — the remote project
@@ -2675,7 +2720,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             collection=bool(rc.get("collection")),
             extra=flags)
         spec_file = buildbot_cfg.write_ssh_run_spec(
-            ex, runner, runtime, args[1:], cred_file)
+            ex, runner, runtime, args[1:], cred_file,
+            credential_stage=cred_stage)
         import sys as _sys
         spec = buildbot_cfg.ssh_exec_spec(
             ex,
@@ -2689,22 +2735,26 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             spec_file=str(spec_file))
         builder = buildbot_cfg.builder_for(runner, slot)
     else:
+        # credential_file stays the no-transfer option (operator-
+        # placed 0600 file on the worker host). credential_ref is
+        # resolved portal-side into a per-run 0600 staging file —
+        # used directly on controller-local workers, delivered by
+        # FileDownload to remote workers (build/.to_kre_cred; the
+        # exec workdir is build/src so the path is ../.to_kre_cred).
         cred_file = runtime.credential_file or ""
+        cred_mastersrc = ""
         if not cred_file and runtime.credential_ref:
-            if runner.target_type == "local":
-                # Controller-host worker: portal resolves the secret to
-                # a per-run 0600 file the wrapper reads — never argv.
-                from .secrets_store import read_secret
-                cred_file = buildbot_cfg.write_run_credential(
-                    ex.id, read_secret(
-                        current_app._get_current_object(),
-                        runtime.credential_ref))
-            else:
-                _fail(ex, "config",
-                      "remote worker: runtime credential_ref is "
-                      "portal-side only — configure a credential_file "
-                      "on the worker host instead")
+            try:
+                staged = buildbot_cfg.write_run_credential(
+                    ex.id, _resolve_runtime_secret(runtime))
+            except DispatchError as exc:
+                _fail(ex, "license", str(exc))
                 return
+            if runner.target_type == "local":
+                cred_file = staged
+            else:
+                cred_mastersrc = staged
+                cred_file = "../.to_kre_cred"
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             project_path=".",
@@ -2719,8 +2769,9 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         _win = (runner.os_arch or "").lower().startswith("win")
         spec = buildbot_cfg.kre_exec_spec(
             ex, runtime, args[1:], credential_file=cred_file,
+            credential_mastersrc=cred_mastersrc,
             posix=not _win,
-            helper_interp=kre_adapter.helper_interp_for(
+            helper_launch=kre_adapter.helper_launch_for(
                 runner.os_arch),
             helper_sha256=_helper_sha)
         # Persist the rendered spec — collection re-renders it as the
@@ -3482,7 +3533,8 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                 argv = [spec["executable"], *spec.get("args", [])]
                 if spec.get("credential_wrapper") \
                         and spec.get("credential_file"):
-                    argv = [spec["credential_wrapper"],
+                    argv = [*spec.get("credential_launch", []),
+                            spec["credential_wrapper"],
                             spec["credential_file"], *argv]
                 import shlex as _shlex
                 (log_dir / "kre-invocation.log").write_text(

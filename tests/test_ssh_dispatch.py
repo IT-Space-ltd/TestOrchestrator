@@ -204,9 +204,10 @@ def test_host_key_mismatch_hard_fails(tmp_path):
 
 
 def test_credential_wrapper_staged_and_scrubs(tmp_path):
-    """credential_file set → dispatcher sftp-stages kre_cred_exec.py
-    into the remote run dir; run.sh invokes it path-only (no secret in
-    argv), and the wrapper scrubs the credential from child output."""
+    """credential_file set → dispatcher sftp-stages kre_cred_exec.sh
+    into the remote run dir; run.sh invokes it under `sh` path-only
+    (no secret in argv, no PATH-resolved Python), and the wrapper
+    scrubs the credential from child output."""
     server = TestSSHServer(Path("/"))
     secret = "KREKEY-abc123_test"
     # fake KRE echoes its argv — the wrapper passes -apiKey=<v>
@@ -227,11 +228,12 @@ def test_credential_wrapper_staged_and_scrubs(tmp_path):
     assert proc.returncode == 0, out
     wd = tmp_path / "rd6"
     # wrapper was staged remote-side (remote == same fs in the harness)
-    assert (wd / "kre_cred_exec.py").exists()
-    # run.sh carries paths only — never the secret value
+    assert (wd / "kre_cred_exec.sh").exists()
+    # run.sh carries paths only — never the secret value — and the
+    # launcher runs under `sh`, not a PATH-resolved python3
     run_sh = (wd / "run.sh").read_text()
     assert secret not in run_sh
-    assert "kre_cred_exec.py" in run_sh
+    assert "sh " in run_sh and "kre_cred_exec.sh" in run_sh
     # child saw the resolved key in argv, output is scrubbed at source
     run_out = (work / "remote-artifacts" / "run.out").read_text()
     assert secret not in run_out
@@ -246,10 +248,10 @@ def test_credential_wrapper_explicit_remote_path_not_staged(tmp_path):
     # admin-provided wrapper already 'on the remote': a real script
     # that just execs the runner verbatim (no credential handling —
     # the point is the dispatcher must NOT overwrite it).
-    wrapper = tmp_path / "remote-wrapper.py"
+    wrapper = tmp_path / "remote-wrapper.sh"
     wrapper.write_text(
-        "#!/usr/bin/env python3\nimport os,sys\n"
-        "os.execv(sys.argv[2], [sys.argv[2]] + sys.argv[3:])\n")
+        "#!/bin/sh\n"
+        'shift\nexec "$@"\n')
     wrapper.chmod(0o755)
     exe = _runner_exec(tmp_path, 'echo "wrap-arg:$1"\nexit 0\n')
     cred_dir = tmp_path / "remote-creds7"
@@ -269,4 +271,4 @@ def test_credential_wrapper_explicit_remote_path_not_staged(tmp_path):
     assert proc.returncode == 0, out
     run_sh = (wd / "run.sh").read_text()
     assert str(wrapper) in run_sh
-    assert not (wd / "kre_cred_exec.py").exists()
+    assert not (wd / "kre_cred_exec.sh").exists()

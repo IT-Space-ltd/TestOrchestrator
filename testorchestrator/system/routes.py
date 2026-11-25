@@ -31,6 +31,26 @@ from .forms import (AddressForm, ApplyForm, GenerateCertForm, ImportCertForm,
                     UserForm, UserTimezoneForm)
 
 
+def _runtime_cred_ref_error(ref: str):
+    """Server-side guard for runtime credential_ref fields: the named
+    secret must exist and be kind 'runtime' — a git/ssh/buildbot
+    secret selected here can never work for KRE invocation, so the
+    form rejects it rather than letting dispatch fail later.
+    Returns the error text, or "" when the ref is usable/empty."""
+    ref = (ref or "").strip()
+    if not ref:
+        return ""
+    from ..execution import SecretRef
+    row = SecretRef.query.filter_by(name=ref).first()
+    if row is None:
+        return (f"credential reference {ref!r} does not exist — "
+                "create it under Secrets (kind 'runtime')")
+    if row.kind != "runtime":
+        return (f"credential {ref!r} is a {row.kind!r}-kind secret — "
+                "choose a 'runtime' secret for KRE invocation")
+    return ""
+
+
 def _context():
     settings = settings_mod.all_settings()
     candidates = detect_address_candidates()
@@ -1500,10 +1520,13 @@ def _render_infrastructure(runner_form, runtime_form):
             unbound.append(rt)
     from ..secrets_store import list_secret_meta
     try:
-        secret_names = sorted(
-            s["name"] for s in list_secret_meta())
+        _meta = list_secret_meta()
+        secret_names = sorted(s["name"] for s in _meta)
+        runtime_secret_names = sorted(
+            s["name"] for s in _meta if s["kind"] == "runtime")
     except Exception:
         secret_names = []
+        runtime_secret_names = []
     return render_template(
         "system/infrastructure.html",
         runners=runners, runtimes=runtimes,
@@ -1516,6 +1539,7 @@ def _render_infrastructure(runner_form, runtime_form):
         bb_sources=_bb_sources_asset(),
         pb_hints=_pb_endpoint_hints(),
         secret_names=secret_names,
+        runtime_secret_names=runtime_secret_names,
         all_projects=Project.query.order_by(Project.name).all(),
         readiness_help=_readiness_help(),
     )
@@ -1890,7 +1914,9 @@ def create_runtime():
     kre_missing_path = (
         _kind in ("kre", "robot", "pytest", "behave")
         and not (form.executable_path.data or "").strip())
-    if form.validate_on_submit() and not kre_missing_path:
+    cred_ref_err = _runtime_cred_ref_error(form.credential_ref.data)
+    if (form.validate_on_submit() and not kre_missing_path
+            and not cred_ref_err):
         db.session.add(RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
@@ -1919,7 +1945,10 @@ def create_runtime():
             flash("KRE and Robot runtimes require the executable "
                   "path on the selected worker (KRE binary or "
                   "Python interpreter).", "error")
-        if errs or kre_missing_path:
+        if cred_ref_err:
+            flash(f"Credential reference rejected — {cred_ref_err}",
+                  "error")
+        if errs or kre_missing_path or cred_ref_err:
             from ..execution import Project as _P
             runner_form = RunnerForm()
             runner_form.allowed_projects.choices = [
@@ -2102,10 +2131,16 @@ def edit_runtime(runtime_id):
         rt.executable_path = ep
     if wr is not None:
         rt.workspace_root = wr
-    # credential_ref preserved unless explicitly changed/cleared
+    # credential_ref preserved unless explicitly changed/cleared —
+    # a new value is validated: only existing 'runtime'-kind secrets
+    # are usable for KRE invocation.
     cr = request.form.get("credential_ref")
-    if cr is not None:
-        rt.credential_ref = cr
+    if cr is not None and cr != rt.credential_ref:
+        err = _runtime_cred_ref_error(cr)
+        if err:
+            flash(f"Credential reference rejected — {err}", "error")
+            return redirect(url_for("system.infrastructure"))
+        rt.credential_ref = cr.strip()
     cf = request.form.get("credential_file")
     if cf is not None:
         rt.credential_file = cf.strip()

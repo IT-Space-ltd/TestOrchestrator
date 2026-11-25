@@ -51,7 +51,7 @@ def submit(runtime, app_url: str = "",
         from .adapters import kre as kre_adapter
         scripts = kre_adapter.probe_scripts(
             app_url.strip(),
-            helper_path=buildbot_cfg.kre_cred_helper_source())
+            helper_dir=buildbot_cfg.kre_cred_helper_source().parent)
     elif kind == pytestfw.KIND:
         scripts = pytestfw.probe_scripts(app_url.strip())
     elif kind == "behave":
@@ -77,8 +77,6 @@ def submit(runtime, app_url: str = "",
         probe_env["REQUIRED_LIBS"] = (required_libs or "").strip()
     if kfw:
         probe_env["KREBIN"] = (runtime.executable_path or "").strip()
-        probe_env["HELPER_PY"] = kre_adapter.helper_interp_for(
-            runner.os_arch)
     adapter = BuildbotAdapter.from_settings()
     try:
         if runner.target_type == "ssh":
@@ -194,14 +192,10 @@ def _summarize(probe: dict, kind: str) -> str:
             problems.append("KRE executable not found/runnable at "
                             "the configured executable_path on the "
                             "target")
-        if probe.get("helper_interp", "missing") \
-                .startswith("missing"):
-            problems.append("no worker Python interpreter for the "
-                            "staged credential resolver (python3 / "
-                            "python on PATH)")
         if probe.get("helper_exec") == "FAILED":
-            problems.append("staged credential resolver cannot run "
-                            "under the target interpreter")
+            problems.append("staged credential launcher cannot run "
+                            "under the target-native shell "
+                            "(sh / powershell)")
         if probe.get("workspace_write") not in (None, "ok"):
             problems.append("workspace not writable for the run "
                             "account")
@@ -210,7 +204,7 @@ def _summarize(probe: dict, kind: str) -> str:
                             "URL")
         versions = ", ".join(
             f"{k}={v}" for k, v in probe.items()
-            if k in ("kre", "krever", "helper_interp")
+            if k in ("kre", "krever", "helper_launcher")
             and not v.startswith("missing")
             and not v.startswith("unprobeable"))
     elif kind == "gtest":

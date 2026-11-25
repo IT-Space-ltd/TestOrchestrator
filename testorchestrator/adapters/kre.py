@@ -444,12 +444,9 @@ else
     p "krever=unprobeable (-version produced no versionNumber marker)"
   fi
 fi
-PY="${HELPER_PY:-python3}"
-"$PY" --version >/dev/null 2>&1 \\
-  && p "helper_interp=$("$PY" --version 2>&1)" \\
-  || p "helper_interp=missing ($PY not runnable)"
-"$PY" .to_kre_cred_exec.py 2>&1 | grep -q "usage: kre_cred_exec" \\
-  && p "helper_exec=ok" || p "helper_exec=FAILED"
+sh .to_kre_cred_exec.sh 2>&1 | grep -q "usage: kre_cred_exec" \\
+  && { p "helper_launcher=sh"; p "helper_exec=ok"; } \\
+  || p "helper_exec=FAILED"
 mkdir -p Reports/.wtest && rmdir Reports/.wtest \\
   && p "workspace_write=ok" || p "workspace_write=denied"
 if [ -n "%APP_URL%" ]; then
@@ -480,11 +477,8 @@ goto kredone
 :nokrebin
 call :p kre=missing ^(no executable_path configured^)
 :kredone
-if "%HELPER_PY%"=="" (set PY=python) else (set "PY=%HELPER_PY%")
-"%PY%" --version >nul 2>&1
-if errorlevel 1 (echo TO-PROBE helper_interp=missing ^(%PY% not runnable^) & >>"%L%" echo TO-PROBE helper_interp=missing ^(%PY% not runnable^)) else (for /f "delims=" %%v in ('"%PY%" --version 2^>nul') do (echo TO-PROBE helper_interp=%%v & >>"%L%" echo TO-PROBE helper_interp=%%v))
-"%PY%" ".to_kre_cred_exec.py" 2>&1 | findstr /c:"usage: kre_cred_exec" >nul
-if errorlevel 1 (echo TO-PROBE helper_exec=FAILED & >>"%L%" echo TO-PROBE helper_exec=FAILED) else (echo TO-PROBE helper_exec=ok & >>"%L%" echo TO-PROBE helper_exec=ok)
+powershell -NoProfile -ExecutionPolicy Bypass -File ".to_kre_cred_exec.ps1" 2>&1 | findstr /c:"usage: kre_cred_exec" >nul
+if errorlevel 1 (echo TO-PROBE helper_exec=FAILED & >>"%L%" echo TO-PROBE helper_exec=FAILED) else (echo TO-PROBE helper_launcher=powershell & echo TO-PROBE helper_exec=ok & >>"%L%" echo TO-PROBE helper_launcher=powershell & >>"%L%" echo TO-PROBE helper_exec=ok)
 rmdir Reports\.wtest 2>nul & mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul
 if errorlevel 1 (echo TO-PROBE workspace_write=denied & >>"%L%" echo TO-PROBE workspace_write=denied) else (echo TO-PROBE workspace_write=ok & >>"%L%" echo TO-PROBE workspace_write=ok)
 if "%APP_URL%"=="" goto noappurl
@@ -503,21 +497,22 @@ exit /b 0
 """
 
 
-def probe_scripts(app_url: str = "", helper_path=None) -> dict:
+def probe_scripts(app_url: str = "", helper_dir=None) -> dict:
     """Filename -> content for the staged readiness source. The
-    credential resolver itself travels with the probe so the
-    helper_exec marker proves interpreter + script on the real
+    credential launchers travel with the probe so the helper_exec
+    marker proves the target-native shell + script on the real
     target — a missing payload copy is reported, not hidden."""
     scripts = {
         "probe.sh": PROBE_SH.replace("%APP_URL%", app_url or ""),
         "probe.cmd": PROBE_CMD.replace("%APP_URL%", app_url or "")
                               .replace("\n", "\r\n"),
     }
-    try:
-        scripts[".to_kre_cred_exec.py"] = Path(
-            helper_path).read_text(encoding="utf-8")
-    except (OSError, TypeError):
-        pass
+    for name in ("kre_cred_exec.sh", "kre_cred_exec.ps1"):
+        try:
+            scripts[".to_" + name] = (Path(helper_dir) / name) \
+                .read_text(encoding="utf-8")
+        except (OSError, TypeError):
+            pass
     return scripts
 
 
@@ -528,9 +523,15 @@ def probe_argv(os_arch: str) -> list:
     return ["cmd", "/c", "probe.cmd"] if win else ["sh", "probe.sh"]
 
 
-def helper_interp_for(os_arch: str) -> str:
-    """Worker interpreter the staged credential resolver runs under —
-    must match dispatch's helper_interp choice and the probe's
-    HELPER_PY so readiness proves the same thing dispatch needs."""
-    return "python" if (os_arch or "").lower().startswith("win") \
-        else "python3"
+def helper_launch_for(os_arch: str) -> list:
+    """Target-native shell argv prefix that runs the staged credential
+    launcher — ``sh`` on POSIX, ``powershell -NoProfile
+    -ExecutionPolicy Bypass -File`` on Windows. Both are guaranteed
+    by the supported target baseline (SSH needs a shell; the Windows
+    cleanup steps already require powershell); no PATH-resolved
+    Python is needed for KRE. Dispatch and the readiness probe must
+    agree on this choice."""
+    return (["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File"]
+            if (os_arch or "").lower().startswith("win")
+            else ["sh"])

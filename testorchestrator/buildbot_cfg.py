@@ -372,32 +372,47 @@ def _retry_policy(ex, posix: bool = True) -> dict:
 
 # Name the credential resolver is staged under inside the exec source
 # tar (src/<name> — stage_source "scripts" injection). The worker runs
-# the staged copy through the platform interpreter; nothing on the
-# worker resolves controller-host paths.
-KRE_CRED_HELPER = ".to_kre_cred_exec.py"
+# the staged copy under the target-native shell — sh on POSIX,
+# powershell on Windows — never a PATH-resolved Python; nothing on
+# the worker resolves controller-host paths.
+KRE_CRED_HELPER_POSIX = ".to_kre_cred_exec.sh"
+KRE_CRED_HELPER_WIN = ".to_kre_cred_exec.ps1"
 
 
-def kre_cred_helper_source() -> Path:
+def kre_cred_helper_name(win: bool) -> str:
+    return KRE_CRED_HELPER_WIN if win else KRE_CRED_HELPER_POSIX
+
+
+def kre_cred_helper_source(win: bool = False) -> Path:
     """Controller-side location of the credential resolver that gets
-    staged into the exec tar for every credentialed KRE run."""
+    staged into the exec tar for every credentialed KRE run —
+    platform-selected: sh script for POSIX targets, PowerShell for
+    Windows. Both are target-native shells; no interpreter install
+    is required specifically for KRE."""
     return (Path(__file__).resolve().parent.parent / "scripts"
-            / "kre_cred_exec.py")
+            / ("kre_cred_exec.ps1" if win else "kre_cred_exec.sh"))
 
 
 def kre_exec_spec(ex, runtime, args: list,
                   credential_file: str = "",
+                  credential_mastersrc: str = "",
                   posix: bool = True,
-                  helper_interp: str = "",
+                  helper_launch: list = None,
                   helper_sha256: str = "") -> dict:
     """Validated runner spec for local + remote worker targets — argv
     only, never a shell string and never secrets. ``credential_file``
     is a PATH: worker-local for remote targets, a portal-written 0600
-    file under staging for the controller-local worker. ``posix=False``
-    (Windows workers) skips the pidfile wrapper — no sh there.
-    The credential resolver travels inside the exec tar as
-    src/.to_kre_cred_exec.py and runs under ``helper_interp``
-    (python3 / python on the worker PATH) — remote workers must never
-    resolve controller-host paths."""
+    file under staging for the controller-local worker.
+    ``credential_mastersrc`` names a master-side staging file a
+    FileDownload step delivers to the worker builddir (mode 0600)
+    before exec — how a portal-side credential_ref reaches a remote
+    worker without entering the source archive, properties, or argv.
+    ``posix=False`` (Windows workers) skips the pidfile wrapper — no
+    sh there. The credential resolver travels inside the exec tar as
+    src/.to_kre_cred_exec.{sh,ps1} and runs under ``credential_launch``
+    — the target-native shell argv prefix (``sh`` / ``powershell
+    -NoProfile -ExecutionPolicy Bypass -File``); remote workers must
+    never resolve controller-host paths or PATH-found Pythons."""
     spec = {
         "executable": runtime.executable_path,
         "args": list(args),
@@ -410,10 +425,12 @@ def kre_exec_spec(ex, runtime, args: list,
         "posix": posix,
     }
     if credential_file:
-        spec["credential_wrapper"] = KRE_CRED_HELPER
+        spec["credential_wrapper"] = kre_cred_helper_name(not posix)
         spec["credential_file"] = credential_file
-        if helper_interp:
-            spec["credential_interp"] = helper_interp
+        if credential_mastersrc:
+            spec["credential_mastersrc"] = credential_mastersrc
+        if helper_launch:
+            spec["credential_launch"] = list(helper_launch)
         if helper_sha256:
             spec["helper_sha256"] = helper_sha256
     spec.update(_retry_policy(ex, posix=posix))
@@ -487,6 +504,7 @@ def ssh_exec_spec(ex, python: str, dispatcher_script: str,
 
 def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
                        credential_file: str = "",
+                       credential_stage: str = "",
                        extra: dict = None,
                        executable: str = None,
                        source_tar: str = "",
@@ -512,6 +530,11 @@ def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
         "executable": executable or runtime.executable_path,
         "args": list(args),
         "credential_file": credential_file,
+        # Master-side staging file the dispatcher SFTP-puts to the
+        # remote workdir (0600) before launch — how a portal-side
+        # credential_ref reaches an agentless target. Path only, never
+        # a value; cleared by clear_staging at finalize.
+        "credential_stage": credential_stage,
         "report_rel": "Reports",
         "timeout_s": int((ex.snapshot().get("run_config") or {})
                          .get("timeout_seconds") or 3600),

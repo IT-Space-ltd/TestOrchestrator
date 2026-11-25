@@ -343,7 +343,7 @@ class RuntimeConnection(db.Model):
                                  default="")
     # Worker-local credential FILE path for orchestrated KRE — the
     # coordinator spec carries this path only; the worker-side
-    # resolver (scripts/kre_cred_exec.py) reads the value on the
+    # resolver (scripts/kre_cred_exec.{sh,ps1}) reads the value on the
     # worker immediately before exec. Admin-configured; an execution
     # request can never select an arbitrary worker path.
     credential_file = db.Column(db.String(512), nullable=False,

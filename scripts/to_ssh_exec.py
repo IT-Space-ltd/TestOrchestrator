@@ -152,6 +152,12 @@ def _prepare(client, spec) -> None:
                 + (f": {detail}" if detail else ")"))
         # stage the portal-built source archive
         sftp.put(spec["source_tar"], wd + "/source.tar")
+        # Delivered credential (portal-side credential_ref): SFTP'd
+        # per execution into the run workdir, 0600, removed at
+        # collect/kill — never inside source.tar or argv.
+        if spec.get("credential_stage"):
+            sftp.put(spec["credential_stage"], wd + "/.to_kre_cred")
+            _exec(client, f"chmod 600 {shlex.quote(wd)}/.to_kre_cred")
         remote = shlex.quote
         args = " ".join(remote(a) for a in spec["args"])
         cred = spec.get("credential_file") or ""
@@ -165,11 +171,15 @@ def _prepare(client, spec) -> None:
             # remote host needs no pre-installed copy.
             wrapper_path = spec.get("remote_cred_wrapper") or ""
             if not wrapper_path:
-                wrapper_path = wd + "/kre_cred_exec.py"
+                wrapper_path = wd + "/kre_cred_exec.sh"
                 sftp.put(str(Path(__file__).resolve().parent
-                             / "kre_cred_exec.py"), wrapper_path)
+                             / "kre_cred_exec.sh"), wrapper_path)
                 _exec(client, f"chmod 700 {remote(wrapper_path)}")
-            wrapper = remote(wrapper_path) + " " + remote(cred) + " "
+            # Run under `sh` explicitly — the SSH path must not rely on
+            # any PATH-resolved interpreter (the old shebang+python3
+            # requirement); sh is the shell run.sh already executes in.
+            wrapper = ("sh " + remote(wrapper_path) + " "
+                       + remote(cred) + " ")
         # Node runners execute inside the untarred project root
         # (proj/src) — exec_subdir descends into it; env carries
         # runner vars like PLAYWRIGHT_JUNIT_OUTPUT_FILE.
@@ -259,6 +269,8 @@ def _kill_remote(client, spec) -> bool:
             return False
         _exec(client, f"kill -TERM -{pid} 2>/dev/null; sleep 1; "
                       f"kill -KILL -{pid} 2>/dev/null; true")
+        # A killed run must not leave delivered secret material.
+        _exec(client, f"rm -f {q(wd)}/.to_kre_cred 2>/dev/null; true")
         rc, out, _ = _exec(client, f"kill -0 {pid} 2>/dev/null "
                                    f"&& echo alive || echo dead")
         return out.strip() == "dead"
@@ -300,6 +312,12 @@ def _collect(client, spec, local_dir: Path) -> None:
         # dir (dispatch passes <wd>/<report_rel>) — collect from there.
         report_rel = (spec.get("report_rel") or "Reports").strip("/")
         _walk(f"{wd}/{report_rel}", report_rel)
+        # Delivered credentials live only for the execution's window —
+        # remove once results are pulled (helper already consumed it).
+        try:
+            sftp.remove(f"{wd}/.to_kre_cred")
+        except OSError:
+            pass
     finally:
         sftp.close()
 

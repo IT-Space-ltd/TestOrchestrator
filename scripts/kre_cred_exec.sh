@@ -1,0 +1,147 @@
+#!/bin/sh
+# to-kre-launcher: v2-sh
+# Worker-side KRE credential resolver + output scrubber (POSIX).
+#
+# Staged by TestOrchestrator onto the execution target and invoked by
+# the execution spec instead of the raw KRE executable:
+#     sh .to_kre_cred_exec.sh <credential-file> <katalonc> [kre-args...]
+#
+# Runs under plain POSIX sh — no python/python3 requirement on the
+# target (sh is the same shell the SSH run wrapper and the Buildbot
+# pidfile wrapper already require).
+#
+# Security contract:
+#   - The spec carries this script's path and the credential FILE
+#     PATH — never the secret value.
+#   - The file must be a regular non-symlink file owned by the
+#     invoking account with no group/other permission bits, and must
+#     contain a narrowly-shaped token ([A-Za-z0-9_-]{1,128}).
+#   - The credential is passed to KRE as -apiKey=<value> — it appears
+#     in KRE's argv on the target (documented, same-account-visible
+#     only), never printed by this launcher.
+#   - KRE's merged stdout/stderr is scrubbed through awk — which
+#     reads the key from the credential file itself, so the value is
+#     in no process argv, env, or temp file — before output reaches
+#     step capture; redaction happens at the source, not on collect.
+#   - KRE runs under setsid so a TERM/INT/HUP to this launcher takes
+#     the whole katalonc process GROUP — java children cannot survive
+#     a timeout/cancel and keep holding the license.
+#   - A pre-supplied -apiKey is rejected: exactly one credential
+#     source. Usage/validation failures exit 3 with a
+#     "kre_cred_exec:" marker for controller-side classification.
+
+fail() { echo "kre_cred_exec: $*" >&2; exit 3; }
+
+if [ "$#" -lt 2 ]; then
+    echo "usage: kre_cred_exec <credential-file> <katalonc> [kre-args...]" >&2
+    exit 3
+fi
+cred=$1; shift
+exe=$1; shift
+
+for a in "$@"; do
+    case "$a" in
+        -apiKey|-apiKey=*)
+            fail "conflicting credential source: -apiKey already supplied";;
+    esac
+done
+
+# Path contract: an absolute path (operator-placed target file), or
+# the per-run delivered form ../<name> (FileDownload artifact landed
+# at the builddir root, exec workdir is build/src). Nothing else —
+# no bare names, no interior .., no escaping paths.
+case "$cred" in
+    /*) ;;
+    ../*)
+        rest=$cred
+        while :; do
+            case "$rest" in ../*) rest=${rest#../};; *) break;; esac
+        done
+        case "$rest" in
+            ""|*/*|.|..)
+                fail "credential file path must be absolute";;
+        esac;;
+    *) fail "credential file path must be absolute";;
+esac
+
+# Confinement (KRE_CRED_DIR): the resolved real parent directory must
+# live under the permitted directory — same realpath contract as the
+# original resolver, via pwd -P (no realpath dependency).
+if [ -n "${KRE_CRED_DIR:-}" ]; then
+    conf=$(cd -P -- "$KRE_CRED_DIR" 2>/dev/null && pwd -P) \
+        || conf=$KRE_CRED_DIR
+    rp=$(cd -P -- "$(dirname -- "$cred")" 2>/dev/null && pwd -P) \
+        || fail "credential file unreadable"
+    real=$rp/$(basename -- "$cred")
+    case "$real" in
+        "$conf"/*) ;;
+        *) fail "credential file outside permitted directory";;
+    esac
+fi
+
+[ -L "$cred" ] && fail "credential file unreadable"
+[ -f "$cred" ] || fail "credential file unreadable"
+[ -r "$cred" ] || fail "credential file unreadable"
+mode=$(stat -c '%a' "$cred" 2>/dev/null || stat -f '%Lp' "$cred" 2>/dev/null)
+uid=$(stat -c '%u' "$cred" 2>/dev/null || stat -f '%u' "$cred" 2>/dev/null)
+[ -n "$mode" ] && [ -n "$uid" ] || fail "cannot stat credential file"
+[ "$uid" = "$(id -u)" ] \
+    || fail "credential file not owned by the invoking account"
+case "$mode" in
+    *[!0-9]*) fail "cannot determine credential file mode";;
+    *00) : ;;  # last two octal digits == group/other bits
+    *) fail "credential file has group/other permission bits";;
+esac
+
+key=$(tr -d '[:space:]' < "$cred") || fail "cannot read credential"
+[ -n "$key" ] || fail "credential file is empty"
+case "$key" in
+    *[!A-Za-z0-9_-]*)
+        fail "credential file contents are not a valid token shape";;
+esac
+[ "${#key}" -le 128 ] || fail "credential token too long"
+
+[ -f "$exe" ] || fail "KRE executable not found at the configured path"
+
+# Run KRE in its own session/group and scrub its merged output
+# through awk — the awk program reads the key from the credential
+# file itself, so the value exists in no argv, env, or extra file.
+d=$(mktemp -d "${TMPDIR:-/tmp}/to_kre.XXXXXX") \
+    || fail "cannot create private run dir"
+fifo=$d/out
+mkfifo "$fifo" 2>/dev/null || { rm -rf "$d"; fail "cannot create output fifo"; }
+
+setsid "$exe" "$@" "-apiKey=$key" > "$fifo" 2>&1 &
+pid=$!
+awk -v cred="$cred" '
+    BEGIN {
+        k = ""
+        while ((getline line < cred) > 0) {
+            gsub(/[[:space:]]/, "", line); k = k line
+        }
+        close(cred)
+    }
+    {
+        if (k != "") gsub(k, "***REDACTED***")
+        print; fflush()
+    }' < "$fifo" &
+awkpid=$!
+
+on_term() {
+    # Negative pid = process GROUP. No `--` separator: dash's kill
+    # builtin rejects it ("Illegal number"), and every supported sh
+    # accepts kill -TERM -<pgid> directly.
+    kill -TERM -"$pid" 2>/dev/null
+    sleep 1
+    kill -KILL -"$pid" 2>/dev/null
+    wait "$awkpid" 2>/dev/null   # drain what the child already wrote
+    rm -rf "$d"
+    exit 143
+}
+trap on_term TERM INT HUP
+
+wait "$pid"; rc=$?
+trap - TERM INT HUP
+wait "$awkpid" 2>/dev/null
+rm -rf "$d"
+exit "$rc"
