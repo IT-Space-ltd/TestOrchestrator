@@ -51,6 +51,10 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
 
 ### Fixed
 
+- **Buildbot web UI theming.** The bundled Buildbot UI now uses the
+  product palette via `www.theme` (`bb-sidebar-*` variables mapped to
+  the app's `--sidebar-bg`/`--sidebar-fg`/accent values) instead of
+  Buildbot's stock blue theme.
 - **Project dashboard chart blowout.** The daily pass/fail bars on
   a project's Dashboard tab were sized `2 + count × 14` px with no
   normalization — a busy day produced ~1300px columns inside the
