@@ -56,7 +56,14 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   over-admit; capacity is only released on confirmed termination or
   explicit reconcile — an SSH disconnect never frees a slot. Configured
   capacity stays distinct from KRE license entitlement, which the
-  product does not probe.
+  product does not probe. Verified end-to-end on both supported
+  topologies — agentless Linux SSH and a Windows PB worker running
+  as SYSTEM/session-0 — with controlled synthetic launchers:
+  simultaneous submissions, real overlap (process evidence), queueing
+  at capacity, cancel and timeout isolation, connection/worker
+  interruption without duplicate dispatch, per-execution credential
+  ACLs and cleanup, zero orphaned processes, and serialization when
+  the cap is set to one.
 
 - **Separate retention policies.** Artifact files and execution
   metadata/parsed summaries now have independent retention (global
@@ -239,6 +246,11 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   toolchains; real engine binaries remain product-owner acceptance.
 - Two production-issuer-key tests remain blocked (documented
   boundary in `docs/licensing.md`).
+- Licensed two-session KRE overlap is unverified: scheduling,
+  isolation, cancellation and recovery were proven with synthetic
+  launchers on both topologies, but real concurrent KRE runs wait on
+  the rotated API key and confirmed license entitlement — synthetic
+  overlap must not be read as licensed KRE concurrency.
 - Packaged-acceptance topology collapsed server+worker into one
   disposable VM — not independent-host partition evidence.
 - KRE secrets are name-scoped only: any `runtime`-kind secret may be
