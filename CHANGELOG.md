@@ -102,6 +102,11 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   compatible runtime" instead of waiting for the slot. Auto-pick now
   prefers runtimes with free capacity but falls back to a busy one —
   the capacity claim holds the execution QUEUED.
+- **Test harness credential-wrapper argv.** `bb_local_stub.py`
+  dropped `spec.executable`/`spec.args` when rendering the
+  credential wrapper — the stub ran `sh wrapper cred sh` instead of
+  the real exe (latent; only surfaced once pipeline fixtures carried
+  real credentials). Now mirrors the master.cfg argv construction.
 - **Project-scope authorization on runtime picks.** An explicit
   `runtime_id` in a run request now enforces the runtime's
   `allowed_projects` (and the bound runner's) — the check previously
@@ -261,8 +266,12 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   evidence. Insecure endpoints are a test-only flag.
 - Playwright/Cypress packaged cells used orchestration-proof fake
   toolchains; real engine binaries remain product-owner acceptance.
-- Two production-issuer-key tests remain blocked (documented
-  boundary in `docs/licensing.md`).
+- One production-issuer-key test remains blocked
+  (`test_production_key_auto_loaded` — declared skip; documented
+  boundary in `docs/licensing.md`). `test_payload_fields_signed`
+  now runs against an isolated test issuer in the suite — no
+  production-key dependence, and the test-only trust path cannot
+  enter production configuration.
 - Licensed two-session KRE overlap is unverified: scheduling,
   isolation, cancellation and recovery were proven with synthetic
   launchers on both topologies, but real concurrent KRE runs wait on
@@ -272,9 +281,10 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
   disposable VM — not independent-host partition evidence.
 - KRE secrets are name-scoped only: any `runtime`-kind secret may be
   referenced by any runtime configuration — there is no per-project
-  secret ACL (secrets are admin-managed and values never leave the
-  server; the kind gate keeps git/ssh/buildbot secrets unusable for
-  KRE invocation).
+  secret ACL (secrets are admin-managed; the kind gate keeps
+  git/ssh/buildbot secrets unusable for KRE invocation). Resolved
+  credential values ARE delivered to execution targets by design —
+  per-project/target scoping is pending (proposal under review).
 - GoogleTest execution on Windows workers is config-gated —
   toolchain probing works; exec remains POSIX-only pending the
   Windows gtest worker follow-up.
