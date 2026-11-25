@@ -963,6 +963,41 @@ def create_secret():
     return redirect(url_for("system.secrets"))
 
 
+@system_bp.route("/secrets/<name>/scope", methods=["POST"])
+@role_required(Role.ADMIN)
+def update_secret_scope_route(name):
+    """Administer authorization scope for a credential: grants and
+    pending associations as JSON. Runtime-kind scope is enforced at
+    dispatch ('use'); editing it is the 'administer' action — both are
+    admin-only here. Saving scope marks the migration review complete."""
+    from ..execution import SecretRef
+    from ..secrets_store import SecretError, update_secret_scope
+    import json as _json
+    ApplyForm().validate_on_submit()
+    sec = SecretRef.query.filter_by(name=name).first()
+    if sec is None:
+        flash(f"Credential {name!r} does not exist.", "error")
+        return redirect(url_for("system.secrets"))
+    if sec.kind in ("buildbot", "runner"):
+        flash("System-managed credentials have no editable scope.",
+              "error")
+        return redirect(url_for("system.secrets"))
+    raw = (request.form.get("scope") or "").strip()
+    try:
+        scope = _json.loads(raw) if raw else {"grants": [], "pending": []}
+    except ValueError:
+        flash("Scope must be valid JSON — not saved.", "error")
+        return redirect(url_for("system.secrets"))
+    try:
+        update_secret_scope(name, scope)
+    except SecretError as exc:
+        flash(f"Scope rejected — {exc}", "error")
+        return redirect(url_for("system.secrets"))
+    record_audit(current_user.username, "secret.scope_updated", name)
+    flash(f"Authorization scope for {name!r} updated.", "info")
+    return redirect(url_for("system.secrets"))
+
+
 @system_bp.route("/secrets/<name>/delete", methods=["POST"])
 @role_required(Role.ADMIN)
 def delete_secret(name):
@@ -1917,7 +1952,7 @@ def create_runtime():
     cred_ref_err = _runtime_cred_ref_error(form.credential_ref.data)
     if (form.validate_on_submit() and not kre_missing_path
             and not cred_ref_err):
-        db.session.add(RuntimeConnection(
+        _rt = RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
             runner_id=_runner.id,
@@ -1931,8 +1966,13 @@ def create_runtime():
 
             concurrency=form.concurrency.data or 1,
             runtime_kind=_kind,
-        ))
+        )
+        db.session.add(_rt)
         db.session.commit()
+        if _rt.credential_ref:
+            from ..secrets_store import record_pending_association
+            record_pending_association(
+                _rt.credential_ref, _rt.id, _rt.runner_id)
         record_audit(current_user.username, "runtime.registered",
                      form.name.data.strip())
     else:
@@ -2141,6 +2181,9 @@ def edit_runtime(runtime_id):
             flash(f"Credential reference rejected — {err}", "error")
             return redirect(url_for("system.infrastructure"))
         rt.credential_ref = cr.strip()
+        if cr.strip():
+            from ..secrets_store import record_pending_association
+            record_pending_association(cr.strip(), rt.id, rt.runner_id)
     cf = request.form.get("credential_file")
     if cf is not None:
         rt.credential_file = cf.strip()
@@ -2599,6 +2642,9 @@ def _add_runtime_create_kre(request, runner):
         readiness_state="not-checked")
     db.session.add(rt)
     db.session.commit()
+    if cred_ref:
+        from ..secrets_store import record_pending_association
+        record_pending_association(cred_ref, rt.id, rt.runner_id)
     record_audit(current_user.username, "runtime.wizard_created",
                  f"{rt.id} katalon on {runner.name}")
     flash(f"KRE runtime {rt.name!r} saved — run its Check to probe "

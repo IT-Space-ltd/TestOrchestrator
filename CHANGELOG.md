@@ -8,8 +8,23 @@ delivers so far. Schema changes so far: `projects.retention_json`
 (project-level retention overrides); earlier 2.7.0 migrations add
 `framework_projects`, `discovered_items` framework/selector/
 provenance columns, `artifact_stores`, and discovery fingerprints.
+New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
+`migration_pending`.
 
 ### Added
+
+- **Credential authorization scope.** `runtime`-kind secrets now carry
+  a grant list (`scope_json`) matching project / runtime / runner
+  identities; every dimension is a list — non-empty must contain the
+  identity, empty is a wildcard. Dispatch denies resolution with a
+  machine-readable `credential-scope` error when no grant covers the
+  execution, checked at claim time so revocation is effective. New
+  secrets default-deny; saving a `credential_ref` on a runtime records
+  a pending association which never bypasses enforcement. Admins edit
+  grants on the Secrets page; migrating secrets get grants derived
+  from their concrete existing runtime associations (restricted
+  `allowed_projects` are preserved inside the grant) and are flagged
+  `migration_pending` for review — no automatic broadening.
 
 - **Repository discovery + framework projects.** A Git binding can
   carry named framework projects (`pytest`, `robot`, `playwright`,

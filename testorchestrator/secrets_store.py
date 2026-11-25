@@ -92,12 +92,91 @@ def delete_secret(name: str) -> bool:
     return True
 
 
+def _scope_of(row: SecretRef) -> dict:
+    """Parsed authorization scope — always a dict with grants/pending
+    lists, even for legacy rows with empty/malformed JSON."""
+    try:
+        scope = json.loads(row.scope_json or "{}")
+    except (TypeError, ValueError):
+        scope = {}
+    if not isinstance(scope.get("grants"), list):
+        scope["grants"] = []
+    if not isinstance(scope.get("pending"), list):
+        scope["pending"] = []
+    return scope
+
+
+def scope_allows(name: str, *, project_id: str = "",
+                 runtime_id: str = "", runner_id: str = "") -> bool:
+    """True when at least one grant row covers all supplied identities.
+    Each grant dimension is a list; an empty list is a wildcard for that
+    dimension, a non-empty list must contain the supplied id. Default-
+    deny: no grant rows => never allowed."""
+    row = SecretRef.query.filter_by(name=name).first()
+    if row is None:
+        return False
+    for g in _scope_of(row)["grants"]:
+        if not isinstance(g, dict):
+            continue
+        for key, ident in (("project_ids", project_id),
+                           ("runtime_ids", runtime_id),
+                           ("runner_ids", runner_id)):
+            ids = g.get(key) or []
+            if ids and ident not in ids:
+                break
+        else:
+            return True
+    return False
+
+
+def record_pending_association(name: str, runtime_id: str,
+                               runner_id: str) -> None:
+    """Persist a runtime-credential association awaiting admin grant —
+    enforcement still denies delivery until the grant exists."""
+    row = SecretRef.query.filter_by(name=name).first()
+    if row is None:
+        return
+    scope = _scope_of(row)
+    for p in scope["pending"]:
+        if (isinstance(p, dict) and p.get("runtime_id") == runtime_id):
+            return
+    scope["pending"].append({"runtime_id": runtime_id,
+                             "runner_id": runner_id})
+    row.scope_json = json.dumps(scope)
+    db.session.commit()
+
+
+def update_secret_scope(name: str, scope: dict) -> None:
+    """Administrator action: replace the scope document (grants, pending)
+    and clear the migration-review flag. Scope contains ids only —
+    never secret material."""
+    row = SecretRef.query.filter_by(name=name).first()
+    if row is None:
+        raise SecretError(f"credential {name!r} is not configured")
+    grants = scope.get("grants")
+    pending = scope.get("pending")
+    if not isinstance(grants, list) or not isinstance(pending, list):
+        raise SecretError("scope must contain grants and pending lists")
+    for g in grants:
+        if not isinstance(g, dict) or any(
+                not isinstance(g.get(k) or [], list)
+                for k in ("project_ids", "runtime_ids", "runner_ids")):
+            raise SecretError(
+                "each grant needs project_ids/runtime_ids/runner_ids lists")
+    row.scope_json = json.dumps(
+        {"grants": grants, "pending": pending})
+    row.migration_pending = False
+    db.session.commit()
+
+
 def list_secret_meta() -> list:
     """Metadata for Admin UI/audit — names, kinds, rotation; never bytes."""
     return [
         {
             "name": row.name,
             "kind": row.kind,
+            "scope": _scope_of(row),
+            "migration_pending": bool(row.migration_pending),
             "meta": json.loads(row.meta_json or "{}"),
             "created_at": row.created_at.isoformat() if row.created_at else "",
             "rotated_at": row.rotated_at.isoformat() if row.rotated_at else "",

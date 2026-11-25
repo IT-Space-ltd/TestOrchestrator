@@ -1778,18 +1778,22 @@ def run_execution(execution_id: str) -> None:
         db.session.commit()
 
 
-def _resolve_runtime_secret(runtime: RuntimeConnection) -> str:
+def _resolve_runtime_secret(runtime: RuntimeConnection,
+                            project_id: str = "") -> str:
     """Resolve ``runtime.credential_ref`` with distinct failure
     causes — never a secret value in the exception text.
 
     - unknown reference (no SecretRef row) → names the missing ref
     - denied access: ref exists but its kind is not ``runtime`` —
       git/ssh/buildbot secrets are not usable for KRE invocation
+    - scope denial: no authorization grant covers this
+      project/runtime/runner → ``credential-scope`` denial before any
+      decryption or delivery (revocation is effective at claim time)
     - missing/undecryptable material → the store's masked SecretError
       propagates.
     """
     from .execution import SecretRef
-    from .secrets_store import SecretError, read_secret
+    from .secrets_store import SecretError, read_secret, scope_allows
     ref = runtime.credential_ref
     row = SecretRef.query.filter_by(name=ref).first()
     if row is None:
@@ -1802,6 +1806,15 @@ def _resolve_runtime_secret(runtime: RuntimeConnection) -> str:
         exc = DispatchError(
             f"credential {ref!r} is a {row.kind!r}-kind secret — only "
             "'runtime' secrets may be used for KRE invocation")
+        exc.credential_kind = "config"
+        raise exc
+    if not scope_allows(ref, project_id=project_id,
+                        runtime_id=runtime.id,
+                        runner_id=runtime.runner_id):
+        exc = DispatchError(
+            f"credential-scope: credential {ref!r} is not authorized "
+            "for this project/runtime — an administrator must grant "
+            "scope under System → Secrets")
         exc.credential_kind = "config"
         raise exc
     try:
@@ -2845,7 +2858,7 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         if runtime.credential_ref:
             try:
                 cred_stage = buildbot_cfg.write_run_credential(
-                    ex.id, _resolve_runtime_secret(runtime))
+                    ex.id, _resolve_runtime_secret(runtime, project_id=ex.project_id))
             except DispatchError as exc:
                 _fail(ex, getattr(exc, "credential_kind", "license"),
                       str(exc))
@@ -2894,7 +2907,7 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         if runtime.credential_ref:
             try:
                 staged = buildbot_cfg.write_run_credential(
-                    ex.id, _resolve_runtime_secret(runtime))
+                    ex.id, _resolve_runtime_secret(runtime, project_id=ex.project_id))
             except DispatchError as exc:
                 _fail(ex, getattr(exc, "credential_kind", "license"),
                       str(exc))

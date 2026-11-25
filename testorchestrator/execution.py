@@ -736,6 +736,22 @@ class SecretRef(db.Model):
     kind = db.Column(db.String(32), nullable=False)      # git|buildbot|ssh|runner|runtime
     encrypted = db.Column(db.LargeBinary, nullable=False)
     meta_json = db.Column(db.Text, nullable=False, default="{}")
+    # Credential authorization scope (§12). JSON:
+    #   {"grants": [{"project_ids": [...], "runtime_ids": [...],
+    #                "runner_ids": [...]}],
+    #    "pending": [{"runtime_id", "runner_id"}]}
+    # A grant row matches when every NON-empty dimension contains the
+    # identity (empty list = wildcard for that dimension). Default-deny:
+    # no grants => the secret cannot be delivered anywhere. ``pending``
+    # records associations saved before an administrator grants scope;
+    # they never bypass enforcement.
+    scope_json = db.Column(db.Text, nullable=False,
+                           default='{"grants": [], "pending": []}')
+    # Existing secrets migrated before the scope feature carry derived
+    # grants an administrator must review. The flag is advisory only —
+    # enforcement applies whether or not it is set.
+    migration_pending = db.Column(db.Boolean, nullable=False,
+                                  default=False)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     rotated_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
