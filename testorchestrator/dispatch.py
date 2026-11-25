@@ -1137,6 +1137,13 @@ def pick_runtime(execution: Execution, runner: Runner):
         allowed = json.loads(rt.allowed_projects or "[]")
         if allowed and execution.project_id not in allowed:
             continue
+        rt_cap = _runtime_cap(rt)
+        if rt_cap is not None:
+            used = int(db.session.execute(
+                db.select(_runtime_active_subquery(
+                    runner, rt, execution.id))).scalar() or 0)
+            if used >= rt_cap:
+                continue
         return rt
     return None
 
@@ -1287,6 +1294,39 @@ def _runner_cap(runner: Runner) -> int:
     return capacity_limit(runner)
 
 
+def _runtime_cap(runtime: RuntimeConnection) -> int | None:
+    """Effective per-runtime concurrent-session cap. Only KRE exposes
+    the saved "Max parallel sessions" setting; other kinds return None
+    (runner-level slots govern — the default 1 must not suddenly
+    serialize them)."""
+    if (runtime.runtime_kind or "") != "kre":
+        return None
+    try:
+        return max(1, int(runtime.concurrency or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _runtime_active_subquery(runner: Runner,
+                             runtime: RuntimeConnection, exclude_id):
+    """Active executions sharing this runtime's capacity group. For
+    KRE the group is (runner, executable_path): duplicate runtime
+    registrations pointing at the same install share ONE limit — a
+    second RuntimeConnection row cannot bypass it."""
+    group_ids = (db.session.query(RuntimeConnection.id)
+                 .filter(RuntimeConnection.runner_id == runner.id,
+                         RuntimeConnection.executable_path ==
+                         runtime.executable_path,
+                         RuntimeConnection.runtime_kind == "kre")
+                 .scalar_subquery())
+    return (db.session.query(db.func.count(Execution.id))
+            .filter(Execution.runner_id == runner.id,
+                    Execution.id != exclude_id,
+                    Execution.runtime_id.in_(group_ids),
+                    Execution.state.in_(_ACTIVE_STATES))
+            .scalar_subquery())
+
+
 def _assign_runner(ex: Execution, runner: Runner,
                    runtime: RuntimeConnection) -> bool:
     """Atomic QUEUED -> DISPATCHED assignment: runner/runtime/lease
@@ -1307,6 +1347,13 @@ def _assign_runner(ex: Execution, runner: Runner,
         conds.append(
             _active_procs_subquery(runner, ex.id)
             + requested_procs(ex) <= runner.max_procs)
+    # Saved runtime-level concurrency (KRE "Max parallel sessions"):
+    # enforced in the same atomic CAS — race-safe, and shared across
+    # duplicate registrations of the same executable on this runner.
+    rt_cap = _runtime_cap(runtime)
+    if rt_cap is not None:
+        conds.append(
+            _runtime_active_subquery(runner, runtime, ex.id) < rt_cap)
     n = db.session.query(Execution).filter(*conds).update(
         {"state": ExecutionState.DISPATCHED,
               "runner_id": runner.id,
@@ -1336,12 +1383,13 @@ def _assign_runner(ex: Execution, runner: Runner,
         db.session.refresh(ex)
     else:
         db.session.rollback()
-        ex.wait_reason = _capacity_block_reason(runner, ex)
+        ex.wait_reason = _capacity_block_reason(runner, ex, runtime)
         db.session.commit()
     return bool(n)
 
 
-def _capacity_block_reason(runner: Runner, ex: Execution) -> str:
+def _capacity_block_reason(runner: Runner, ex: Execution,
+                           runtime: RuntimeConnection = None) -> str:
     """Why this runner could not admit the execution — the actionable
     wait reason surfaced instead of a silent QUEUED stall."""
     active = Execution.query.filter(
@@ -1354,6 +1402,20 @@ def _capacity_block_reason(runner: Runner, ex: Execution) -> str:
                if runner.license_slots else "")
         return (f"capacity: runner '{runner.name}' job slots full "
                 f"({active}/{cap} in use{lic})")
+    rt = runtime or (db.session.get(RuntimeConnection, ex.runtime_id)
+                     if ex.runtime_id else None)
+    if rt is not None:
+        rt_cap = _runtime_cap(rt)
+        if rt_cap is not None:
+            used = int(db.session.execute(
+                db.select(_runtime_active_subquery(
+                    runner, rt, ex.id))).scalar() or 0)
+            if used >= rt_cap:
+                return (f"capacity: runtime '{rt.name}' parallel-"
+                        f"session limit reached ({used}/{rt_cap} "
+                        "concurrent on this executable — raise the "
+                        "runtime's 'Max parallel sessions' or wait "
+                        "for a session to finish)")
     if runner.max_procs:
         used = int(db.session.execute(
             db.select(_active_procs_subquery(runner, ex.id))
@@ -1383,6 +1445,12 @@ def _claim_for_start(ex: Execution,
     if runner is not None:
         q = q.filter(_active_count_subquery(runner, ex.id)
                      < _runner_cap(runner))
+        rt = (db.session.get(RuntimeConnection, ex.runtime_id)
+              if ex.runtime_id else None)
+        rt_cap = _runtime_cap(rt) if rt is not None else None
+        if rt_cap is not None:
+            q = q.filter(
+                _runtime_active_subquery(runner, rt, ex.id) < rt_cap)
     n = q.update({"state": ExecutionState.PREPARING,
                   "heartbeat_at": utcnow()},
                  synchronize_session=False)

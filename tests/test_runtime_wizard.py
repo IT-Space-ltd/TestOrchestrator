@@ -18,6 +18,26 @@ def _runner(app, name="w1", kind="buildbot-worker"):
         return r.id
 
 
+def _kre_item(app):
+    """Minimal dispatchable target (binding + suite item) for KRE
+    capacity tests."""
+    from testorchestrator.execution import DiscoveredItem, GitBinding
+    with app.app_context():
+        from testorchestrator.execution import Project
+        p = Project(name="KP"); db.session.add(p); db.session.flush()
+        b = GitBinding(project_id=p.id, name="kb", url="x",
+                       worktree_path="/x",
+                       last_synced_sha="sha1", status="synced")
+        db.session.add(b); db.session.flush()
+        it = DiscoveredItem(binding_id=b.id, project_id=p.id,
+                            sha="sha1", kind="suite",
+                            path="Test Suites/S1", name="S1",
+                            framework="katalon")
+        db.session.add(it); db.session.commit()
+        return b.id, it.id
+
+
+
 def test_wizard_lists_frameworks_incl_kre(app, client):
     """Step 1 offers every framework including KRE (katalon)."""
     from tests.conftest import login
@@ -257,3 +277,140 @@ def test_wizard_admin_only(app, client):
     assert client.get("/system/infrastructure/add-runtime").status_code == 403
     assert client.post("/system/infrastructure/add-runtime",
                        data={}).status_code == 403
+
+
+def test_kre_runtime_concurrency_cap(app):
+    """The saved KRE 'Max parallel sessions' is enforced race-safely:
+    a runtime at its session limit refuses assignment while runner
+    slots remain free; excess executions stay QUEUED with a named
+    wait reason."""
+    from testorchestrator import dispatch
+    from testorchestrator.execution import Execution, ExecutionState
+    from testorchestrator.execution import (
+        DiscoveredItem, GitBinding)
+    bid, iid = _kre_item(app)
+    rid = _runner(app)           # max_slots=2 free runner slots
+    with app.app_context():
+        rt = RuntimeConnection(
+            name="k", runner_id=rid, transport="buildbot-worker",
+            executable_path="/kre", runtime_kind="kre",
+            concurrency=1)
+        db.session.add(rt); db.session.commit()
+        b = db.session.get(GitBinding, bid)
+        it = db.session.get(DiscoveredItem, iid)
+        mk = lambda: dispatch.create_execution(
+            "u", source_item=it, binding=b, source_sha="x",
+            run_config={"runtime_id": rt.id})
+        e1, e2 = mk(), mk()
+        assert dispatch._assign_runner(e1,
+                                       db.session.get(Runner, rid), rt)
+        e1.state = ExecutionState.RUNNING
+        db.session.commit()
+        # rt.concurrency=1 and e1 occupies the single session — e2 must
+        # be refused even though runner slots are free.
+        assert not dispatch._assign_runner(
+            e2, db.session.get(Runner, rid), rt)
+        assert "parallel-session limit" in e2.wait_reason
+        assert e2.state == ExecutionState.QUEUED
+        # freeing the session admits the queued run
+        e1.state = ExecutionState.COMPLETED
+        db.session.commit()
+        assert dispatch._assign_runner(e2,
+                                       db.session.get(Runner, rid), rt)
+
+
+def test_kre_duplicate_registrations_share_limit(app):
+    """Two RuntimeConnection rows pointing at the SAME executable on
+    the same runner share one session pool — a duplicate registration
+    cannot bypass the configured limit."""
+    from testorchestrator import dispatch
+    from testorchestrator.execution import Execution, ExecutionState
+    from testorchestrator.execution import (
+        DiscoveredItem, GitBinding)
+    bid, iid = _kre_item(app)
+    rid = _runner(app)
+    with app.app_context():
+        rt1 = RuntimeConnection(
+            name="k1", runner_id=rid, transport="buildbot-worker",
+            executable_path="/kre", runtime_kind="kre", concurrency=1)
+        rt2 = RuntimeConnection(   # duplicate: same install
+            name="k2", runner_id=rid, transport="buildbot-worker",
+            executable_path="/kre", runtime_kind="kre", concurrency=1)
+        rt3 = RuntimeConnection(   # different install — separate pool
+            name="k3", runner_id=rid, transport="buildbot-worker",
+            executable_path="/opt/other/katalonc", runtime_kind="kre",
+            concurrency=1)
+        db.session.add_all([rt1, rt2, rt3]); db.session.commit()
+        b = db.session.get(GitBinding, bid)
+        it = db.session.get(DiscoveredItem, iid)
+        mk = lambda r: dispatch.create_execution(
+            "u", source_item=it, binding=b, source_sha="x",
+            run_config={"runtime_id": r.id})
+        e1, e2, e3 = mk(rt1), mk(rt2), mk(rt3)
+        runner = db.session.get(Runner, rid)
+        assert dispatch._assign_runner(e1, runner, rt1)
+        e1.state = ExecutionState.RUNNING; db.session.commit()
+        # rt2's session pool == rt1's (same executable) — refused
+        assert not dispatch._assign_runner(e2, runner, rt2)
+        # rt3 targets a different install — admitted independently
+        assert dispatch._assign_runner(e3, runner, rt3)
+
+
+def test_kre_concurrency_two_admits_overlap(app):
+    """concurrency=2 admits two overlapping sessions on one runtime —
+    the third stays queued."""
+    from testorchestrator import dispatch
+    from testorchestrator.execution import Execution, ExecutionState
+    from testorchestrator.execution import (
+        DiscoveredItem, GitBinding)
+    bid, iid = _kre_item(app)
+    rid = _runner(app)           # max_slots=2
+    with app.app_context():
+        rt = RuntimeConnection(
+            name="k", runner_id=rid, transport="buildbot-worker",
+            executable_path="/kre", runtime_kind="kre", concurrency=2)
+        db.session.add(rt); db.session.commit()
+        b = db.session.get(GitBinding, bid)
+        it = db.session.get(DiscoveredItem, iid)
+        mk = lambda: dispatch.create_execution(
+            "u", source_item=it, binding=b, source_sha="x",
+            run_config={"runtime_id": rt.id})
+        e1, e2, e3 = mk(), mk(), mk()
+        runner = db.session.get(Runner, rid)
+        assert dispatch._assign_runner(e1, runner, rt)
+        e1.state = ExecutionState.RUNNING; db.session.commit()
+        assert dispatch._assign_runner(e2, runner, rt)
+        e2.state = ExecutionState.RUNNING; db.session.commit()
+        assert not dispatch._assign_runner(e3, runner, rt)
+        assert "2/2" in e3.wait_reason
+
+
+def test_non_kre_runtime_concurrency_not_enforced(app):
+    """Non-KRE kinds ignore the saved field (default 1 must not
+    suddenly serialize pytest runtimes) — runner slots govern."""
+    from testorchestrator import dispatch
+    from testorchestrator.execution import Execution, ExecutionState
+    from testorchestrator.execution import (
+        DiscoveredItem, GitBinding)
+    bid, iid = _kre_item(app)
+    rid = _runner(app)
+    with app.app_context():
+        rt = RuntimeConnection(
+            name="p", runner_id=rid, transport="local",
+            executable_path="/usr/bin/pytest", runtime_kind="pytest",
+            concurrency=1)
+        db.session.add(rt); db.session.flush()
+        it0 = db.session.get(DiscoveredItem, iid)
+        from testorchestrator import execution_readiness
+        execution_readiness._stamp(rt, it0.project_id, ["fixture"])
+        db.session.commit()
+        b = db.session.get(GitBinding, bid)
+        it = db.session.get(DiscoveredItem, iid)
+        mk = lambda: dispatch.create_execution(
+            "u", source_item=it, binding=b, source_sha="x",
+            run_config={"runtime_id": rt.id})
+        e1, e2 = mk(), mk()
+        runner = db.session.get(Runner, rid)
+        assert dispatch._assign_runner(e1, runner, rt)
+        e1.state = ExecutionState.RUNNING; db.session.commit()
+        assert dispatch._assign_runner(e2, runner, rt)
