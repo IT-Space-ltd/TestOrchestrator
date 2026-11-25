@@ -196,6 +196,23 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   `npx`/`npx.cmd` with `shell: true` on win32 only when no staged
   package exists. Verified live on a Windows PB worker: real
   `playwright test --list` produced test-granularity items.
+- **GoogleTest native collection and exact parameterized selection.**
+  Collect runs carried no framework settings (`fp.settings()` was
+  only folded into `run_config` for item dispatches, never for
+  `native_collect`), so `executables` resolved empty and the
+  collector exec'd the `.` test-root as a binary — zero items,
+  `discovery_status=failed` (ISS-018). The collect run now snapshots
+  project settings like item dispatches do; the staged collector
+  glob-expands `executables` patterns (`build/*`) against the
+  checkout instead of exec'ing them literally. Parameterized
+  instances collected `AddsUp/0  # GetParam() = 1` verbatim — the
+  annotation is not filterable and never matched junit identity;
+  node_ids are now the canonical name. Selecting a collected
+  `<exe>||Suite.Test` item now sets `spec` + exact `--gtest_filter`
+  (previously it ran the whole binary). Verified live on a Windows
+  PB worker: collect surfaces `Arith/ParamAdd.AddsUp/0,1,2`,
+  param-exact dispatch produced an isolated PASSED/FAILED result,
+  full-binary run produced all three.
 - **Busy runtimes no longer fail auto-picked executions.**
   `pick_runtime` excluded any runtime at its concurrency cap, so a
   queued execution on a single-capacity runtime failed "no enabled
@@ -395,13 +412,13 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   residuals: the `-apiKey=` argv exposure boundary (same-account
   visibility, documented disposable-target exception) and live
   Katalon key rotation pending on the owner's replacement key.
-- GoogleTest on Windows verified live end-to-end on dev stack
-  (native collection, exact subset, spaces/Unicode paths,
-  timeout/kill, cancel, junit retrieval, worker-service
-  termination + recovery without duplicate dispatch). Residuals:
-  parameterized test identity unproven (fixture binary exposes no
-  parameterized tests) and no installed-package re-verification
-  (acceptance VM is Linux-only).
+- GoogleTest verified live end-to-end on dev stack (native
+  collection, parameterized-instance identity and exact param
+  selection, exact subset, spaces/Unicode paths, timeout/kill,
+  cancel, junit retrieval, worker-service termination + recovery
+  without duplicate dispatch) and on the installed package
+  (Linux acceptance guest: collect + param-exact + param-fail
+  cells on a worker-compiled MinGW/g++ binary).
 
 
 ## [2.6.0] — 2026-11-24

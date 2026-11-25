@@ -690,6 +690,36 @@ def test_node_collectors_windows_safe_spawn():
         assert not re.search(r'execFileSync\(\s*\n?\s*"npx"', s)
 
 
+def test_gtest_collect_globs_and_strips_param_annotations(tmp_path):
+    """ISS-018: gtest collect must expand executables glob patterns
+    (build/*) in the staged checkout — a literal pattern or a "."
+    root was exec'd as a binary and produced zero items — and must
+    surface parameterized instances under their canonical
+    filterable identity (AddsUp/0), not the listing's
+    '# GetParam() = …' annotation."""
+    import os, stat, subprocess, sys
+    from testorchestrator import collectors
+    stub = tmp_path / "build" / "to_gtest_param.exe"
+    stub.parent.mkdir(parents=True)
+    stub.write_text(
+        "#!/bin/sh\n"
+        'printf "Smoke.\\n  Passes\\nArith/ParamAdd.\\n"\n'
+        'printf "  AddsUp/0  # GetParam() = 1\\n"\n'
+        'printf "  AddsUp/1  # GetParam() = 2\\n"\n')
+    stub.chmod(stub.stat().st_mode | stat.S_IXUSR)
+    script = tmp_path / ".to_collect.py"
+    script.write_text(collectors.COLLECT_SCRIPTS["gtest"])
+    subprocess.run([sys.executable, str(script), "build/*", "none/*"],
+                   cwd=tmp_path, check=True)
+    doc = json.loads((tmp_path / "Reports" / "collect.json")
+                     .read_text())
+    ids = [i["node_id"] for i in doc["items"]]
+    assert "build/to_gtest_param.exe||Arith/ParamAdd.AddsUp/0" in ids
+    assert "build/to_gtest_param.exe||Arith/ParamAdd.AddsUp/1" in ids
+    assert not any("#" in i for i in ids)
+    assert doc["warnings"] == ["none/*: no executable matched"]
+
+
 # ---------- native collection reconcile ----------
 
 def _ex_for(fp, b, sha="sha1"):
@@ -749,6 +779,57 @@ def test_native_collect_runtime_gate(app, tmp_path):
         rc = ex.snapshot()["run_config"]
         assert rc["native_collect"] and rc["fp_id"] == fp.id
         assert rc["requested_runtime"] == rt2.id
+
+
+def test_native_collect_snapshots_fp_settings(app, tmp_path):
+    """ISS-018: the collect run must carry the project's framework
+    settings — without them gtest collect receives no executables
+    patterns and lists "." as a binary."""
+    with app.app_context():
+        wt = _write(tmp_path, PYTREE)
+        p, b, fp = _mk(app, wt, fw="gtest", test_roots=["."])
+        fp.settings_json = json.dumps(
+            {"build_dir": "build", "executables": ["build/*"]})
+        db.session.commit()
+        rt = _runtime(app, "gtest")
+        ex = gitsync.request_native_collection(fp, b, rt, "u")
+        rc = ex.snapshot()["run_config"]
+        assert rc["gtest"]["executables"] == ["build/*"]
+
+
+def test_gtest_native_node_id_sets_filter(app, tmp_path):
+    """ISS-018: selecting a collected gtest test item
+    (<exe>||Suite.Test) must produce spec + exact --gtest_filter —
+    parameterized instances included — instead of silently running
+    the whole binary."""
+    with app.app_context():
+        wt = _write(tmp_path, PYTREE)
+        p, b, fp = _mk(app, wt, fw="gtest", test_roots=["."])
+        fp.settings_json = json.dumps({"build_dir": "build"})
+        fp.discovery_status = "ok"
+        fp.discovery_fingerprint = fingerprint(fp)
+        db.session.commit()
+        rt = _runtime(app, "gtest")
+        it = DiscoveredItem(
+            binding_id=b.id, project_id=p.id,
+            framework_project_id=fp.id, sha="sha1", kind="test",
+            path="build/to_gtest_param.exe",
+            name="Arith/ParamAdd.AddsUp/0",
+            node_id="build\\to_gtest_param.exe||"
+                    "Arith/ParamAdd.AddsUp/0",
+            granularity="test", selectable=True,
+            framework="gtest",
+            fingerprint=fp.discovery_fingerprint)
+        db.session.add(it); db.session.commit()
+        from testorchestrator import execution_readiness
+        assert execution_readiness.validate_project(rt, p) == []
+        ex = dispatch.create_execution(
+            "u", binding=b, source_item=it,
+            run_config={"runtime_id": rt.id})
+        rc = ex.snapshot()["run_config"]
+        assert rc["spec"] == "build\\to_gtest_param.exe"
+        assert rc["suite_path"] == "build\\to_gtest_param.exe"
+        assert rc["gtest_filter"] == "Arith/ParamAdd.AddsUp/0"
 
 
 # ---------- postman / bruno adapters ----------

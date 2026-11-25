@@ -185,13 +185,29 @@ GTEST_COLLECT = r'''
 """gTest native collector — runs each binary --gtest_list_tests and
 emits exe-qualified exact selectors: node_id = '<exe>||Suite.Test'.
 Disabled and parametrized instances are surfaced verbatim."""
-import json, subprocess, sys
+import glob, json, subprocess, sys
 from pathlib import Path
 
 
 def main():
-    exes = sys.argv[1:]
-    items, warnings = [], []
+    pats = sys.argv[1:]
+    items, warnings, exes = [], [], []
+    # Executables settings may carry glob patterns (build/*) — expand
+    # them against the staged checkout. Directories are never gtest
+    # binaries; unmatched patterns surface as warnings.
+    for pat in pats:
+        matched = False
+        for m in sorted(glob.glob(pat)):
+            matched = True
+            if Path(m).is_dir():
+                continue
+            if m not in exes:
+                exes.append(m)
+        if not matched:
+            warnings.append(f"{pat}: no executable matched")
+    if not pats:
+        warnings.append("no executables configured — set "
+                        "build_dir/executables on the project")
     for exe in exes:
         try:
             out = subprocess.run([exe, "--gtest_list_tests"],
@@ -213,7 +229,12 @@ def main():
                     line.rstrip().endswith("."):
                 suite = line.strip()
             elif suite and line.strip():
-                name = line.strip()
+                # Listing annotates values: 'AddsUp/0  # GetParam() =
+                # 1'. The canonical name — what --gtest_filter and the
+                # junit classname.test identity use — stops before the
+                # '#' comment. Test names are C++ identifiers + /N and
+                # can never contain whitespace or '#'.
+                name = line.strip().split("#")[0].strip()
                 disabled = name.startswith("DISABLED_")
                 items.append({
                     "kind": "test", "path": exe,

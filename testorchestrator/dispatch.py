@@ -296,6 +296,16 @@ def create_execution(username: str, suite: Suite = None,
                               [source_item.node_id])
             elif fw == "robot":
                 rc.setdefault("robot_test", source_item.node_id)
+            elif fw == "gtest" and "||" in source_item.node_id:
+                # <exe>||Suite.Test — exe selects the binary, the
+                # test part becomes an exact --gtest_filter (covers
+                # parameterized instances AddsUp/0 verbatim).
+                exe, _, tst = source_item.node_id.partition("||")
+                if exe:
+                    rc.setdefault("spec", exe)
+                    rc["suite_path"] = exe
+                if tst:
+                    rc.setdefault("gtest_filter", tst)
         elif source_item.node_id and \
                 source_item.granularity == "file":
             fw = source_item.framework or ""
@@ -2768,8 +2778,11 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             # binary via --gtest_list_tests; its interpreter is the
             # runtime's configured python.
             gexes = list(g.get("executables") or [])
-            exe_items = (rc.get("collect_roots") or []) + \
-                [e for e in gexes if e]
+            # gtest binaries come from the project's executables
+            # patterns — collect_roots are test-file roots for
+            # tree-scanning frameworks and are meaningless here
+            # (a "." root would be exec'd as a binary).
+            exe_items = [e for e in gexes if e]
             spec = buildbot_cfg.node_exec_spec(
                 ex, py, [".to_collect.py"] + exe_items, posix=not win)
             buildbot_cfg.run_specs_dir().mkdir(parents=True,

@@ -612,14 +612,19 @@ def request_native_collection(fp, binding, runtime,
             f"{fp.framework} collection requires a {want!r} "
             f"runtime (selected {got or 'unknown'!r})")
     roots = (fp.test_roots() or fp.feature_roots() or ["."])
+    # Framework execution settings travel with the collect run the same
+    # way they do for item dispatches (_fp_item_gate) — gtest needs
+    # executables/build_dir to resolve the binaries to list.
+    rc = {"native_collect": True, "fp_id": fp.id,
+          "collect_roots": roots,
+          "runtime_id": runtime.id if runtime else "",
+          "timeout_seconds": 900}
+    if fp.framework not in rc:
+        rc[fp.framework] = dict(fp.settings() or {})
     ex = create_execution(
         username or "system", binding=binding,
         source_sha=binding.last_synced_sha or "",
-        run_config={
-            "native_collect": True, "fp_id": fp.id,
-            "collect_roots": roots,
-            "runtime_id": runtime.id if runtime else "",
-            "timeout_seconds": 900})
+        run_config=rc)
     return ex
 
 
