@@ -453,6 +453,22 @@ def test_kre_classify_ignores_benign_testcloud_fallback():
         fatal, "Failed to activate with Katalon Runtime Engine "
         "license.") == "license"
 
+    # ISS-013: a failed API-key activation followed by KRE's own
+    # argv-validation complaint ("Cannot find project") is a genuine
+    # license rejection — the project marker must not mask it.
+    # Sequence observed verbatim on real katalonc over SSH.
+    lic_tail = (
+        "Start activating offline...\n"
+        "The number of valid offline licenses: 0\n"
+        "Failed to activate with API key\n"
+        "Failed to activate with TestCloud license. "
+        "Failed to get organization or project info\n"
+        "Project path is a folder.\n"
+        "Invalid argument: Cannot find project '/w/proj/src'.\n"
+        "KRE exit code: 5")
+    assert kre.classify_error(InvocationResult(exit_status=5),
+                            lic_tail) == "license"
+
     noact = InvocationResult(exit_status=2)
     assert kre.classify_error(noact, "License is not activated") \
         == "license"

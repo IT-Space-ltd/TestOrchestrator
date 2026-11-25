@@ -375,8 +375,18 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
     # benign "Failed to activate with TestCloud license" fallback in
     # every run before acquiring the KRE license; matching on the bare
     # word "license" misclassifies unrelated failures that follow it.
-    if any(s in text for s in (
+    # The API-key rejection line is a genuine license verdict, and a
+    # failed-activation run can still emit project/config complaints
+    # (KRE validates argv even after activation fails — observed on
+    # real katalonc: "Failed to activate with API key" followed by
+    # "Cannot find project"), so activation-failure evidence outranks
+    # the config markers below whenever activation never succeeded.
+    activation_ok = (
+        "activated successfully with katalon runtime engine license"
+        in text)
+    if not activation_ok and any(s in text for s in (
             "failed to activate with katalon runtime engine",
+            "failed to activate with api key",
             "license quota exceeded", "cannot find a license",
             "license has expired", "trial license has expired",
             "cannot execute the activation request",
