@@ -183,6 +183,19 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   execution through the `_fp_item_gate` (ISS-016). No-op collect runs
   (`"noop": true`) now leave inventory and discovery status untouched;
   the informational warning still surfaces on the run. Verified live.
+- **Node native collectors spawn correctly on Windows workers.**
+  The staged playwright/jest collectors invoked `npx` literally —
+  on Windows that resolves to `npx.cmd`, which Node >=20.12 refuses
+  to exec without `shell: true` (ENOENT then EINVAL), and the
+  deps step is skipped for collect by design so npx bin resolution
+  could fall back to PATH and hit an unrelated `playwright` binary
+  (a Python `playwright.exe` presents a different CLI —
+  `unknown command 'test'`) (ISS-017). Collectors now run the staged
+  `node_modules` CLI deterministically via `node` — vendored POSIX
+  `.bin` shims never execute on Windows — and fall back to
+  `npx`/`npx.cmd` with `shell: true` on win32 only when no staged
+  package exists. Verified live on a Windows PB worker: real
+  `playwright test --list` produced test-granularity items.
 - **Busy runtimes no longer fail auto-picked executions.**
   `pick_runtime` excluded any runtime at its concurrency cap, so a
   queued execution on a single-capacity runtime failed "no enabled
@@ -353,12 +366,12 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   AWS-provider acceptance); Azure verified against Azurite 3.34.0
   emulator over loopback+SSH tunnel, not live Azure. Insecure
   endpoints are a test-only flag.
-- Playwright/Cypress real-engine acceptance passed on Linux —
-  dev-stack PB worker (Playwright 1.65.1, Cypress 16.3.0/Electron
-  43: collect, pass/fail, exec_timeout kill, cancel, junit +
-  native artifacts, incl. ISS-015/ISS-016 found and fixed live)
-  and installed-package PB dispatch. Residual: Windows engine
-  coverage unexercised — the Windows guest has no node toolchain.
+- Playwright/Cypress real-engine acceptance passed on Linux and
+  Windows — dev-stack PB workers (Playwright 1.65.1, Cypress
+  16.3.0/Electron 43; Windows guest node v22.17.0 toolchain:
+  collect, pass/fail, exec_timeout kill, cancel, junit + native
+  artifacts on both OSes, incl. ISS-015/ISS-016 found and fixed
+  live) and installed-package PB dispatch.
 - One production-issuer-key test remains blocked
   (`test_production_key_auto_loaded` — declared skip; documented
   boundary in `docs/licensing.md`). `test_payload_fields_signed`

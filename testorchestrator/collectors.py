@@ -237,11 +237,27 @@ PLAYWRIGHT_COLLECT = r'''// Playwright native collector (node) — `playwright t
 // parameterized instances with the framework's own collector.
 const { execFileSync } = require("child_process");
 const fs = require("fs");
+// win32: npx resolves to npx.cmd, and Node >=20.12 refuses to exec
+// batch files directly (EINVAL without shell:true). Collect skips the
+// deps step by design, so resolve the staged node_modules CLI
+// deterministically — POSIX-installed .bin shims are useless on
+// Windows, and PATH may hold an unrelated 'playwright' (e.g. the
+// Python playwright.exe has no 'test' command).
+const NPX = process.platform === "win32" ? "npx.cmd" : "npx";
+const SHELL = process.platform === "win32";
+let cli = null;
+for (const p of ["node_modules/@playwright/test/cli.js",
+                 "node_modules/playwright/cli.js"])
+  if (fs.existsSync(p)) { cli = p; break; }
 try {
-  const out = execFileSync(
-    "npx", ["--no-install", "playwright", "test", "--list",
-            "--reporter=json"],
-    { encoding: "utf-8", timeout: 600000 });
+  const out = cli
+    ? execFileSync(process.execPath,
+        [cli, "test", "--list", "--reporter=json"],
+        { encoding: "utf-8", timeout: 600000 })
+    : execFileSync(
+        NPX, ["--no-install", "playwright", "test", "--list",
+              "--reporter=json"],
+        { encoding: "utf-8", timeout: 600000, shell: SHELL });
   const doc = JSON.parse(out || "{}");
   const items = [];
   const seen = {};
@@ -297,6 +313,20 @@ JEST_COLLECT = r'''// Jest native collector (node).
 // execution ingestion is a separate path.
 const { execFileSync } = require("child_process");
 const fs = require("fs");
+// win32: npx resolves to npx.cmd, and Node >=20.12 refuses to exec
+// batch files directly (EINVAL without shell:true). Prefer the staged
+// node_modules jest CLI over npx resolution (same rationale as the
+// playwright collector — POSIX .bin shims don't run on Windows and
+// PATH may resolve an unrelated binary).
+const NPX = process.platform === "win32" ? "npx.cmd" : "npx";
+const SHELL = process.platform === "win32";
+let jestCli = null;
+for (const p of ["node_modules/jest-cli/bin/jest.js",
+                 "node_modules/jest/bin/jest.js"])
+  if (fs.existsSync(p)) { jestCli = p; break; }
+const jestArgv = (jestCli
+  ? [process.execPath, jestCli]
+  : [NPX, "--no-install", "jest"]);
 const warnings = [];
 let items = [];
 function emit() {
@@ -307,14 +337,16 @@ function emit() {
 let out = "";
 try {
   out = execFileSync(
-    "npx", ["--no-install", "jest", "--collectTests", "--json"],
-    { encoding: "utf-8", timeout: 600000 });
+    jestArgv[0],
+    jestArgv.slice(1).concat(["--collectTests", "--json"]),
+    { encoding: "utf-8", timeout: 600000, shell: SHELL });
 } catch (e) {
   // --collectTests unsupported/failed → file-level fallback
   try {
     const lout = execFileSync(
-      "npx", ["--no-install", "jest", "--listTests", "--json"],
-      { encoding: "utf-8", timeout: 600000 });
+      jestArgv[0],
+      jestArgv.slice(1).concat(["--listTests", "--json"]),
+      { encoding: "utf-8", timeout: 600000, shell: SHELL });
     items = (JSON.parse(lout || "[]")).map(rel => ({
       kind: "suite", path: rel, name: rel.split("/").pop(),
       node_id: rel, granularity: "file", parent: "",

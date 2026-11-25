@@ -668,6 +668,28 @@ def test_collectors_cover_native_frameworks():
             "require(" in collectors.COLLECT_SCRIPTS[f]
 
 
+def test_node_collectors_windows_safe_spawn():
+    """ISS-017: staged node collectors must not exec a bare ``npx`` —
+    on Windows that misses ``npx.cmd`` (ENOENT), batch exec without
+    ``shell: true`` is EINVAL on Node >=20.12, and collect skips the
+    deps step so npx bin resolution can fall back to PATH and hit an
+    unrelated binary (a Python ``playwright.exe`` has no ``test``
+    command). The scripts resolve the staged node_modules CLI via
+    ``node`` first and use ``npx.cmd`` + ``shell: true`` on win32
+    only as a fallback."""
+    import re
+    from testorchestrator import collectors
+    for f in ("playwright", "jest"):
+        s = collectors.COLLECT_SCRIPTS[f]
+        assert 'process.platform === "win32"' in s
+        assert "npx.cmd" in s
+        assert re.search(r"cli\.js|jest\.js", s), \
+            f"{f}: no staged node_modules CLI resolution"
+        assert re.search(r"shell:\s*SHELL", s)
+        # no execFileSync with a literal "npx" as the program remains
+        assert not re.search(r'execFileSync\(\s*\n?\s*"npx"', s)
+
+
 # ---------- native collection reconcile ----------
 
 def _ex_for(fp, b, sha="sha1"):
