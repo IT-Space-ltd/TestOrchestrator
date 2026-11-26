@@ -113,7 +113,11 @@ direct on-guest baseline (TS1 pass, TS2 fail, TSC1 collection).
 
 | Requirement | Verification | Status | Limitation |
 |---|---|---|---|
-| Packaged-install UI acceptance | 44+1 sequential chromium + 12/12 supplementary (storage, retention, retrieval, Add KRE intact) | accepted | accessibility/keyboard/loading-state checks not separately exercised — **not-yet-run** |
+| Packaged-install UI acceptance | 44+1 sequential chromium + 12/12 supplementary (storage, retention, retrieval, Add KRE intact) | accepted | accessibility partially closed: `tests/test_accessibility.py` — 5/5 pass —
+  verifies every form control on the infrastructure, runtime-wizard, secrets,
+  project-storage and admin pages is labeled (server-rendered checks).
+  Keyboard-interaction and loading-state checks remain with the e2e-ui phase
+  (Phase 6) — still **not-yet-run** there |
 | Add KRE unchanged | section present; KRE flow untouched | accepted | no live KRE execution (fixture only) |
 
 ## 11 — Docs
@@ -161,14 +165,20 @@ byte-verified vs source. On the acceptance guest:
   secrets. Regression test in tests/test_secrets_store.py.
 - **CI API tokens verified** vs the authorization model + 3 new
   regression tests (`4a605e8b`) — forged overrides, owner shrink,
-  deactivated owner. 19/19 pass. No token expiry exists — revoke-only
-  model recorded as design fact.
+  deactivated owner. 19/19 pass. NOTE (corrected): token expiry was later added in this
+  same release — migration `p5c6d7e8f9a0`, default 90 days, explicit
+  never-expires opt-out; expired tokens deny like revoked ones. This
+  statement originally read 'no token expiry exists' and was stale
+  the moment the expiry feature landed.
 - **Fresh-install PASS** (clean /opt + instance dir, 5 units active).
 - **Upgrade PASS on copies of real 2.6.0 data** (`data.bak-260`):
   secret ciphertexts byte-identical, derived grant correct,
   migration_pending never bypasses default-deny enforcement,
-  api_tokens survive, idempotent re-upgrade, resume from mid-state,
-  upgraded DB boots the full stack.
+  idempotent re-upgrade, resume from mid-state,
+  upgraded DB boots the full stack. API-token survival was verified
+  with tokens seeded onto the copy before upgrading (the 2.6.0 data
+  itself carried no tokens) — the seeding is deliberate test data,
+  not a production claim.
 - **Operational finding (candidate issue)**: no remote cleanup of
   ssh-run workdirs — /tmp tmpfs filled on the guest (1.5G residue),
   breaking SFTP staging and export downloads. Manual cleanup only.

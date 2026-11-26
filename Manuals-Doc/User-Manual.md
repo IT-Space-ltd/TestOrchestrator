@@ -2059,4 +2059,78 @@ always kept for exactly this case.
 the service then refuses to start. Validate first; the validator
 catches this before any downtime.
 
+### B.24 The hidden `csrf_token` field
+
+Every form in the application carries a hidden `csrf_token` field.
+You never see or fill it — it is the cross-site request forgery
+protection: the server refuses any form submission without a valid
+token, so a malicious page cannot submit forms in your name. It is
+documented here once rather than per form. If you ever see
+"The CSRF token is missing or invalid", simply reload the page and
+submit again — tokens rotate with sessions.
+
+### B.25 Password change and licence activation
+
+**Change password** (account page) requires your current password and
+the new one twice. Passwords must be at least 12 characters. After a
+change, other sessions are invalidated — sign in again on your other
+devices. **Activate licence** (the licence page, shown when the
+installation is unlicensed) accepts the licence file or key text and
+activates it immediately; the page shows the licence state and
+expiry afterwards.
+
+### B.26 Native collection — the collect page
+
+The collect page (`fp_collect`) is where an administrator starts a
+native collection for a framework project (§4.2). **Queue native
+collection** submits it — remember: admin-only, explicit, never
+automatic. For Postman, Bruno and Katalon the action refuses with a
+message pointing at static discovery, because static is authoritative
+for them. For Jest, collection prepares dependencies first under the
+controls of §4.5.
+
+The run controls on discovered items include `release_id` (record the
+run against a release) and `parallel_mode` (how parallel units of
+this item behave — inherited from the partition preview).
+
+### B.27 Partition preview
+
+The partition preview page shows exactly which items land in which
+unit before anything runs — count per unit, the unit keys, and any
+items that could not be placed. **Queue this partition run** starts
+the execution: placeable units start immediately, the rest queue
+(§B.9). Nothing here executes tests — it is a dry-run view plus the
+commit action.
+
+### B.28 Import preview and summary
+
+The import preview shows what an import would create before it
+writes anything (§B.21). `force_new` controls duplicate handling:
+off — duplicates are recognized and skipped; on — every import
+creates new records even when the same results were imported before.
+*Common mistake:* re-importing with force_new on and wondering about
+duplicates — leave it off unless you deliberately want a separate
+copy. The import summary after the run lists created and skipped
+records per suite.
+
+### B.29 List sorting
+
+Sortable lists (projects, executions) carry a `sort` selector —
+`name A–Z` sorts alphabetically, `latest activity` sorts by the most
+recent change or run. Sorting never filters — it only reorders what
+you already see.
+
+### B.30 Suite repository sync and retries
+
+**Sync to repository** writes the suite definition back to the
+repository (authoring-writable bindings only — §B.5). `kre_retry`
+controls Katalon retry behaviour at the suite level (the rerun
+settings of §B.10). `source_item` on run forms carries the discovered
+item the run targets — it is pre-filled when you start from an
+inventory row and you normally never touch it.
+
+**Resolve UNKNOWN (administrative — does NOT stop a process)** — the
+full label matters: resolving an UNKNOWN outcome only corrects the
+record; it never kills anything on the target. Verify first (§B.13).
+
 
