@@ -696,3 +696,40 @@ without approval.
   writing results. The rebase fix is in dispatch.create_execution
   (see the code comment). The clean-fixture reproduction cell is owed
   and rides on the matrix infrastructure now landing.
+
+## Session resume block (chain re-launch cycle)
+
+### Unit suite sign-off
+- Run 1 (head pre-b1770621): 1183 passed / 1 failed / 18 skipped in 609s.
+  Failure: `test_linux_installer_wrapper.py::test_sigint_kills_descendant_too` —
+  subprocess wait(timeout=10) exceeded. Triage: the 10s bound is harness safety,
+  NOT the assertion; passed standalone (1.88s) and file-level 8/8. Flaky under
+  xdist load. Fix: timeout raised to 30s, committed `b1770621`.
+- Run 2 (sign-off, head `b1770621`): IN PROGRESS — pytest tests/ --ignore=tests/e2e-ui,
+  junit /tmp/unitsuite-final.xml. Chain `/home/szefi/chain5.sh` (wait window extended
+  to 200x10s) fires automatically on green: build #5 -> transfer -> guest5.sh.
+- NOTE: previous chain instance died in its wait loop before xml appeared (20min
+  window too short + process reaped) — never fired; no harm since run 1 was red.
+
+### Guest staging (all verified present + sha-identical)
+- /home/ubuntu/guest5.sh, matrix5_pipeline.py, matrix5b.py (test-level+subdir ext),
+  verify_opta.py. Stub 127.0.0.1:8899 alive. Fixture at eee3dbd (stub committed).
+- matrix5b.py written this session: adaptive test-level (single leaf item per fw)
+  + subdirectory (nested/staged-extra items, reports NO-NESTED-ITEMS granularity
+  gap if none). NOTE: fixture has NO staged-extra dir yet — subdir coverage is
+  effectively exercised by the six main cells (all frameworks live in subdirs:
+  bruno/, jest/, postman/) + unit regression test_report_src_workdir.py covers
+  nested monorepo. Deeply-nested live cell remains a gap to close or formally waive.
+
+### Chain-order state
+suite(run2) -> chain5.sh -> build #5 (head+sha256 recorded to /home/szefi/build5.env)
+-> guest5.sh (install as testorchestrator user, venv python, TO_INSTANCE_DIR)
+-> matrix5_pipeline setup/probe-wait/validate/cells/watch/evidence
+-> verify_opta.py (Option A 7/7) + jest collect live cell
+-> THEN MANUAL: matrix5b.py cells/watch/evidence on guest
+-> THEN: freeze, exposure scan (script verified detect+clean), final build,
+   SHA256SUMS, fresh-guest install + 2.6.0 upgrade, acceptance, release notes final.
+
+### Evidence rules reminder (owner)
+Only PASS counts: positive=PASSED+artifacts, negative=expected-FAILED+artifacts.
+Read step stdout per cell. Cite exact head+full sha256 per cell.
