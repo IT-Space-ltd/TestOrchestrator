@@ -13,6 +13,23 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 `runtime_connections.licensing_mode` / `license_refs` /
 `license_server_url`.
 
+### Fixed
+
+- **ISS-022 — blocked Windows retries no longer execute; executions
+  classify UNKNOWN.** A retry blocked by the prep-step guard
+  (`TO_RETRY_BLOCKED`, exit 70) previously continued through
+  fetch-source and re-ran the test CLI to completion because
+  `ShellCommand` defaults `haltOnFailure=False` — the no-relaunch
+  policy violation was invisible, the execution even showed
+  `completed`. All pre-run gate steps now halt on failure, the
+  portal checks for the block marker before accepting results, scans
+  the correct Windows step (`prep_1`, buildbot dedups duplicate step
+  names), and the execution classifies `UNKNOWN` with the
+  retry-blocked message per the W6-kit spec. Verified end-to-end on
+  Windows PB (worker killed mid-run): the retry halted after prep,
+  no run step, state UNKNOWN. Regression tests in
+  `tests/test_retry_prep.py` (14 tests).
+
 ### Added
 
 - **KRE licensing modes — online / offline / private.** A KRE runtime

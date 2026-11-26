@@ -127,6 +127,27 @@ One disposable VM (`to-accept`), sequential stages, evidence exported to host
 before teardown, no host packages/mounts/services, no production credentials.
 Single-VM collapses host+worker — recorded limitation.
 
+## ISS-022 — blocked Windows retry no longer relaunches (2026-11-26, `4ecabb9f`)
+
+Found by the Windows PB worker-termination cell and fixed same-day:
+
+- **Defect**: prep correctly refused the automatic retry (`TO_RETRY_BLOCKED`,
+  exit 70) but the build continued — buildbot `ShellCommand` defaults
+  `haltOnFailure=False` — so fetch-source/run executed, pytest ran to
+  completion and the execution showed `completed`; the no-relaunch policy
+  violation was invisible. Portal-side the marker scan also missed the
+  Windows step (`prep_1`, buildbot dedups duplicate step names), so even
+  a halting build would have misclassified as a plain failure.
+- **Fix**: `haltOnFailure=True` on all pre-run gates; retry-block check
+  ordered before the results-present branch; scan `prep` + `prep_1`;
+  stream-prefix stripped. 14 regression tests.
+- **Verified end-to-end on Windows PB** (execution `4a586585…`, builds
+  343/344): worker killed mid-run → buildbot retried → retry halted after
+  prep (no fetch-source, no run) → execution `UNKNOWN`/incomplete with
+  the retry-blocked message — exactly the W6-kit specified behavior.
+- **NOTE**: the final payload (`312e5408…`, head `3bd9e4b8`) predates this
+  fix. Shipping it in 2.7.0 requires a rebuild + payload-verify cycle.
+
 ## Final-payload acceptance (2026-11-26, head `3bd9e4b8`)
 
 Final payload sha256 `312e5408bbdd5020692da2060b7900b6e0211c176dcff92337a2825903ba0fa5`,
