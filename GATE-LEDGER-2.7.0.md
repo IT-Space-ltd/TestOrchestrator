@@ -518,3 +518,27 @@ two added tests are the collector-refusal and static-discovery pins).
   release notes must state the wording change; ANSWER NEEDED: does the
   install use --ignore-scripts? (answer: NO — npm ci runs scripts;
   this is documented in CHANGELOG; the risk acceptance is owner's).
+
+## Closeout — exec-layer evidence at end of session
+
+- postman-positive3 (2af864e9, brid 84): newman exit code 0 after 45s —
+  env file loaded, requests hit the local stub, EXEC LAYER WORKS.
+  INCOMPLETE solely from the artifact defect — fixed in repo 0aed0da2,
+  needs rebuild #5 + reinstall to pass. STRONG positive signal.
+- bruno-positive3 (85be294a, brid 85): bru exit 4 "You can run only at
+  the root of a collection" — bruno.json not found in workdir
+  build/src/bruno. The synced sha 3a776dfc is the MONOREPO head (which
+  keeps bruno content at libs/bruno-api/, not bruno/) — the binding url
+  file:///home/ubuntu/to-fixture vs the synced sha do not match
+  expectations. NEXT: verify which repo the binding actually clones
+  (cat the worktree's .git/config or ls the worktree root) and align:
+  either point binding at to-fixture proper (bruno/ at root) or move
+  the fp project_root to libs/bruno-api. Fixture-env commit in
+  to-fixture may never have landed (verify git log there).
+- Rebuild #5 MUST include 0aed0da2 (artifact fix) — after install,
+  rerun: postman/bruno positive+negative, jest positive+negative with
+  step stdout reading. Then test-level, subdirectory, ssh cells.
+- Owner matrix counting rules: only PASS counts; positive must end
+  PASSED with artifacts; negative must end expected-FAILED with
+  artifacts. Nothing counted so far — all cells in flight or blocked
+  on rebuild #5.
