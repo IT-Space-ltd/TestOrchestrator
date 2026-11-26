@@ -130,3 +130,30 @@ install steps (`npm ci in the project root, or npm install jest`).
 The captured target-unavailable DETAIL from the failed guest probes
 was not extracted before session end — probe output lives in the
 buildbot step logs of the rdy-* builds on the guest.
+
+## 2026-11-27b — probe detail captured (item 1 DONE), bruno truncation lead
+
+**Captured probe outputs (redacted — synthetic-only environment, no
+secrets present):**
+- postman (attempt-16, pre-symlink): `node=v24.22.3 npx=11.19.1
+  newman=missing (no binary, npx --no-install failed) — the Newman CLI
+  is required — install with: npm install -g newman` — message is
+  actionable and correct; newman 6.2.3 since installed + symlinked.
+- bruno (attempt-18 AND attempt-20 post-symlink): output TRUNCATES
+  after `npx=11.19.1` — yet `bru --version`/`bru run --help` run fine
+  manually as the service user (rc=0, Bru CLI 4.4.0). Next debug step:
+  read the buildbot step stdout for the probe build (markers echo to
+  stdout too) — suspect step timeout or shell-environment difference
+  in the worker's exec context, not bru itself.
+- jest: no fresh probe artifacts — probe builds may not be running at
+  all (check buildbot target reconfig for mx-jest-local).
+- robot regression evidence in passing: probe correctly diagnosed
+  `python=missing (/opt/robot-venv/bin/robot not runnable)` when
+  executable_path was the robot binary — the save-time validation
+  message now covers this.
+
+**Run-time deps fact (owner question 1):** dispatch ALREADY runs
+`npm ci --no-audit --no-fund` as deps_argv before every node-framework
+run (dispatch.py ~2583) — unconditional, inside the staged workdir,
+re-installed every run since workdirs are cleaned up. The opt-in
+prepare-step proposal builds on this existing mechanism.
