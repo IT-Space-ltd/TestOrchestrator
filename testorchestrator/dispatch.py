@@ -228,6 +228,12 @@ def _validate_parallel(rc: dict, kind: str) -> None:
         rc["shard_index"], rc["shard_total"] = si, st
 
 
+def _role_may_set_deps_prepare(username: str) -> bool:
+    from .execution import User
+    u = User.query.filter_by(username=username).first()
+    return bool(u and u.role.value in ("admin", "test_manager"))
+
+
 def create_execution(username: str, suite: Suite = None,
                      binding: GitBinding = None,
                      plan_id: str = "",
@@ -262,6 +268,11 @@ def create_execution(username: str, suite: Suite = None,
                 "this project")
 
     rc = dict(run_config or {})
+    if "deps_prepare" in rc and not _role_may_set_deps_prepare(username):
+        raise DispatchError(
+            "setting or changing deps_prepare requires the test manager "
+            "or admin role — npm ci runs dependency install scripts on "
+            "the target")
     if source_item is not None:
         _fp_item_gate(source_item, rc)
         suite_path = source_item.path
@@ -2584,6 +2595,7 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         # deps_prepare=false in the run config turns it off. Lockfile
         # required as a clear early refusal: npm ci without
         # package-lock.json/npm-shrinkwrap.json is nondeterministic.
+        deps_explicit = "deps_prepare" in rc
         deps_on = (not rc.get("native_collect")) and \
             rc.get("deps_prepare", True) not in (False, "false", "0", 0)
         deps_argv = ([npm, "ci", "--no-audit", "--no-fund"]
@@ -2605,6 +2617,21 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                     "bound root — npm ci requires a lockfile. Commit "
                     "the lockfile or set deps_prepare=false in the run "
                     "configuration.")
+            # audit the prepare decision with the lockfile hash — npm ci
+            # runs dependency install scripts on the target, so what
+            # was approved must be exactly what runs.
+            try:
+                import hashlib as _hl
+                lf = next(base / n for n in
+                          ("package-lock.json", "npm-shrinkwrap.json")
+                          if (base / n).is_file())
+                digest = _hl.sha256(lf.read_bytes()).hexdigest()[:16]
+                record_audit(ex.created_by or "system",
+                             "execution.deps_prepare",
+                             f"ex={ex.id} npm ci lockfile {lf.name} "
+                             f"sha256:{digest}")
+            except Exception:
+                pass
         if runner.target_type == "ssh":
             buildbot_cfg.materialize_ssh_key(runner)
             extra = {"exec_subdir": "src", "env": node_env,

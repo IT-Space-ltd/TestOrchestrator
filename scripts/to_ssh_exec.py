@@ -261,8 +261,9 @@ def _prepare(client, spec) -> None:
         # Optional dependency step (node runners: npm ci — pinned
         # project deps into the isolated staged workspace).
         deps = spec.get("deps_argv") or []
+        deps_timeout = int(spec.get("deps_timeout") or 600)
         deps_line = (
-            " ".join(remote(a) for a in deps)
+            f"timeout {deps_timeout} " + " ".join(remote(a) for a in deps)
             + f" >>{remote(wd)}/run.out 2>&1 || "
             f"{{ printf 124 > {remote(wd)}/exit_code; exit 124; }}\n"
             if deps else "")

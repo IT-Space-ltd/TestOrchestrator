@@ -524,6 +524,12 @@
       <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds(aria_describedby="sch-timeout-ex") }}
         <small class="muted" id="sch-timeout-ex"><code>3600</code> is one hour.
           For a collection the timeout applies to the whole collection run.</small></div>
+      <div class="field">{{ schedule_form.deps_prepare.label }} {{ schedule_form.deps_prepare(aria_describedby="sch-deps-ex") }}
+        <small class="muted" id="sch-deps-ex">Node.js frameworks only:
+          <code>npm ci</code> installs locked project dependencies before
+          the run (runs install scripts on the target; needs
+          package-lock.json). Choose Off when deps are pre-installed on
+          the runner.</small></div>
       <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy(aria_describedby="sch-overlap-ex") }}
         <small class="muted" id="sch-overlap-ex">“Allow overlap” starts a new run even
           if the last one is still running. “Skip” does not. A collection

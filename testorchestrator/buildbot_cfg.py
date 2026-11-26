@@ -523,6 +523,8 @@ def node_exec_spec(ex, executable: str, args: list,
         spec["env"] = dict(env)
     if deps_argv:
         spec["deps_argv"] = list(deps_argv)
+        spec["deps_timeout"] = int(
+            (ex.run_config().get("deps_timeout") if ex else 0) or 600)
     spec.update(_retry_policy(ex, posix=posix))
     return spec
 

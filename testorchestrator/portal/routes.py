@@ -3807,6 +3807,8 @@ def create_schedule(project_id):
             "timeout_seconds": form.timeout_seconds.data or 3600,
             "runner_id": form.runner_id.data or "",
         }
+        if (form.deps_prepare.data or "") == "false":
+            rc["deps_prepare"] = False
         if "execution_profile" in allowed:
             rc["profile"] = form.execution_profile.data or "default"
         if "browser_type" in allowed:

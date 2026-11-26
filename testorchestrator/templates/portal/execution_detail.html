@@ -42,6 +42,13 @@
     <dt>Timeout</dt><dd>{{ rc.timeout_seconds }}s (running time from
       process launch)</dd>
     {% endif %}
+    {% if ex.runtime and ex.runtime.runtime_kind in ('jest', 'playwright', 'cypress') %}
+    <dt>Deps prepare</dt><dd>
+      {% if rc.get('deps_prepare', True) not in (false, 'false', '0', 0) %}
+        on — <code>npm ci</code> installs locked project deps before the
+        run{% if rc.get('deps_timeout') %} (cap {{ rc.deps_timeout }}s){% endif %}
+      {% else %}off — dependencies pre-installed on the target{% endif %}</dd>
+    {% endif %}
     <dt>Retry policy</dt><dd>
       {% if rc.get('retry_enabled', True) %}enabled — up to
       {{ rc.get('max_attempts') or 3 }} attempt(s) total after a confirmed

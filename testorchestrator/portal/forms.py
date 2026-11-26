@@ -101,6 +101,11 @@ class ScheduleForm(FlaskForm):
                             choices=[])
     runtime_id = SelectField("KRE installation", validators=[Optional()],
                              choices=[])
+    deps_prepare = SelectField(
+        "Dependency prepare (npm ci)",
+        choices=[("", "On — npm ci before the run (default)"),
+                 ("false", "Off — deps pre-installed on target")],
+        validators=[Optional()])
     overlap_policy = SelectField(
         "Overlap", choices=[("allow", "Allow overlap"),
                             ("skip", "Skip if previous run active")],
