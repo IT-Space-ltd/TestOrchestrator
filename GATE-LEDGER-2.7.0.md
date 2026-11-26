@@ -418,3 +418,43 @@ present — no double entries.
 - Learning for docs: the dispatch chain for a new framework project is
   probe -> static discovery (sync_framework_project) -> validate_project
   -> dispatch. Native collection only where a collector exists.
+
+## Matrix cell results — first real execution evidence (installed build #2)
+
+Head 32b90754-equivalent code, installed sha256 566fe705…
+(positive/negative file-level cells):
+
+| cell | execution id | state | outcome |
+|---|---|---|---|
+| postman-positive | 2fa625e76c30412fb6f65b2b91e84c62 | COMPLETED | FAILED |
+| postman-negative | 4e50af77d53643119ab88b84fbea3e3f | COMPLETED | FAILED |
+| bruno-positive | 9c88b66836d54cdd8e429a8c35f3d015 | FAILED | INCOMPLETE |
+| bruno-negative | 4f2175da422242cb9ebb64c7f26ae704 | FAILED | INCOMPLETE |
+| jest-positive | 96a6ab034ec6483aae21a4cd8b78590e | FAILED | INCOMPLETE |
+| jest-negative | 4dabdc6488fb4ccd8ec98872e5b164cc | FAILED | INCOMPLETE |
+
+Step-stdout evidence (bruno, builds 59/60): bru EXECUTES correctly on
+target — requests run, html/json/junit reports written
+(Reports/junit/bruno.xml). Requests fail in ~61ms (both cells, 2/2) —
+suspect fixture networking or unresolved {{host}} env var (no
+--environment passed in run config); ALSO possible httpbin.org egress
+issue from guest. Verify: curl httpbin.org from guest; check whether
+the run config needs environment_file wiring.
+
+PRODUCT DEFECT CANDIDATE (unverified): bruno execution wrote junit to
+Reports/ yet the execution is INCOMPLETE with zero artifacts collected
+— the artifact collection path for node-framework runs appears broken
+(or the run failed before the upload step — exit code 1 in the exec
+step may abort the pipeline before upload-reports). NEXT STEP: check
+whether upload-reports step ran for build 59/60 in twistd.log, and
+read the master steps table for those builds.
+
+Jest INCOMPLETE with no artifacts — step stdout not yet read; same
+method applies. npm ci behavior in run path unverified.
+
+Postman COMPLETED but outcome FAILED even for positive — newman runs;
+need junit detail to distinguish test failure vs assertion content
+(fixture uses httpbin.org — same egress question).
+
+Open matrix items unchanged: test/request-level, subdirectory, SSH,
+remaining frameworks, git publication, Windows cells.
