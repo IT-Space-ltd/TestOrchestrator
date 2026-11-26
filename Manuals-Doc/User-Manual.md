@@ -1320,4 +1320,743 @@ folder, file, or individual test.
 **Suite** — a named, versioned set of tests defined in the app.
 **Vendored** — committed into the repository itself (node_modules).
 
+---
+
+## Appendix A. Field reference
+
+Every input field in the application, alphabetically by field name.
+Each entry gives the label you see on screen, what the field is, its
+allowed values and its default. Worked examples and common mistakes
+are in the chapter covering the function.
+> Forms marked `*Form` in the system/admin blueprints are covered
+> in the Administrator Manual chapters; they are listed here too so this
+> reference is complete in one place.
+
+
+### `allowed_projects`
+
+- **Allowed projects** (selectmultiple)   *(in form `RunnerForm`)*
+
+### `authoring_writable`
+
+- **Source authoring (edit native definitions)** (boolean) ; default `True`   *(in form `BindingForm`)*
+
+### `backup_file`
+
+- **Backup file (.tobackup)** (file)   *(in form `RestoreStageForm`)*
+
+### `binding_id`
+
+- **Source binding** (string)   *(in form `SuiteForm`)*
+
+### `browser_type`
+
+- **Browser** (select) — values loaded dynamically ; default `Chrome (headless)`   *(in form `ScheduleForm`)*
+
+### `bruno_collection`
+
+- **Collection folder** (string)   *(in form `ScheduleForm`)*
+
+### `bruno_environment`
+
+- **Environment** (string)   *(in form `ScheduleForm`)*
+
+### `bruno_tags`
+
+- **Tags** (string)   *(in form `ScheduleForm`)*
+
+### `candidate`
+
+- **Detected candidates** (radio)   *(in form `AddressForm`)*
+
+### `case_refs`
+
+- **Test cases** (selectmultiple)   *(in form `SuiteForm`)*
+
+### `certificate`
+
+- **Certificate / full chain (PEM)** (file)   *(in form `ImportCertForm`)*
+
+### `concurrency`
+
+- **Concurrency** (integer) ; default `1`   *(in form `RuntimeForm`)*
+
+### `config_file`
+
+- **Framework config file (pytest.ini / cypress.config.js / playwright.config.ts / .prj …)** (string)   *(in form `FrameworkProjectForm`)*
+
+### `confirm`
+
+- **Confirm passphrase** (password)   *(in form `BackupCreateForm`)*
+
+### `confirm_password`
+
+- **Confirm new password** (password)   *(in form `ChangePasswordForm`)*
+
+### `connection_mode`
+
+- **Connection mode** (radio) — allowed values: `local`, `remote` ; default `local`   *(in form `RunnerForm`)*
+
+### `credential`
+
+- **Your password / fresh-install setup token** (password)   *(in form `RestoreStageForm`)*
+- **Your password / fresh-install setup token** (password)   *(in form `RestoreApplyForm`)*
+
+### `credential_file`
+
+- **Worker-local credential file (remote dispatch)** (string) . Absolute path on the WORKER to a protected credential file (0700 dir / 0600 file). The spec carries this path only — the worker's resolver reads the value at exec time.   *(in form `RuntimeForm`)*
+
+### `credential_ref`
+
+- **Credential reference** (string)   *(in form `BindingForm`)*
+- **Credential reference** (string)   *(in form `RuntimeForm`)*
+
+### `current_password`
+
+- **Current password** (password)   *(in form `ChangePasswordForm`)*
+
+### `deps_prepare`
+
+- **Dependency prepare (npm ci)** (select) — allowed values: ``, `false`   *(in form `ScheduleForm`)*
+
+### `description`
+
+- **Description** (textarea)   *(in form `ProjectForm`)*
+- **Description** (textarea)   *(in form `SuiteForm`)*
+- **Description** (textarea)   *(in form `ScheduleForm`)*
+- **Description** (string)   *(in form `SecretForm`)*
+- **Description** (textarea)   *(in form `RunnerForm`)*
+- **Description** (textarea)   *(in form `RuntimeForm`)*
+
+### `display_name`
+
+- **Display name** (string)   *(in form `UserForm`)*
+
+### `exclude`
+
+- **Exclude patterns (one per line)** (textarea)   *(in form `FrameworkProjectForm`)*
+
+### `executable_path`
+
+- **KRE path on the selected worker** (string)   *(in form `RuntimeForm`)*
+
+### `execution_profile`
+
+- **Execution profile** (string) ; default `default`   *(in form `ScheduleForm`)*
+
+### `external_enabled`
+
+- **Enable external/LAN access** (boolean)   *(in form `AddressForm`)*
+
+### `external_host`
+
+- **External/LAN address** (string) . IP address or DNS hostname (no scheme, path, or port). A private LAN IP is fine — it does not make the site Internet-accessible; DNS must resolve and any NAT/firewall forwarding is configured separately.   *(in form `AddressForm`)*
+
+### `feature_roots`
+
+- **Feature-file roots — BDD only (one per line)** (textarea)   *(in form `FrameworkProjectForm`)*
+
+### `framework`
+
+- **What to schedule** (select)   *(in form `ScheduleForm`)*
+- **Framework / runner** (select)   *(in form `FrameworkProjectForm`)*
+
+### `git_ssh_key_path`
+
+- **Worker-side SSH key path (for ssh:// bindings)** (string) . Path on the worker's filesystem to its deploy key — the key material never enters the portal.   *(in form `RuntimeForm`)*
+
+### `http_mode`
+
+- **HTTP listener mode** (radio) — allowed values: `redirect`, `disabled`, `development-insecure` ; default `redirect`   *(in form `PortsForm`)*
+
+### `http_port`
+
+- **Public HTTP port (redirect-only)** (integer)   *(in form `PortsForm`)*
+
+### `https_port`
+
+- **Public HTTPS port** (integer)   *(in form `PortsForm`)*
+
+### `include`
+
+- **Include patterns (one per line, e.g. **/*.spec.ts)** (textarea)   *(in form `FrameworkProjectForm`)*
+
+### `intermediates`
+
+- **Intermediate certificates (PEM, optional)** (file)   *(in form `ImportCertForm`)*
+
+### `internal_app_port`
+
+- **Internal app port (Waitress, loopback)** (integer)   *(in form `PortsForm`)*
+
+### `interval_minutes`
+
+- **Every N minutes** (integer) ; default `60`   *(in form `ScheduleForm`)*
+
+### `jest_test_name`
+
+- **Test name pattern** (string)   *(in form `ScheduleForm`)*
+
+### `jest_test_path`
+
+- **Test path pattern** (string)   *(in form `ScheduleForm`)*
+
+### `kind`
+
+- **Kind** (select) — allowed values: `once`, `interval`   *(in form `ScheduleForm`)*
+- **Kind** (radio) — allowed values: `git`, `runtime`, `license` ; default `git`   *(in form `SecretForm`)*
+
+### `licence_code`
+
+- **Licence code** (string)   *(in form `LicenceActivationForm`)*
+
+### `max_slots`
+
+- **Max concurrent slots** (integer) ; default `1`   *(in form `RunnerForm`)*
+
+### `misfire_policy`
+
+- **Missed fire** (select) — allowed values: `late`, `skip` ; default `late`   *(in form `ScheduleForm`)*
+
+### `mode`
+
+- **Restore mode** (radio) — allowed values: `fresh`, `replace`   *(in form `RestoreApplyForm`)*
+
+### `name`
+
+- **Name** (string)   *(in form `ProjectForm`)*
+- **Name** (string)   *(in form `BindingForm`)*
+- **Suite name** (string)   *(in form `SuiteForm`)*
+- **Schedule name** (string)   *(in form `ScheduleForm`)*
+- **Project display name** (string)   *(in form `FrameworkProjectForm`)*
+- **Reference name** (string)   *(in form `SecretForm`)*
+- **Name** (string)   *(in form `RunnerForm`)*
+- **Connection name** (string)   *(in form `RuntimeForm`)*
+
+### `new_password`
+
+- **New password** (password)   *(in form `ChangePasswordForm`)*
+
+### `os_arch`
+
+- **OS / architecture** (string)   *(in form `RunnerForm`)*
+
+### `overlap_policy`
+
+- **Overlap** (select) — allowed values: `allow`, `skip` ; default `allow`   *(in form `ScheduleForm`)*
+
+### `passphrase`
+
+- **Backup passphrase** (password) . Min 12 characters — encrypts the archive; unrecoverable if lost.   *(in form `BackupCreateForm`)*
+- **Backup passphrase** (password)   *(in form `RestoreStageForm`)*
+- **Backup passphrase** (password)   *(in form `RestoreApplyForm`)*
+
+### `password`
+
+- **Password** (password)   *(in form `LoginForm`)*
+- **Your password (re-authentication)** (password)   *(in form `BackupCreateForm`)*
+
+### `postman_collection`
+
+- **Collection** (string)   *(in form `ScheduleForm`)*
+
+### `postman_environment`
+
+- **Environment** (string)   *(in form `ScheduleForm`)*
+
+### `postman_folder`
+
+- **Folder** (string)   *(in form `ScheduleForm`)*
+
+### `postman_iterations`
+
+- **Iteration count** (integer)   *(in form `ScheduleForm`)*
+
+### `private_key`
+
+- **Matching private key (PEM)** (file)   *(in form `ImportCertForm`)*
+
+### `prj_path`
+
+- **.prj path** (string)   *(in form `BindingForm`)*
+
+### `project_root`
+
+- **Project root (relative to binding scope, '.' allowed)** (string)   *(in form `FrameworkProjectForm`)*
+
+### `pytest_keyword`
+
+- **Keyword expression (-k)** (string)   *(in form `ScheduleForm`)*
+
+### `pytest_markers`
+
+- **Marker expression (-m)** (string)   *(in form `ScheduleForm`)*
+
+### `ref`
+
+- **Ref (branch/tag)** (string)   *(in form `BindingForm`)*
+
+### `remote_webdriver_type`
+
+- **WebDriver driver type** (string)   *(in form `ScheduleForm`)*
+
+### `remote_webdriver_url`
+
+- **Remote WebDriver URL** (string)   *(in form `ScheduleForm`)*
+
+### `report_writable`
+
+- **Report write-back (publish execution reports to this repository)** (boolean) ; default `False`   *(in form `BindingForm`)*
+
+### `robot_exclude`
+
+- **Exclude tags** (string)   *(in form `ScheduleForm`)*
+
+### `robot_include`
+
+- **Include tags** (string)   *(in form `ScheduleForm`)*
+
+### `robot_test`
+
+- **Test name** (string)   *(in form `ScheduleForm`)*
+
+### `role`
+
+- **Role** (radio) — allowed values: `admin`, `test_manager`, `tester`, `po` ; default `tester`   *(in form `UserForm`)*
+
+### `run_at`
+
+- **First run (UTC, YYYY-MM-DD HH:MM)** (string)   *(in form `ScheduleForm`)*
+
+### `runner_id`
+
+- **Runner** (select)   *(in form `ScheduleForm`)*
+- **Worker** (string)   *(in form `RuntimeForm`)*
+
+### `runtime_id`
+
+- **KRE installation** (select)   *(in form `ScheduleForm`)*
+
+### `san_hosts`
+
+- **Hostnames/IPs to include as SANs** (selectmultiple)   *(in form `GenerateCertForm`)*
+
+### `ssh_credential_ref`
+
+- **SSH credential (existing secret)** (string)   *(in form `RunnerForm`)*
+
+### `ssh_host`
+
+- **SSH host** (string)   *(in form `RunnerForm`)*
+
+### `ssh_key`
+
+- **New SSH private key** (textarea) . PEM private key — stored encrypted under a generated reference; never shown again.   *(in form `RunnerForm`)*
+
+### `ssh_port`
+
+- **SSH port** (integer)   *(in form `RunnerForm`)*
+
+### `ssh_username`
+
+- **SSH username** (string)   *(in form `RunnerForm`)*
+
+### `ssh_workdir`
+
+- **Remote working directory** (string)   *(in form `RunnerForm`)*
+
+### `staged_id`
+
+- *(no visible label)* (string)   *(in form `RestoreApplyForm`)*
+
+### `stepdef_roots`
+
+- **Step-definition/binding roots — BDD only (one per line)** (textarea)   *(in form `FrameworkProjectForm`)*
+
+### `subdirectory`
+
+- **Subdirectory** (string)   *(in form `BindingForm`)*
+
+### `support_roots`
+
+- **Resource/fixture/support roots (informational)** (textarea)   *(in form `FrameworkProjectForm`)*
+
+### `target_id`
+
+- **Runs** (select)   *(in form `ScheduleForm`)*
+
+### `target_type`
+
+- **Target** (select) — allowed values: `suite`   *(in form `ScheduleForm`)*
+- **Target type** (radio) — allowed values: `local`, `buildbot-worker`, `ssh` ; default `local`   *(in form `RunnerForm`)*
+
+### `temporary_password`
+
+- **Temporary password** (password)   *(in form `UserForm`)*
+- **New temporary password** (password)   *(in form `ResetForm`)*
+
+### `test_roots`
+
+- **Test roots (one per line; '.' = scope root)** (textarea)   *(in form `FrameworkProjectForm`)*
+
+### `timeout_seconds`
+
+- **Timeout (seconds)** (integer) ; default `3600`   *(in form `ScheduleForm`)*
+
+### `timezone`
+
+- **Display time zone** (string) . IANA zone name — the shown offset varies by date.   *(in form `AccountForm`)*
+- **Display time zone** (string) ; default `UTC` . IANA zone name — the shown offset varies by date.   *(in form `UserForm`)*
+- **Display time zone** (string) . IANA zone name — the shown offset varies by date.   *(in form `UserTimezoneForm`)*
+
+### `url`
+
+- **Repository URL or path** (string)   *(in form `BindingForm`)*
+
+### `username`
+
+- **Username** (string)   *(in form `LoginForm`)*
+- **Username** (string)   *(in form `UserForm`)*
+
+### `value`
+
+- **Credential value** (password) . Git (HTTPS only): user:token — e.g. git:ghp_… — split at the first colon; a bare token is used as the username (PAT convention). SSH remotes use the host ssh agent or the worker-side key path — never a stored key. KRE: a sensitive value used by the invocation (license key or project token) that must be redacted from logs/artifacts. License kind: the exact contents of a genuine Katalon-issued .lic offline license file (machine-bound to the target's execution account).   *(in form `SecretForm`)*
+
+### `website`
+
+- **Website** (string)   *(in form `LicenceActivationForm`)*
+
+### `workdir`
+
+- **Working directory (default: project root)** (string)   *(in form `FrameworkProjectForm`)*
+
+### `workspace_root`
+
+- **Workspace root** (string)   *(in form `RunnerForm`)*
+- **Workspace root** (string)   *(in form `RuntimeForm`)*
+
+---
+
+## Appendix B. Page reference — controls page by page
+
+This appendix walks the important pages control by control. It
+complements Appendix A (fields alphabetically) — here the order is
+the page you are looking at.
+
+### B.1 The project page
+
+The project page is the centre of daily work. It is organized in
+tabs; the `ptabs` and `subtab` values you see in form submissions are
+the internal names of the tab you are on — they only ensure that
+saving a form returns you to the same tab.
+
+**Projects list.** The Projects page shows every project you can see,
+with a search box (`q`) filtering by name. Choose **+ Project** to
+create one: the only required field is the name.
+
+**Test suites tab.** **+ Test Suite** creates an application-defined
+suite; **+ Test Collection** groups suites into a collection that
+runs as one unit. The ▸ expanders open each suite's member list
+inline.
+
+**Repository tab — creating a binding.** **Create binding** saves a
+new repository binding. Fields: the git URL, the branch/ref, the
+subdirectory inside the repo (if your tests live in a subfolder),
+the credentials reference for private repositories, and the
+`auth_mode` selector — how the binding authenticates:
+
+| `auth_mode` value | When to use it |
+|---|---|
+| Account key (Shared Key) | Azure DevOps/repos shared-key style access |
+| SAS token | token-in-URL access |
+| Other (Manual) | SSH keys, username/password, or anonymous |
+
+*Common mistake:* picking SAS token when the URL already embeds the
+credentials — the server rejects double authentication. When in
+doubt, use Other (Manual) with a credential reference.
+
+**Schedules tab — the target kind.** `target_kind` decides what the
+schedule runs:
+
+| Value | Available for | What it runs |
+|---|---|---|
+| Test suite | all frameworks | one app-defined or repository suite |
+| Test suite collection | Katalon only | a collection of suites as one run — the timeout covers the whole collection and the collection is one run for overlap decisions |
+| Selection from discovery | all non-Katalon frameworks | items picked from the discovered inventory |
+| Plan | all frameworks | the plan's entries in order |
+
+The picker filters itself by framework — Katalon-only choices never
+appear for other frameworks, and the server re-validates on save.
+
+**Storage tab — destinations.** A storage destination says where run
+artifacts go. **Save destination** adds or updates one. The provider
+selector offers:
+
+| Provider | What it is |
+|---|---|
+| Amazon S3 | S3 bucket storage — needs bucket, region, credentials |
+| Microsoft Azure Blob Storage | Azure containers — account key or SAS |
+| Google Cloud Storage | GCS buckets — service-account credentials |
+| local | the built-in local evidence store (default) |
+
+Provider-specific fields: `bucket` (the container/bucket name),
+`region` (the cloud region), `endpoint_url` (for S3-compatible
+services like MinIO), and the credential reference. Removing a
+destination that still has stored artifacts **retires** it instead —
+the configuration is kept for retrieval but no new writes go there.
+New destinations apply to new executions only; historical artifacts
+stay where they were written.
+
+*Common mistake:* pointing at a bucket the credentials cannot write —
+the first run then ends INCOMPLETE at upload time. Test with one
+small run before scheduling bulk executions.
+
+**Capture policy.** **Save capture policy** records which artifact
+kinds are collected (reports, logs, screenshots, bodies) — see the
+capture_bodies setting in §3.4 for the redaction trade-off.
+
+**Retention policy.** **Save retention policy** sets how long
+executions and artifacts are kept for this project, overriding the
+system default. **Preview cleanup** shows what a cleanup would
+delete — nothing is removed. **Run cleanup now** executes the
+cleanup immediately. *Common mistake:* running cleanup without a
+preview — always preview first; deletion is permanent.
+
+### B.2 The framework project page
+
+Shows one framework project (§3.2): its settings, discovery status,
+inventory, and the **Rediscover** action. The inventory table rows
+are the discovered items with their selectability, granularity and
+provenance (§4.4). The settings form fields are the
+framework-specific keys of §3.4.
+
+### B.3 The discovered-item page
+
+One inventory item in detail: its durable identity (binding + kind +
+path), the revision it was discovered at, its staleness state, the
+framework project it belongs to, and — when selectable — the Run
+action pre-targeting it. Items carry badges for repository-defined
+(refreshed on sync) versus app-defined entries.
+
+### B.4 The executions list and the execution page
+
+The **Executions** page lists runs newest-first, filterable by
+project, state and outcome (`q` searches text). Rows show state,
+outcome, target, revision, start time and duration.
+
+The **execution page** is the run's evidence record: immutable
+snapshot of everything the run used (revision, config, runtime),
+the step list with live output as steps complete, the outcome, and
+the artifacts. **Cancel** appears while the run is cancellable.
+Artifacts download individually or as a bundle. An execution cannot
+be edited — history is immutable by design; retention cleanup is
+the only removal path.
+
+### B.5 Authoring — editing native definitions
+
+The author editor edits suite definitions with the `authoring_writable`
+binding capability. Every save versions the definition — you can
+always see who changed what and when, and diff against earlier
+versions. When the binding is not authoring-writable the editor is
+read-only and says so.
+
+### B.6 Admin — infrastructure page
+
+The infrastructure page is the runtime/fleet overview: every
+registered runtime and worker with its kind, readiness verdicts per
+framework, last probe time, and probe actions. This is where you
+read the probe output when a runtime is not ready — the exact
+toolchain failure is shown (missing executable, wrong version,
+licensing verdict).
+
+### B.7 Admin — integrations page
+
+CI integration tokens: create, list, revoke. Each token shows its
+expiry state — `never`, the days remaining (warning at ≤14 days),
+or `expired`. Expired tokens are denied exactly like revoked ones
+and the denial is audited. Default expiry at creation is 90 days,
+adjustable 1–3650, with an explicit never-expires opt-out.
+
+### B.8 The suite page
+
+One suite in detail: its members, versions, run history, and the
+run/schedule actions. Editing members versions the suite — schedules
+and plans referencing it re-validate on save.
+
+### B.9 The discovered-item page — run controls
+
+Beyond the identity data (§B.3), the discovered-item page carries
+run-shaping controls when the item is executable:
+
+- **Browser selection** for browser frameworks — `chrome (Cypress)`,
+  `edge (Cypress)`, `electron (Cypress)` for Cypress items;
+  `webkit (Playwright)` and the other Playwright browsers for
+  Playwright items. Default is the framework's own default browser.
+- **Partitioning** — splitting a large selection across parallel
+  units. `shard_index` / `shard_total` address one shard of a
+  Playwright run (sharding is Playwright-only — other frameworks
+  partition via unit runs); `unit_count` sets how many units the
+  run fans out into. **Preview partition** shows exactly which items
+  land in which unit before anything runs — always preview first.
+  **Queue partition run** starts the units: placeable units start
+  immediately, the rest queue. `queue_timeout_seconds` bounds how
+  long queued units wait before the run gives up on them.
+  `force sequential` disables parallelism entirely — use it for
+  tests that share stateful external resources.
+- **Filters** — `spec_pattern` (Cypress/Playwright spec filter),
+  `exclude_pattern` (items to leave out). Both are framework-native
+  patterns, not shell globs.
+
+### B.10 Katalon execution settings (authoring)
+
+Katalon suites carry execution settings, edited in the authoring
+editor or the suite page. They map directly onto KRE command-line
+behaviour:
+
+| Setting | What it does |
+|---|---|
+| `setting_executionMode` | KRE execution mode passed through to the engine |
+| `setting_rerunFailedTestCasesOnly` | rerun only the test cases that failed in the previous run |
+| `setting_isRerun` / `setting_numberOfRerun` / `setting_rerunImmediately` | retry behaviour: whether to rerun, how many times, and whether immediately |
+| `setting_maxConcurrentInstances` / `setting_delayBetweenInstances` | parallelism inside the KRE run and the delay between starts |
+| `setting_pageLoadTimeout` | page-load timeout KRE applies |
+| `setting_tag` | Katalon tag filter |
+| `setting_description` | free-text description stored with the setting set |
+
+The editor workflow: **Save draft** stores work-in-progress without
+publishing; **Publish to branch** commits the definition to the
+repository branch (versioned, auditable); **Abandon draft** discards
+unpublished changes — with a confirmation, because it cannot be
+undone. `review_sig` carries the reviewer's acknowledgement on
+reviewed publishes.
+
+### B.11 Admin — infrastructure runtime fields
+
+Editing a runtime exposes:
+
+| Field | What it is | Notes |
+|---|---|---|
+| `exec_location` | where executions land on the target | must exist and be writable by the worker |
+| `max_procs` | maximum concurrent processes the runtime accepts | capacity control — partitioning never exceeds it |
+| `project_ids` | project allowlist for this runtime | empty = all projects; use it to dedicate runners |
+| `license_refs` | credential references for licensed engines | secret-store names, never values |
+| `licensing_mode` | `online — API-key credential`, `offline — machine-bound .lic`, or `private — API key + private license server` | see §24 (Admin) |
+| `license_server_url` | the private license server address | private mode only; HTTPS in production |
+| framework checkboxes | which frameworks the runtime offers — e.g. `KRE (desktop engine)`, `Behave BDD (Python)`, `Bruno (bru CLI)` | a framework unchecked here never dispatches to this runtime |
+
+### B.12 Executions list — bulk controls and filters
+
+The list filters: `project_id`, `suite_id`, `schedule_id` narrow by
+scope; `from_date` / `to_date` bound the time range; `(unset)` in a
+filter means no constraint. Select rows with the checkboxes and use
+**Cancel 0 selected** (the count updates live) to bulk-cancel —
+cancellable rows cancel, others are skipped with a per-row note.
+`ex_ids` carries the selected ids internally.
+
+### B.13 The execution page — actions
+
+| Action | What it does |
+|---|---|
+| **Cancel execution** | requests cancel; cancel intent governs the terminal state even across retries |
+| **Retry (new attempt)** | starts a new attempt of the same immutable snapshot |
+| **Publish / retry** | republishes results for reporting after a fixed pipeline problem |
+| **Refresh report collection** | re-runs artifact collection when the store was temporarily unreachable |
+| **Resolve UNKNOWN** | administrative resolution of an UNKNOWN outcome — does NOT stop any process; use only after verifying the target is really done |
+| `confirm_stopped` | the typed confirmation for destructive resolution |
+| `retry store` | retry artifact upload to the destination store |
+
+### B.14 Admin — integrations
+
+**Create token** issues a CI API token: scopes are `read — poll
+status/results` or `run — also trigger/cancel/retry`, optionally
+restricted to `project_ids`. `expires_days` sets the lifetime
+(default 90, range 1–3650); `never_expires` is the explicit opt-out
+and is visibly marked in the list. **Create webhook** registers an
+outbound event webhook; **Save integration settings** stores the
+integration-wide configuration. `submit_token` fields accept an
+existing token for verification.
+
+### B.15 Dates and the report range selectors
+
+`start_date` / `end_date` (or `from_date` / `to_date`) bound report
+and list ranges — ISO dates, inclusive of the start day, exclusive
+of the end day. *Common mistake:* expecting the end date itself to
+be included — add one day when you need it.
+
+### B.16 Storage destination advanced fields
+
+`account_url` (Azure account endpoint), `path_style` (S3 path-style
+addressing for MinIO and compatible services — virtual-host style is
+the default), `ca_bundle` (custom CA certificate bundle path for
+self-signed storage endpoints), `artifact_days` / `metadata_days`
+(per-destination retention overrides). **Create and configure** on
+the binding wizard performs creation and opens configuration in one
+step. The `Appium` option appears in framework selectors for Katalon
+mobile executions. `&times;` is the close control on modal dialogs —
+it discards nothing by itself; unsaved forms warn before closing.
+
+### B.17 Your account page
+
+The account page (your name in the navigation) holds your
+preferences: display timezone, theme, and password change.
+**Use detected** fills the timezone from your browser; **Save
+preferences** stores them. Timezone affects every timestamp you see —
+the stored data is always UTC, the display zone is yours alone.
+
+### B.18 Project access panel (admin)
+
+Admins manage per-project user access from the project access panel:
+`user_ids` carries the selected users (multi-select — **Select all**
+picks everyone), **Save access** applies the selection. Access is
+additive to role rights: a tester sees only projects granted here or
+owned by their team.
+
+### B.19 Project analytics
+
+The analytics tab charts pass rates and durations over time.
+`source_ref` filters the series to one branch/ref; `(unavailable)`
+appears for series whose source no longer exists — the data is kept,
+the label is honest about the reference being gone.
+
+### B.20 Framework project actions
+
+Three actions shape the framework project's lifecycle:
+**Preview discovery** runs static discovery without saving — use it
+to check a project-root or settings change before committing to it.
+**Apply changes** saves the settings; **Run discovery (validate)**
+re-runs discovery and validates the inventory in one step. Neither
+action ever executes repository code — preview and rediscovery are
+the parse-only static path (§4.2).
+
+### B.21 Importing historical results
+
+**Preview import** on the import page parses the result directory
+(`result_dir` — the path on the server holding the framework's result
+files) and shows exactly what would be imported: suites, cases,
+outcomes — before anything is written. Import creates historical
+executions marked as imports; they never count as live runs.
+
+### B.22 Release detail
+
+A release groups executions for a milestone. `item_id` selects the
+suite or selection to add; **Run all in scope** starts every in-scope
+item — each as its own execution, all recorded against the release.
+
+### B.23 Admin — network configuration
+
+The network page controls how the portal is reached:
+**Save address** sets the bind address/hostnames; **Save ports** the
+listening ports; **Generate local certificate** creates a self-signed
+certificate for evaluation use; **Validate & import** checks and
+imports a real certificate chain (the validation catches chain and
+key mismatches before anything is applied); **Apply network
+configuration** activates the staged changes with a service reload;
+**Roll back to last known good** restores the previous working
+configuration when a change locks you out — the previous config is
+always kept for exactly this case.
+
+*Common mistake:* applying a certificate whose key doesn't match —
+the service then refuses to start. Validate first; the validator
+catches this before any downtime.
+
 
