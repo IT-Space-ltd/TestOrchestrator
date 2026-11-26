@@ -475,3 +475,46 @@ bruno negative cell ran 2 requests (whole collection): file-level
 selection scope needs verification against the item model.
 Jest INCOMPLETE still unexplained — read build step stdout for
 96a6ab03 (same adapter.run_log method).
+
+## Defect D-ARTIFACT-SUBDIR — FIXED in repo, regression test added
+
+Root cause: node_exec_spec hardcoded report_src="src/Reports" but
+bruno (and any framework with a workdir override) executes in a
+subdirectory — reports landed in src/<subdir>/Reports and the
+DirectoryUpload of src/Reports collected NOTHING. Every such run was
+falsely INCOMPLETE with zero artifacts. Explains all four bruno/jest
+INCOMPLETE cells. Fix: report_src follows exec_workdir. Regression:
+tests/test_report_src_workdir.py (3 assertions incl. nested monorepo).
+Jest additionally had EMPTY step logs — separate open question; the
+vendored node_modules fixture means jest may not even reach the exec
+step (deps npm ci in the vendored tree — investigate on final build).
+
+Fixture/networking learnings: matrix fixtures hit a LOCAL stub at
+127.0.0.1:8899 — NOT httpbin.org (no public-network dependency; stub
+now running on guest, /home/ubuntu/stub8899.py). Earlier env-file
+errors were fixture-sync ordering: executions snapshot the binding sha
+at dispatch — sync MUST precede dispatch. Definitive positive cells
+running at closeout against sha 3a776dfc:
+- postman-positive3: 2af864e92cf642069ff59256125e0128
+- bruno-positive3: 85be294a80c04afbb8d15951b4a1f546
+
+## Baseline correction (owner instruction)
+
+Zero-product-diff claim void after 10565c27. New baseline: head
+10565c27+ (collect fixes) + D-ARTIFACT-SUBDIR fix commit. Every future
+cell must cite exact head + full sha256; the Option A 7/7 verification
+must be re-run on the final build (was the old package). Test count
+correction: deps_prepare tests are 13 (was reported 11 earlier — the
+two added tests are the collector-refusal and static-discovery pins).
+
+## Owner directives queued
+
+- collect-refusal regression test must cover EVERY framework without
+  a collector, not just postman/bruno — extend next session.
+- deps_prepare in collect: same role gate/audit/caps/refusal — verify
+  wiring covers the collect path; if deps off, collect must fail with
+  clear message not silent skip; never on automatic rediscovery or
+  schedules (verify request_native_collection is admin-action only);
+  release notes must state the wording change; ANSWER NEEDED: does the
+  install use --ignore-scripts? (answer: NO — npm ci runs scripts;
+  this is documented in CHANGELOG; the risk acceptance is owner's).

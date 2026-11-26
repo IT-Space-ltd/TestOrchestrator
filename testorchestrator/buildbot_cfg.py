@@ -509,14 +509,24 @@ def node_exec_spec(ex, executable: str, args: list,
     No credential wrapper: these frameworks need no TO licence key.
     ``deps_argv`` is an optional pre-exec step (``npm ci`` — the
     project's pinned dependencies into the isolated workspace)."""
+    eff_workdir = workdir or "build/src"
+    # Reports are written relative to the EXECUTION workdir — when a
+    # framework runs from a subdirectory (bruno executes from the
+    # collection root), the upload source must follow it or nothing
+    # is ever collected (matrix defect D-ARTIFACT-SUBDIR).
+    # exec_workdir is builddir-relative ("build/src[/...]"); the
+    # upload workersrc is builddir-relative without the leading
+    # "build/".
+    sub = eff_workdir[len("build/"):] if eff_workdir.startswith(
+        "build/") else "src"
     spec = {
         "executable": executable,
         "args": list(args),
         # tar unpacks the project to <builddir>/src — the framework
         # CLI runs inside it (project-pinned deps via npx). Bruno
         # executes from the collection root (workdir override).
-        "exec_workdir": workdir or "build/src",
-        "report_src": "src/Reports",
+        "exec_workdir": eff_workdir,
+        "report_src": f"{sub}/Reports",
         "posix": posix,
     }
     if env:
