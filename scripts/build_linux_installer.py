@@ -71,9 +71,16 @@ __TO_ARCHIVE_BELOW__
 
 
 if __name__ == "__main__":
-    tb = Path(sys.argv[1]) if len(sys.argv) > 1 else (
-        REPO / "dist" /
-        "testorchestrator-1.9.0-linux-x86_64.tar.gz")
+    # Default payload tracks the CURRENT release version — never a
+    # hardcoded historical one (the 1.9.0 default silently wrapped a
+    # stale payload, ISS-025-task).
+    if len(sys.argv) > 1:
+        tb = Path(sys.argv[1])
+    else:
+        import json as _json
+        ver = _json.loads((REPO / "release" / "release.json")
+                          .read_text())["version"]
+        tb = REPO / "dist" / f"testorchestrator-{ver}-linux-x86_64.tar.gz"
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else (
         tb.with_suffix(".run"))
     p = build(tb, out)
