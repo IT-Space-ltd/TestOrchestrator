@@ -160,8 +160,15 @@ def _summarize(probe: dict, kind: str) -> str:
     if probe.get("npx", "missing") == "missing":
         problems.append("npx not on PATH for this account")
     if probe.get(kind, "missing").startswith("missing"):
-        problems.append(f"{kind} not resolvable — install it as a "
-                        "project dependency (npx) on the target")
+        # The probe runs BEFORE any install — for npx-resolved kinds the
+        # run-time prepare step (npm ci, default-on) installs project
+        # deps at run time, so a missing framework is NOT fatal when
+        # npm itself is present. The lockfile requirement is enforced
+        # as an early refusal at dispatch.
+        if probe.get("npm", "missing") == "missing":
+            problems.append(f"{kind} not resolvable and npm absent — "
+                            "install Node.js+npm on the target")
+        # else: informational — npm ci will provide it at run time
     if kind == "cypress" and probe.get("cypress_binary", "ok") != "ok":
         problems.append("Cypress binary not available to the worker "
                         "account")

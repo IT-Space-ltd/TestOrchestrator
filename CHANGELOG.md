@@ -1064,6 +1064,20 @@ Initial public release.
   fulfilled by IT-Space Kft. (see `3rdparty/CORRESPONDING-SOURCES.txt`
   and `docs/redistribution-review.md`).
 
+### npm ci prepare step (owner-approved semantics)
+
+- `deps_prepare` (npm ci) defaults ON — existing node-framework
+  projects keep the visible prepare step; `deps_prepare=false` in the
+  run config turns it off explicitly. Lockfile required: dispatch
+  refuses early when the bound root lacks `package-lock.json` /
+  `npm-shrinkwrap.json`. **Security note: `npm ci` runs dependency
+  install scripts on the target** — enabling it is a test-manager-and-
+  above decision, audited with the lockfile hash. Timeout and output
+  caps apply as for other steps. Never runs during discovery or
+  preview (native collection path — pinned by test).
+- The Jest probe is prepare-aware: a missing framework with npm
+  present is not fatal, since the probe runs before any install.
+
 ### 2.8.0 backlog (owner-approved deferral from the unified-test-concept audit)
 
 Recorded with effort/risk notes; no schema or dispatch changes in 2.7.0:

@@ -184,7 +184,7 @@ case "%KIND%" in
   jest)
     v=$(npx --no-install jest --version 2>/dev/null | head -1)
     [ -n "$v" ] && p "jest=$v" \\
-      || p "jest=missing (npx --no-install jest --version failed) — jest must be in the project's node_modules (the collector uses node_modules/jest-cli/bin/jest.js) — install with: npm ci in the project root, or npm install jest"
+      || p "jest=missing (npx --no-install jest --version failed) — not fatal when the npm ci prepare step is on: it installs project deps at run time (lockfile required). Otherwise install with: npm ci in the project root, or npm install jest"
     npx --no-install jest --listTests --json 2>/dev/null | head -c1 \\
       | grep -q '\\[' && p "jest_listtests=ok" \\
       || p "jest_listtests=unsupported-or-failed"

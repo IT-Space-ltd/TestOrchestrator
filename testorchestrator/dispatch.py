@@ -2579,8 +2579,32 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                                            else "npm")) \
             if Path(npx_path).parent != Path(".") else (
                 "npm.cmd" if win else "npm")
-        deps_argv = ([] if rc.get("native_collect")
-                     else [npm, "ci", "--no-audit", "--no-fund"])
+        # deps_prepare defaults ON (2.7.0 behaviour preserved — existing
+        # projects keep the visible prepare step); an explicit
+        # deps_prepare=false in the run config turns it off. Lockfile
+        # required as a clear early refusal: npm ci without
+        # package-lock.json/npm-shrinkwrap.json is nondeterministic.
+        deps_on = (not rc.get("native_collect")) and \
+            rc.get("deps_prepare", True) not in (False, "false", "0", 0)
+        deps_argv = ([npm, "ci", "--no-audit", "--no-fund"]
+                     if deps_on else [])
+        _bnd = db.session.get(GitBinding, ex.binding_id) \
+            if ex.binding_id else None
+        if deps_on and _bnd is not None:
+            import pathlib as _pl
+            base = _pl.Path(_bnd.worktree_path or "")
+            if _bnd.subdirectory:
+                base = base / _bnd.subdirectory
+            lock = any((base / lf).is_file() for lf in
+                       ("package-lock.json", "npm-shrinkwrap.json")) \
+                if base.is_dir() else False
+            if not lock:
+                raise DispatchError(
+                    "deps_prepare is on but the project has no "
+                    "package-lock.json / npm-shrinkwrap.json in its "
+                    "bound root — npm ci requires a lockfile. Commit "
+                    "the lockfile or set deps_prepare=false in the run "
+                    "configuration.")
         if runner.target_type == "ssh":
             buildbot_cfg.materialize_ssh_key(runner)
             extra = {"exec_subdir": "src", "env": node_env,
