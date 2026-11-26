@@ -12,9 +12,12 @@
   function build(root) {
     let data = JSON.parse(root.dataset.cases || "[]");
     const labels = {};
+    const kinds = {};
     data = data.map((x) => {
       if (typeof x === "object" && x !== null) {
-        labels[x.v] = x.l; return x.v;
+        labels[x.v] = x.l;
+        if (x.kind) kinds[x.v] = x.kind;
+        return x.v;
       }
       return x;
     });
@@ -66,9 +69,13 @@
 
     function visibleAvailable() {
       const q = (search.value || "").toLowerCase();
+      const fk = root.dataset.filterKind || "";
       return data.filter((c) => !selected.has(c) &&
-                         c.toLowerCase().includes(q));
+                         (!fk || (kinds[c] || "suite") === fk) &&
+                         (c.toLowerCase().includes(q) ||
+                          label(c).toLowerCase().includes(q)));
     }
+    root.addEventListener("cases:refresh", () => render());
 
     function render() {
       const vis = visibleAvailable();

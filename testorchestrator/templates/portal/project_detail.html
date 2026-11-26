@@ -322,13 +322,25 @@
       {{ schedule_form.csrf_token }}
       <div class="field">{{ schedule_form.name.label }} {{ schedule_form.name() }}</div>
       <div class="field">{{ schedule_form.target_type.label }} {{ schedule_form.target_type() }}</div>
+      <div class="field"><label for="sch-target-kind">Target type</label>
+        <select id="sch-target-kind" name="target_kind"
+                aria-describedby="sch-tkind-ex">
+          <option value="suite" data-fws="katalon cypress playwright pytest pytest-bdd behave robot gtest jest postman bruno">Test suite</option>
+          <option value="collection" data-fws="katalon">Test suite collection</option>
+          <option value="selection" data-fws="cypress playwright pytest pytest-bdd behave robot gtest jest postman bruno">Selection from discovery</option>
+          <option value="plan" data-fws="katalon cypress playwright pytest pytest-bdd behave robot gtest jest postman bruno">Plan</option>
+        </select>
+        <small class="muted" id="sch-tkind-ex">Katalon schedules can target a
+          test suite, a test suite collection, or a plan — same as a manual
+          run. Other frameworks target a discovery selection or a plan.</small></div>
       <div class="field" role="group" aria-labelledby="tg-lbl-new"><span class="lbl" id="tg-lbl-new">Targets</span>
         <div data-case-selector
              data-cases='{{ repo_targets | tojson }}'
              data-selected='{{ sched_targets | tojson }}'>
           <div data-hidden></div></div>
         <small class="muted">Repository suites/collections — each
-          runs through the configured profile/worker/runtime.</small></div>
+          runs through the configured profile/worker/runtime.</small>
+        <div id="sch-collection-info" class="muted" hidden></div></div>
       <div class="hidden-field">{{ schedule_form.target_id(**{"aria-label": "Schedule target"}) }}</div>
       <div class="field"><label for="sch-framework">What to schedule</label>
         {{ schedule_form.framework(id="sch-framework", aria_describedby="sch-fw-ex") }}
@@ -430,10 +442,12 @@
         <small class="muted" id="sch-runtime-ex"><i>Auto</i> picks a compatible
           installation on the runner.</small></div>
       <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds(aria_describedby="sch-timeout-ex") }}
-        <small class="muted" id="sch-timeout-ex"><code>3600</code> is one hour.</small></div>
+        <small class="muted" id="sch-timeout-ex"><code>3600</code> is one hour.
+          For a collection the timeout applies to the whole collection run.</small></div>
       <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy(aria_describedby="sch-overlap-ex") }}
         <small class="muted" id="sch-overlap-ex">“Allow overlap” starts a new run even
-          if the last one is still running. “Skip” does not.</small></div>
+          if the last one is still running. “Skip” does not. A collection
+          counts as one run.</small></div>
       <button type="submit" class="button">Apply</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form>

@@ -68,7 +68,7 @@ def parse(ctx) -> Result:
             res.warnings.append(f"{rel_posix(p, root)}: {warn}")
         kind = "collection" if tag == "TestSuiteCollectionEntity" \
             else "suite"
-        members, dynamic = [], False
+        members, dynamic, run_mode = [], False, ""
         if tag:
             try:
                 r = ET.parse(str(p)).getroot()
@@ -85,12 +85,16 @@ def parse(ctx) -> Result:
                     members = [t.text.strip() for t in r.findall(
                         ".//TestSuiteRunConfiguration/testSuiteEntity")
                         if t.text]
+                    run_mode = (r.findtext(".//runMode") or "").strip()
             except Exception:
                 warn = (warn or "") + " members unparseable"
+        tags = ""
+        if kind == "collection" and run_mode:
+            tags = f"runmode:{run_mode.upper()}"
         res.items.append(Item(
             kind=kind, path=rel_posix(p, root), name=p.stem,
             parent=rel_posix(p.parent, root), members=members,
-            dynamic=dynamic, warnings=warn or "",
+            dynamic=dynamic, warnings=warn or "", tags=tags,
             granularity="file", selectable=True))
 
     for p in iter_files(root / "Profiles", base, res.warnings):

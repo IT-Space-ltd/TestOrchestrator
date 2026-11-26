@@ -1034,3 +1034,25 @@ Initial public release.
   licence texts, notices, and a written corresponding-source offer
   fulfilled by IT-Space Kft. (see `3rdparty/CORRESPONDING-SOURCES.txt`
   and `docs/redistribution-review.md`).
+
+### 2.8.0 backlog (owner-approved deferral from the unified-test-concept audit)
+
+Recorded with effort/risk notes; no schema or dispatch changes in 2.7.0:
+
+1. **Product-defined collections** (new `Collection`/`CollectionEntry`
+   tables, execution-unit fan-out reusing the dispatch units machinery,
+   capacity semantics for parallel member suites vs `license_slots` and
+   the runtime parallel-session cap, overlap/timeout wording).
+   Effort ~1–2 weeks incl. live cells. Risk: high — touches the dispatch
+   hot path. Needs its own matrix pass.
+2. **Suite generalization to non-Katalon frameworks** (`framework` and
+   `framework_project_id` columns on suites, `item_id` references on
+   entries, save-time validation, backfill of existing app suites to
+   `framework="katalon"`). Effort ~1 week. Risk: high — migration
+   correctness on customer data; every existing schedule/plan must
+   resolve identically post-migration (same audit pattern as ISS-025).
+3. **Plan polymorphism** (plan entries referencing collections as well
+   as suites). Depends on item 1. Effort included above.
+
+2.7.0 ships the read-only side only: tree view over existing inventory,
+stale badges, last-result column, and the schedule-form target picker.

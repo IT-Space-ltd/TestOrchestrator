@@ -52,7 +52,7 @@ class ScheduleForm(FlaskForm):
     framework = SelectField("What to schedule", validators=[Optional()],
                             choices=[])
     target_type = SelectField("Target", choices=[("suite", "Suite")])
-    target_id = SelectField("Runs", validators=[DataRequired()])
+    target_id = SelectField("Runs", validators=[Optional()])
     pytest_keyword = StringField("Keyword expression (-k)",
                                  validators=[Optional(), Length(max=256)])
     pytest_markers = StringField("Marker expression (-m)",

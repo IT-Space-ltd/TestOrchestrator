@@ -273,12 +273,20 @@ def project_detail(project_id):
          "l": f"{d.name or d.path.split('/')[-1].rsplit('.', 1)[0]} "
              f"({d.kind}) · {bind_names.get(d.binding_id, '?')} · "
              f"{d.path}",
-         "fw": d.framework or "katalon"} for d in repo_defs]
+         "fw": d.framework or "katalon",
+         "kind": d.kind,
+         "members": json.loads(d.members_json or "[]"),
+         "runmode": next((t[8:] for t in (d.tags or "").split(";")
+                          if t.startswith("runmode:")), "")}
+        for d in repo_defs]
+    from ..execution import Plan as _Plan
     schedule_form.target_id.choices = (
         [(f"repo:{d.id}", f"{bind_names.get(d.binding_id, '?')} · "
           f"{d.kind} · {d.path}") for d in repo_defs] +
         [(f"app:{s.id}", f"app-side suite · {s.name}")
-         for s in project.suites])
+         for s in project.suites] +
+        [(f"plan:{pl.id}", f"plan · {pl.name}")
+         for pl in _Plan.query.filter_by(project_id=project.id).all()])
     schedule_form.framework.choices = _schedule_fw_choices(project)
     from ..execution import Runner, RuntimeConnection
     _runners = [x for x in Runner.query.filter_by(enabled=True).all()
@@ -3608,11 +3616,17 @@ def create_schedule(project_id):
     # Same choices the GET offers: discovered repo items + app suites —
     # a repo:<id> value must be a valid choice or validation rejects it
     # before the target can be persisted.
+    from ..execution import Plan as _Plan
     form.target_id.choices = [
+        ("", "— select via the target picker —")] + [
         (f"repo:{d.id}", f"{d.kind} · {d.path}") for d in
         DiscoveredItem.query.join(GitBinding).filter(
             GitBinding.project_id == project.id).all()] + [
-        (s.id, f"Suite: {s.name}") for s in project.suites]
+        (s.id, f"Suite: {s.name}") for s in project.suites] + [
+        (f"plan:{pl.id}", f"plan · {pl.name}") for pl in
+        _Plan.query.filter_by(project_id=project.id).all()] + [
+        (f"app:{s.id}", f"app-side suite · {s.name}")
+        for s in project.suites]
     # runner/runtime pins must be valid choices or SelectField
     # validation rejects the submission silently — same population
     # the GET uses.
@@ -3623,6 +3637,17 @@ def create_schedule(project_id):
     form.runtime_id.choices = [("", "Auto")] + [
         (x.id, x.name) for x in _RT.query.filter_by(enabled=True).all()]
     form.framework.choices = _schedule_fw_choices(project)
+    # Plan targets are Katalon-only today. Check from the raw submission
+    # BEFORE choice validation — a framework the project doesn't offer
+    # would otherwise fail validation silently and hide this clearer
+    # message.
+    _tid_raw = (request.form.get("target_id") or "").strip()
+    _fw_raw = (request.form.get("framework") or "").strip()
+    if _tid_raw.startswith("plan:") and _fw_raw not in ("", "katalon"):
+        flash(f"Framework mismatch — plans group Katalon suites, not "
+              f"{SCHED_FW_LABELS.get(_fw_raw, _fw_raw)}.", "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project_id))
     if form.validate_on_submit():
         kind = form.kind.data
         run_at = _parse_run_at(form.run_at.data)
@@ -3641,8 +3666,19 @@ def create_schedule(project_id):
         tid = form.target_id.data or ""
         targets = []
         suite_id = tid
+        plan_id = None
         item_fw = ""
-        if tid.startswith("repo:"):
+        if tid.startswith("plan:"):
+            pl = db.session.get(_Plan, tid[5:])
+            if pl is None or pl.project_id != project.id:
+                flash("Selected plan is unavailable for this project.",
+                      "error")
+                return redirect(url_for("portal.project_detail",
+                                        project_id=project_id))
+            plan_id = pl.id
+            suite_id = None
+            item_fw = "katalon"     # plans group Katalon suites
+        elif tid.startswith("repo:"):
             d = db.session.get(DiscoveredItem, tid[5:])
             if d is None or d.project_id != project.id:
                 flash("Selected repository target is unavailable for "
@@ -3656,6 +3692,50 @@ def create_schedule(project_id):
             item_fw = d.framework or "katalon"
         else:
             item_fw = "katalon"        # app-side suite
+        # Multi-target picker: case_refs[] posted by the case-selector
+        # widget. Plans own their suites — picker values are ignored
+        # for them. The target-kind selector constrains which item
+        # kinds are valid; a mismatch is rejected, never coerced.
+        target_kind = (request.form.get("target_kind") or "").strip()
+        refs = [x for x in request.form.getlist("case_refs")
+                if x.startswith("repo:")]
+        if refs and not plan_id:
+            targets = []
+            bad_kind, missing = [], []
+            for ref in refs:
+                d = db.session.get(DiscoveredItem, ref[5:])
+                if d is None or d.project_id != project.id:
+                    missing.append(ref)
+                    continue
+                if target_kind == "collection" \
+                        and d.kind != "collection":
+                    bad_kind.append(d.path)
+                    continue
+                if target_kind in ("suite", "selection") \
+                        and d.kind == "collection":
+                    bad_kind.append(d.path)
+                    continue
+                targets.append({"kind": d.kind, "path": d.path,
+                                "source_item_id": d.id,
+                                "binding_id": d.binding_id})
+                if not item_fw or item_fw == "katalon":
+                    item_fw = d.framework or item_fw
+            if missing:
+                flash("Selected repository target is unavailable for "
+                      "this project.", "error")
+                return redirect(url_for("portal.project_detail",
+                                        project_id=project_id))
+            if bad_kind:
+                want = ("test suite collections" if
+                        target_kind == "collection" else
+                        "test suites / discovery selections")
+                flash(f"Target type mismatch — the picker is set to "
+                      f"{want}, but these do not fit: "
+                      f"{', '.join(sorted(bad_kind))}.", "error")
+                return redirect(url_for("portal.project_detail",
+                                        project_id=project_id))
+            if targets:
+                suite_id = None
         # Framework: explicit pick wins, else inferred from the target.
         # A pick that contradicts the target's framework is rejected —
         # the schedule would otherwise store a config its target can
@@ -3665,7 +3745,8 @@ def create_schedule(project_id):
             flash(f"Unknown framework {fw!r}.", "error")
             return redirect(url_for("portal.project_detail",
                                     project_id=project_id))
-        if tid.startswith("repo:") and item_fw and fw != item_fw:
+        if tid.startswith("repo:") and item_fw and fw != item_fw \
+                or (tid.startswith("plan:") and fw != "katalon"):
             flash(f"Framework mismatch — the selected target is "
                   f"{SCHED_FW_LABELS.get(item_fw, item_fw)}, not "
                   f"{SCHED_FW_LABELS.get(fw, fw)}.", "error")
@@ -3755,11 +3836,17 @@ def create_schedule(project_id):
                     int(submitted["postman_iterations"] or 0)
             except (TypeError, ValueError):
                 rc["postman_iterations"] = 0
+        if not targets and not plan_id and not (suite_id or "").strip():
+            flash("No target — pick suites, collections or a plan.",
+                  "error")
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
         db.session.add(Schedule(
             project_id=project.id, name=form.name.data.strip(),
             description=form.description.data or "",
-            target_type="suite", suite_id=suite_id,
-            plan_id=None,
+            target_type="plan" if plan_id else "suite",
+            suite_id=suite_id,
+            plan_id=plan_id,
             targets_json=json.dumps(targets), kind=kind,
             interval_minutes=interval if kind == "interval" else None,
             next_run_at=run_at, enabled=True,
@@ -3769,6 +3856,10 @@ def create_schedule(project_id):
             created_by=current_user.username))
         db.session.commit()
         record_audit(current_user.username, "schedule.created", project.id)
+    elif form.errors:
+        errs = "; ".join(f"{k}: {', '.join(v[:2])}"
+                         for k, v in form.errors.items())
+        flash(f"Schedule not saved — {errs}", "error")
     return redirect(url_for("portal.project_detail",
                           project_id=project_id))
 
