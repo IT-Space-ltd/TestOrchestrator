@@ -624,3 +624,44 @@ def test_integrations_page_renders_expiry_states(app, client):
     body = r.get_data(as_text=True)
     assert r.status_code == 200
     assert "expired" in body and "4d left" in body and "never" in body
+
+
+def test_api_retry_unknown_is_chained_audited_never_silent(app):
+    """P3.14 (ISS-022 case): retrying an UNKNOWN execution via a
+    run-scope token must produce a NEW execution row chained with
+    retry_of, audit-recorded — never a silent in-place relaunch. The
+    original UNKNOWN row stays immutable evidence; a read-scope token
+    cannot retry at all."""
+    pid, sid = _env(app)
+    tok = _token(app, scope="run")
+    rtok = _token(app, scope="read")
+    c = app.test_client()
+    with app.app_context():
+        s = db.session.get(Suite, sid)
+        ex = dispatch.create_execution("m", s, source_sha="x",
+                                       run_config={})
+        ex.state = ExecutionState.UNKNOWN
+        ex.error_text = "TO_RETRY_BLOCKED — automatic relaunch blocked"
+        db.session.commit()
+        eid = ex.id
+    # read scope cannot mutate
+    r = c.post(f"/api/v1/executions/{eid}/retry", json={},
+               headers=_auth(rtok))
+    assert r.status_code == 403
+    # run scope: chained new row, original untouched
+    r = c.post(f"/api/v1/executions/{eid}/retry", json={},
+               headers=_auth(tok))
+    assert r.status_code == 201
+    new_id = r.get_json()["execution"]["id"]
+    assert new_id != eid
+    with app.app_context():
+        orig = db.session.get(Execution, eid)
+        assert orig.state == ExecutionState.UNKNOWN   # immutable
+        assert "TO_RETRY_BLOCKED" in (orig.error_text or "")
+        snap = db.session.get(Execution, new_id).snapshot()
+        assert snap.get("retry_of") == eid
+        assert int(snap.get("attempt") or 0) == 2
+        from testorchestrator.models import AuditEvent
+        ev = AuditEvent.query.filter_by(
+            event="api.execution.retried").first()
+        assert ev is not None and eid in (ev.detail or "")
