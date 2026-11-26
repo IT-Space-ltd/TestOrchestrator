@@ -291,3 +291,33 @@ root-cause above.
 Committed head: this commit. Installed package on to-accept-linux:
 interim build #2 (adaf5f6e, sha256 566fe705de90de7e52869ce22ff62cabac3e283909841cbe726dd4922cc4c8df),
 in-place upgrade, all services running, portal 200.
+
+## Jest probe root cause — RESOLVED (environmental, not product)
+
+Evidence: jest/postman probe buildrequests (brids 50/51) died with
+buildbot EXCEPTION (results=3), zero builds — identical properties to
+the working bruno request. Resubmitted on a stable master: jest probe
+build completed SUCCESS and the runtime is now ready-discovery with
+the prepare-aware verdict (jest=missing correctly non-fatal). Verdict:
+the exceptions came from the service-restart window during the package
+upgrade (master restarting / workers disconnected at submit time), not
+a product defect. The product-side requirement was the prepare-aware
+verdict (bd2507ac), already in. No further fix; the
+test_probe_script_syntax regression test stays as permanent protection.
+
+## Fixtures added (guest monorepo commit 3a776df)
+
+services/beta/postman: smoke + fail collections + local environment;
+libs/bruno-api: bruno.json + status-ok/fail-expect .bru + env;
+services/gamma: package.json + REAL package-lock.json (npm-generated)
++ smoke/fail jest tests; libs/üñï code/jest spec: unicode jest test.
+Nested + monorepo + Unicode layouts covered for jest.
+
+## Option A verified ON THE INSTALLED PACKAGE (7/7 PASS)
+
+role-gate, audit-lockfile-hash, ssh-deps-timeout, buildbot-deps-timeout,
+form-toggle, run-detail-visibility, lockfile-refusal — verified by
+inspection of the installed code at /opt/testorchestrator (verify_opta.py).
+Installed build: adaf5f6e code, sha256 566fe705de90de7e52869ce22ff62cabac3e283909841cbe726dd4922cc4c8df —
+byte-identical product code to head 32b907549c78bb1eab745762b2a0585eb14864c4
+(diff since adaf5f6e is docs/ledger only).
