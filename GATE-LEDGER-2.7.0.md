@@ -373,3 +373,37 @@ freeze, exposure scan, final build, Phase 6.
   32b90754). Rebuild #3 sha 7bbe402e… byte-differs (non-reproducible
   build, embedded timestamps) but is code-identical; not installed —
   deferred to the final clean-install phase.
+
+## Native-collect defects — FIXED (10565c27)
+
+Owner-directed analysis results:
+1. Postman/bruno have NO native collector (absent from
+   collectors.COLLECT_SCRIPTS) — collect executions failed
+   pre-artifact, and the failure marked fp.discovery_status='failed',
+   blocking all later dispatch: the ISS-016 pattern, confirmed live
+   for jest. Fix: early documented refusal pointing at static
+   discovery (static is authoritative for their JSON/text structure).
+2. jest native collect genuinely requires project deps
+   (--listTests); deps_prepare now runs during native collection —
+  justified because collection is the approved repo-code execution
+   path (UI ack). Same lockfile requirement/audit/caps. FLAG FOR
+   OWNER: this widens the original 'never during discovery' wording —
+   static discovery/preview remains parse-only and unaffected.
+3. Static discovery (sync_framework_project) run on guest: jest 4
+   items/2 selectable status=ok; postman 4/2 ok; bruno 3/3 ok.
+4. Regression tests 13/13 in test_deps_prepare.py incl.
+   test_collect_without_collector_refused_early and the inverted pin
+   test_native_collect_prepare_allowed_with_lockfile.
+
+## Rebuild #4 (contains collect fixes)
+
+- head 10565c27 (+ledger docs), tarball sha256 8a60884f09ed8d0423da…
+  (full hash in git notes / dist sha256 file)
+- not yet installed — execution cells run on installed build #2 first
+  (execution path unchanged by the fix); install before collect cells.
+
+## 2.8.0 backlog moved to docs/Backlog-2.8.0.md (owner direction)
+
+All 16 deferral items + auth epic 17-31 verified present; CHANGELOG
+carries only a pointer. Duplicate add-requests confirmed as already
+present — no double entries.
