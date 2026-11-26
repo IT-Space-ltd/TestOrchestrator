@@ -393,13 +393,27 @@ artifacts; a queued retry blocks stop-enforcement), **schedules**
 exactly one worker fires it — tested under two-contender races; fire
 failure un-claims so the run is retried; a missed interval fires once
 late on the next tick — no catch-up replay — and a deleted/disabled
-schedule never dispatches), and **version-gated KRE options**
+schedule never dispatches), **schedule targets**
+(Katalon schedules target a test suite, a test suite collection or a
+plan — matching the run form; other frameworks target a discovery
+selection or a plan; per-framework fields with examples, server-side
+rejection of foreign values), and **version-gated KRE options**
 (allowlisted flags with declared, *provisional* minimum majors —
 `retry`, `retryStrategy`, `maxFailedTests`; options the detected
 runtime cannot accept **reject the launch** rather than changing the
 requested semantics — explicit `kre_options_allow_drop`
 acknowledgement is required to continue, recorded in `kre-gating.log`
 evidence + audit).
+
+## Test tab — inventory tree
+
+The Test tab opens on a read-only **tree** of the discovered inventory:
+collections → suites → test cases, with counts, per-framework
+granularity labels (Cypress is file-level only), repo badges, and the
+last result per item. Members that no longer resolve after a sync are
+badged **stale** — warned, never dropped. The tree is
+keyboard-navigable (ARIA treeview) and all repository content is
+escaped.
 
 ## Importing existing results
 

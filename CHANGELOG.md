@@ -15,6 +15,35 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 
 ### Added
 
+- **Test tree view (Test tab default).** Read-only inventory tree —
+  collection → suite → test cases — with per-level counts, repo badges
+  (repository-defined items refreshed on sync), per-framework
+  granularity labels (Cypress is file-level only), stale-member badges
+  (render-time diff against the current inventory, warn-only — entries
+  are never dropped), and last-result badges from a single rollup
+  query. Keyboard-navigable (ARIA treeview: arrows, Enter/Space,
+  `aria-expanded`, roving tabindex). All discovered content is escaped.
+
+- **Schedule target kinds.** Katalon schedules target a test suite, a
+  test suite collection, or a plan — matching the run form. Other
+  frameworks target a discovery selection or a plan. The item picker
+  filters by kind; collections show member suites and run mode
+  read-only. The server validates kind match and rejects mismatches
+  with a clear message, ignores picker values for plan targets,
+  requires at least one target, and never fails validation silently.
+  Timeout/overlap examples state collection semantics (timeout covers
+  the whole collection run; a collection is one run for overlap).
+  Legacy projects without framework-project rows still offer
+  `katalon`; old schedules open, save and run as before.
+
+- **Schedule form per-framework fields.** Jest (test path/name
+  patterns), Postman/Newman (collection, environment, folder,
+  iterations) and Bruno (collection folder, environment, tags) join
+  the framework selector; values map onto the execution-native run
+  config the dispatch layer already consumes. Switching framework
+  never carries hidden foreign values; the server rejects foreign
+  fields by name.
+
 - **CI API token expiry (P3.13).** Optional `expires_at` — default 90
   days at creation, adjustable 1–3650 days, explicit never-expires
   opt-out. Existing tokens migrate to NULL and stay valid. An expired
