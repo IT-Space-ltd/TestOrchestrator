@@ -2596,8 +2596,12 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         # required as a clear early refusal: npm ci without
         # package-lock.json/npm-shrinkwrap.json is nondeterministic.
         deps_explicit = "deps_prepare" in rc
-        deps_on = (not rc.get("native_collect")) and \
-            rc.get("deps_prepare", True) not in (False, "false", "0", 0)
+        # deps_prepare also runs for native collection: collection is
+        # the approved repo-code execution path (UI ack), and jest's
+        # --listTests enumeration genuinely needs project deps. The
+        # same lockfile requirement, audit and caps apply.
+        deps_on = rc.get("deps_prepare", True) not in \
+            (False, "false", "0", 0)
         deps_argv = ([npm, "ci", "--no-audit", "--no-fund"]
                      if deps_on else [])
         _bnd = db.session.get(GitBinding, ex.binding_id) \

@@ -1078,6 +1078,19 @@ Initial public release.
 - The Jest probe is prepare-aware: a missing framework with npm
   present is not fatal, since the probe runs before any install.
 
+### Native collection corrections (matrix batch findings)
+
+- Frameworks without a collector (postman, bruno — static discovery is
+  authoritative for their JSON/text structure) now get a clear early
+  refusal from native collection instead of a pre-artifact failed
+  execution that marked the framework project 'failed' and blocked all
+  later runs (ISS-016 pattern). Run binding discovery instead.
+- deps_prepare now also runs for native collection of node frameworks:
+  collection is the approved repo-code execution path (UI ack), and
+  jest --listTests genuinely requires project deps. Same lockfile
+  requirement, lockfile-hash audit, timeout and output caps. Static
+  discovery/preview remains parse-only and never executes anything.
+
 ### 2.8.0 backlog
 
 Moved to `docs/Backlog-2.8.0.md` — owner-approved deferrals including

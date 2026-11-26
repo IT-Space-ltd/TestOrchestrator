@@ -24,25 +24,27 @@ def test_probe_verdict_still_fatal_without_npm():
     assert "not ready" in out
 
 
-def test_native_collect_never_preps():
-    """deps_argv must be empty for native collection — discovery and
-    preview never run npm ci."""
-    # the dispatch code path keys off rc['native_collect'] — pin the
-    # contract at the source level: deps_argv construction excludes
-    # native_collect unconditionally.
+def test_static_discovery_and_preview_never_execute():
+    """Static discovery/preview is parse-only Python over the checkout —
+    it never builds deps_argv or executes anything on a target. Native
+    collection MAY run npm ci (it is the approved repo-code execution
+    path, and jest --listTests genuinely needs project deps)."""
     import inspect
-    from testorchestrator import dispatch
-    src = inspect.getsource(dispatch._submit_buildbot)
-    assert "native_collect" in src
-    # the deps argv is gated on NOT native_collect
-    assert 'rc.get("native_collect")' in src
-    # and the only deps argv is npm ci behind deps_on
-    assert 'deps_argv = ([npm, "ci", "--no-audit", "--no-fund"]' in src
-    # the discovery path is the native_collect caller — pin the linkage
-    import inspect as _i
+    from testorchestrator import gitsync, discovery
+    # static discovery path contains no deps/prepare machinery at all
+    src = inspect.getsource(gitsync.discover_project)
+    assert "deps_prepare" not in src and "npm ci" not in src
+    assert "deps_argv" not in src
+
+
+def test_collect_without_collector_refused_early():
+    """Frameworks without a collector (postman, bruno) must get a
+    clear early refusal — never a pre-artifact failed execution."""
+    import inspect
     from testorchestrator import gitsync
-    nsrc = _i.getsource(gitsync.request_native_collection)
-    assert '"native_collect": True' in nsrc
+    src = inspect.getsource(gitsync.request_native_collection)
+    assert "has no native collector" in src
+    assert "COLLECT_SCRIPTS" in src
 
 
 def test_lockfile_refusal_message_present():
@@ -119,3 +121,13 @@ def test_schedule_default_leaves_deps_prepare_unset(app, client, login_as):
     with app.app_context():
         rc = _j.loads(Schedule.query.one().run_config_json)
         assert "deps_prepare" not in rc   # default-on applies downstream
+
+
+def test_native_collect_prepare_allowed_with_lockfile(tmp_path):
+    """jest native collect requires deps — deps_argv must NOT be
+    excluded for native_collect anymore; lockfile refusal applies."""
+    import inspect
+    from testorchestrator import dispatch
+    src = inspect.getsource(dispatch._submit_buildbot)
+    # the deps_on condition must not exclude native_collect
+    assert '(not rc.get("native_collect"))' not in src

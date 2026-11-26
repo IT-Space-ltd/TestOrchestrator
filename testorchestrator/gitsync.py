@@ -608,6 +608,13 @@ def request_native_collection(fp, binding, runtime,
     the same timeout/retry/collect pipeline as real runs. Returns
     the Execution (state queued)."""
     from .dispatch import create_execution, FRAMEWORK_RUNTIME
+    from . import collectors
+    if fp.framework not in collectors.COLLECT_SCRIPTS:
+        raise ValueError(
+            f"{fp.framework} has no native collector — its structure "
+            "is authoritative from static discovery (JSON/text "
+            "inspection only). Run binding discovery instead; native "
+            "collection is a documented no-op for this framework.")
     want = FRAMEWORK_RUNTIME.get(fp.framework, "")
     got = getattr(runtime, "runtime_kind", "") if runtime else ""
     if want and got != want:
