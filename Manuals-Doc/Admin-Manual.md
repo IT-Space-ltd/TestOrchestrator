@@ -1,6 +1,6 @@
-# TestOrchestrator 2.6.0 — Administrator Manual
+# TestOrchestrator 2.7.0 — Administrator Manual
 
-Applies to **TestOrchestrator 2.6.0** (release tag `2.6`).
+Applies to **TestOrchestrator 2.6.0** (release 2.7.0).
 
 **How to read the validation markers** — every procedure carries one:
 
@@ -1221,6 +1221,28 @@ needed) for them.
   empty scope after upgrade until an Administrator assigns
   projects — nothing is silently re-granted.
 
+### 7.1a Roles in detail (2.7.0)
+
+| Role | Label in the UI | What they can do |
+|---|---|---|
+| `admin` | Admin | everything, including user administration, secrets, runtimes, system settings |
+| `test_manager` | Test Manager | manage projects, plans, suites, schedules; run tests; set `deps_prepare`; no user/secret/system administration |
+| `tester` | Tester | run tests, view results, manage own assignments |
+| `po` | PO (product owner) | read-only oriented project visibility, reports and evidence |
+
+All four roles may open the About page. Role checks are enforced
+server-side on every request — hiding a button in the UI is never
+the enforcement. The check reads the role from the authenticated
+session, never from a form field or a parameter, so crafted input
+cannot bypass it. Every administrative mutation writes an audit
+event (who, what, when).
+
+Operational rules: users are never hard-deleted while they own
+history — deactivate instead, preserving the audit trail. There is
+no self-service password reset in 2.7.0 (no mail integration); an
+admin performs resets. Every person must have their own account —
+the audit trail is only meaningful when actions map to individuals.
+
 ### 7.2 Secrets **[verified]**
 
 **Admin → Credentials** stores `git` (HTTPS token / SSH key) and
@@ -2231,3 +2253,176 @@ Symptom → first checks. Exact commands/paths, no database surgery.
 | `403` for everyone | host alias vs bare IP — `allowed_hosts`; loopback gate until `setup_completed` + `external_enabled` |
 | Sessions drop on restart | `TO_SECRET_KEY` unset/changed — pin it in `web.env` |
 | `UNKNOWN` executions | lease expired mid-run — inspect run log, verify results on the worker, rerun deliberately; the slot frees on resolution |
+
+## 22. Secrets, credentials and scope settings
+
+### 22.1 What the secret store is
+
+Credentials — API keys, passwords, tokens — live in the **secret
+store**, encrypted at rest, never written to logs, never returned to
+the browser after saving. Forms that reference a secret store only
+the secret's **name**; the value is write-only through the UI.
+
+### 22.2 Scope settings
+
+*New in 2.7.0.* Each secret carries a **scope** declaring where it
+may be used — for example only for git repository access, or only
+for SSH dispatch. Scope enforcement happens **at association time**:
+when you attach a secret to a binding, runtime or target, the product
+checks the secret's scope allows that use and refuses mismatches with
+a clear message.
+
+Secrets created before 2.7.0 carry a `migration_pending` marker until
+an admin reviews and saves their scope. They keep working meanwhile —
+migration never breaks existing associations — but the admin UI lists
+them for review.
+
+### 22.3 Operating rules
+
+1. **Never** paste secrets into test data, environment files, or any
+   repository content — artifacts collect repository content and the
+   exposure scan treats secret-shaped strings as fatal.
+2. Rotate credentials by editing the secret in place — associations
+   follow automatically, no re-wiring needed.
+3. Prefer separate secrets per purpose over one powerful secret —
+   scopes make misuse structurally impossible.
+4. Audit events cover secret creation, edit and association — review
+   them periodically.
+
+---
+
+## 23. Dependency preparation (`deps_prepare`) — security and operation
+
+*New in 2.7.0.*
+
+### 23.1 What it is
+
+Node.js framework tests (Jest, Postman/Newman, Bruno) usually need
+their npm dependencies installed before the test tool can run.
+**deps_prepare** is the controlled step that installs them with
+`npm ci` on the execution target, before the test tool starts.
+
+### 23.2 The security trade-off — read this first
+
+`npm ci` runs **without** `--ignore-scripts`. Dependency install
+scripts (`preinstall`/`postinstall` and friends) execute on the
+target with the worker's privileges. This is deliberate — many
+legitimate packages require their install scripts — and it means:
+
+> **Enabling deps_prepare for a repository means trusting that
+> repository's entire dependency tree with code execution on the
+> runner.**
+
+The controls around that risk:
+
+| Control | Behaviour |
+|---|---|
+| Role gate | Setting or changing `deps_prepare` requires the **test manager or admin** role. Other roles cannot enable it — the dispatch layer refuses with "setting or changing deps_prepare requires the test manager or admin role". |
+| Audit event | Every preparation writes an audit event **including the lockfile hash** — you can prove afterwards exactly which dependency tree was installed. |
+| Lockfile required | Preparation is **refused without `package-lock.json`** — npm ci without a lockfile is never attempted. The refusal is early and explicit. |
+| Timeouts | The step is bounded (default 600 s, adjustable per run as `deps_timeout`; hard-capped by the ssh/buildbot timeout caps — the caps always win). |
+| Explicit failure | If deps preparation is **off** and the target has no vendored dependencies, the run **fails with a clear message** — it never silently skips the install and never produces a confusing downstream failure. |
+| Vendored exception | If the repository **vendors `node_modules`** (committed into the repo), no install runs at all. This is the deliberate exception: vendored dependencies are already repository content, reviewed like any other committed code. |
+| Schedule visibility | The schedule form shows the deps_prepare toggle state so a scheduled run's behaviour is visible at a glance — no hidden preparation. |
+
+### 23.3 Where it applies
+
+- **Dispatch (running tests):** deps_prepare defaults ON for node
+  framework runs — the 2.7.0 behaviour existing users expect.
+  `deps_prepare=false` in the run config turns it off for that run.
+- **Native Jest collection:** runs the same preparation, because the
+  collection executes the framework tool which needs the dependencies.
+  Collection is already the approved repo-code execution path — but
+  note it runs **only on an explicit admin action** from the framework
+  project page, never on automatic rediscovery and never from a
+  schedule. The same role gate, audit event, timeout and lockfile
+  controls apply.
+- **Static discovery and import preview:** never prepare, never
+  install, never execute — they are parse-only, always.
+
+### 23.4 Operating guidance
+
+1. **Prefer vendored `node_modules`** for high-assurance environments:
+   commit the dependencies, disable deps_prepare, and no install
+   scripts ever run.
+2. **Pin your lockfile review** into the repository workflow — the
+   audited lockfile hash is only useful if lockfile changes are
+   reviewed before merging.
+3. **Treat runner hosts as exposed** to the dependency tree: keep
+   them isolated, without access to production systems or
+   credentials. See the hardening chapter.
+4. **Watch the audit log** for `deps_prepare` events; an unexpected
+   lockfile hash means the dependency tree changed.
+
+### 23.5 Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| "deps_prepare requires a lockfile" | no `package-lock.json` in the repo | commit the lockfile (`npm install` writes it) or vendor node_modules |
+| "deps_prepare is off" failure | prepare disabled and no vendored deps | enable it for the run (test manager/admin), or vendor dependencies |
+| preparation timeout | large dependency tree / slow network | raise `deps_timeout` for the run, or vendor dependencies |
+| audit event shows wrong lockfile hash | lockfile changed upstream | review the lockfile diff before allowing further runs |
+
+---
+
+## 24. KRE licensing modes — and the licensed-key exposure statement
+
+### 24.1 The three modes
+
+A Katalon Runtime Engine (KRE) runtime declares its licensing mode
+explicitly. The mode is set on the runtime connection and cannot be
+left ambiguous:
+
+| Mode | What it means | What you configure |
+|---|---|---|
+| `online` | KRE talks to Katalon's license server over the internet | the `-apiKey` credential — unchanged from earlier versions |
+| `offline` | KRE uses genuine Katalon-issued `.lic` files | the `.lic` files placed on the runner — no API key |
+| `private` | KRE validates against your own private license server | the license server URL plus its credential |
+
+Existing runtimes created before 2.7.0 migrate to `online` unchanged
+— their behaviour is identical.
+
+### 24.2 Licensed-key exposure statement
+
+> **Security notice — read before deploying licensed cells.**
+>
+> During the 2.7.0 acceptance cycle a Katalon license key was exposed:
+> it appeared in test artifacts processed by the pipeline. The key is a
+> **floating license** and could not be rotated — rotating it would
+> invalidate every existing Katalon installation using it.
+>
+> Consequently:
+>
+> - 2.7.0 ships a **dispatch pre-flight guard** that blocks any
+>   execution that would present the licensed key on a target, before
+>   anything is staged — the exposure cannot recur through the product.
+> - The **licensed acceptance cells were not run** for this release:
+>   the SSH-credentialed cell, the POSIX private-license-server cell,
+>   and the two-session overlap cell remain **blocked by owner
+>   decision**. Their blockage is deliberate and documented in the
+>   release notes and the acceptance ledger.
+> - Any deployment that needs live KRE execution must resolve the
+>   license exposure with Katalon first — the guard stays in place
+>   regardless.
+
+### 24.3 Configuring offline mode — step by step
+
+1. Obtain `.lic` files from Katalon for the machines that will run KRE.
+2. Copy them to the runner host — the exact directory depends on the
+   KRE version; check Katalon's offline-activation documentation.
+3. In Admin → Runtimes, edit the KRE runtime and set **Licensing
+   mode** to `offline`.
+4. Save. The readiness probe re-checks the runtime; offline mode does
+   not require an API key, so the key field is not consulted.
+
+**What if it doesn't work:** probe failures in offline mode are almost
+always missing `.lic` files or wrong file permissions on the runner —
+check the probe output on the runtime page before anything else.
+
+### 24.4 Private license server
+
+Set the mode to `private` and fill in the license server URL. The URL
+must be HTTPS in production. The readiness probe validates against
+your server; a self-signed private server certificate must be trusted
+by the runner host's certificate store — the product does not probe
+around certificate validation.

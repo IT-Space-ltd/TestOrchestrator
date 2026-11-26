@@ -1,7 +1,12 @@
-# TestOrchestrator 2.6.0 — User Manual
+# TestOrchestrator 2.7.0 — User Manual
 
-Applies to **TestOrchestrator 2.6.0** (feature release — Robot
-Framework, pytest, Playwright and Cypress runners join KRE).
+Applies to **TestOrchestrator 2.7.0** (feature release — repository
+discovery, inventory, and the Node.js frameworks Jest, Postman/Newman
+and Bruno join the existing runners).
+
+> **Draft notice:** this edition describes the 2.7.0 release candidate.
+> Screenshots will be refreshed on the frozen build before release;
+> provenance (head + sha256) is recorded in the Screenshot Index.
 
 All screenshots were captured from a real Linux install of the
 package or a seeded documentation instance of the same codebase —
@@ -30,31 +35,31 @@ software, that is stated on the screenshot caption and in the text.
   - [2.2 Configuring a repository binding](#22-configuring-a-repository-binding)
   - [2.3 Discovery: what sync finds](#23-discovery-what-sync-finds)
   - [2.4 Suites, schedules, and releases](#24-suites-schedules-and-releases)
-- [3. Step by step — suites, releases, and plans](#3-step-by-step--suites-releases-and-plans)
-  - [3.1 Create and edit a test suite](#31-create-and-edit-a-test-suite)
-  - [3.2 Create and manage a release](#32-create-and-manage-a-release)
-  - [3.3 Create a plan (schedule)](#33-create-a-plan-schedule)
-- [4. Connecting runtimes and running tests](#4-connecting-runtimes-and-running-tests)
-  - [4.1 What must exist first](#41-what-must-exist-first)
-  - [4.2 Starting a suite or collection](#42-starting-a-suite-or-collection)
-  - [4.3 Monitoring an execution](#43-monitoring-an-execution)
-  - [4.4 Cancellation, retry, and deletion](#44-cancellation-retry-and-deletion)
-  - [4.5 Reading outcomes: test failure vs. infrastructure failure](#45-reading-outcomes-test-failure-vs-infrastructure-failure)
-  - [4.6 The application-licence notice](#46-the-application-licence-notice)
-  - [4.7 Step by step — Robot, pytest, Playwright, Cypress](#47-step-by-step--robot-pytest-playwright-cypress)
-- [5. Historical-result import](#5-historical-result-import)
-  - [5.1 Starting an import](#51-starting-an-import)
-  - [5.2 The preview](#52-the-preview)
-  - [5.3 Confirming](#53-confirming)
-  - [5.4 Provenance](#54-provenance)
-  - [5.5 Warnings and missing evidence](#55-warnings-and-missing-evidence)
-  - [5.6 Retrying a failed candidate](#56-retrying-a-failed-candidate)
-- [6. Reports and evidence](#6-reports-and-evidence)
-  - [6.1 Execution history](#61-execution-history)
-  - [6.2 reportingLabs reports](#62-reportinglabs-reports)
-  - [6.3 Evidence](#63-evidence)
-  - [6.4 Troubleshooting missing or incomplete results](#64-troubleshooting-missing-or-incomplete-results)
-- [7. Fixture-vs-licensed statement for these screenshots](#7-fixture-vs-licensed-statement-for-these-screenshots)
+- [6. Step by step — suites, releases, and plans](#3-step-by-step--suites-releases-and-plans)
+  - [6.1 Create and edit a test suite](#31-create-and-edit-a-test-suite)
+  - [6.2 Create and manage a release](#32-create-and-manage-a-release)
+  - [6.3 Create a plan (schedule)](#33-create-a-plan-schedule)
+- [7. Connecting runtimes and running tests](#4-connecting-runtimes-and-running-tests)
+  - [7.1 What must exist first](#41-what-must-exist-first)
+  - [7.2 Starting a suite or collection](#42-starting-a-suite-or-collection)
+  - [7.3 Monitoring an execution](#43-monitoring-an-execution)
+  - [7.4 Cancellation, retry, and deletion](#44-cancellation-retry-and-deletion)
+  - [7.5 Reading outcomes: test failure vs. infrastructure failure](#45-reading-outcomes-test-failure-vs-infrastructure-failure)
+  - [7.6 The application-licence notice](#46-the-application-licence-notice)
+  - [7.7 Step by step — Robot, pytest, Playwright, Cypress](#47-step-by-step--robot-pytest-playwright-cypress)
+- [8. Historical-result import](#5-historical-result-import)
+  - [8.1 Starting an import](#51-starting-an-import)
+  - [8.2 The preview](#52-the-preview)
+  - [8.3 Confirming](#53-confirming)
+  - [8.4 Provenance](#54-provenance)
+  - [8.5 Warnings and missing evidence](#55-warnings-and-missing-evidence)
+  - [8.6 Retrying a failed candidate](#56-retrying-a-failed-candidate)
+- [9. Reports and evidence](#6-reports-and-evidence)
+  - [9.1 Execution history](#61-execution-history)
+  - [9.2 reportingLabs reports](#62-reportinglabs-reports)
+  - [9.3 Evidence](#63-evidence)
+  - [9.4 Troubleshooting missing or incomplete results](#64-troubleshooting-missing-or-incomplete-results)
+- [10. Fixture-vs-licensed statement for these screenshots](#7-fixture-vs-licensed-statement-for-these-screenshots)
 
 ---
 
@@ -250,7 +255,402 @@ Step-by-step procedures for all three are in §3.
 
 ---
 
-## 3. Step by step — suites, releases, and plans
+---
+
+## 3. Frameworks and framework projects
+
+*New in 2.7.0.*
+
+### 3.1 What a framework is
+
+A **framework** is the test tool your tests are written for —
+pytest, Robot Framework, Jest, and so on. TestOrchestrator supports
+twelve frameworks:
+
+| Framework choice in the UI | What it is |
+|---|---|
+| Katalon Studio | Katalon Runtime Engine (licensed commercial tool) |
+| pytest | the Python pytest test runner |
+| pytest-bdd | pytest with behaviour-driven feature files |
+| Behave | Python behaviour-driven framework |
+| Robot Framework | keyword-driven test framework |
+| Cypress | Cypress browser tests (JavaScript) |
+| Playwright Test (JS/TS) | Playwright's own test runner |
+| Playwright via pytest | Playwright driven through pytest |
+| GoogleTest (C/C++) | compiled C++ test binaries |
+| Jest (Node.js) | the Jest JavaScript test runner |
+| Postman collections (Newman / Postman CLI) | API test collections |
+| Bruno collections (bru CLI) | API test collections in Bruno format |
+
+You always pick the framework yourself. TestOrchestrator may
+*suggest* a framework after looking at your repository, but the
+suggestion never overrides your choice.
+
+### 3.2 What a framework project is
+
+A **framework project** is the combination of: one of your projects,
+one framework, and the place in the repository where those tests
+live. One project can have several framework projects — for example
+a pytest suite at the repository root and a Postman collection in an
+`api/` folder.
+
+Each framework project carries:
+
+- the **framework** (your choice from the table above),
+- the **project root** — the folder inside the repository where the
+  tests live, relative to the repository root (empty means the
+  repository root itself),
+- **framework settings** — framework-specific options described in
+  §3.4,
+- a **discovery status** — the state of test discovery for this
+  framework project (see chapter 4),
+- the discovered **inventory** — the individual tests TestOrchestrator
+  knows about.
+
+### 3.3 Creating a framework project — step by step
+
+1. Open your project from the Projects list.
+2. Open the **Frameworks** section and choose **Add framework project**.
+3. Pick the framework in the **Framework** dropdown. The dropdown
+   lists the twelve choices from the table in §3.1.
+4. Fill in **Project root** if the tests live in a subfolder.
+   *Worked example:* your repository layout is `api/` for Postman
+   collections and `tests/` for pytest — create two framework
+   projects, one with project root `api`, one with `tests`.
+   *Common mistake:* entering an absolute path like `/home/me/repo/api`.
+   The project root is always relative to the repository, never an
+   absolute path on your computer or on the runner. A root that tries
+   to escape the repository checkout is refused with an error.
+5. Save. TestOrchestrator runs **static discovery** immediately (see
+   chapter 4) and shows what it found.
+
+**Expected result:** the framework project appears in the Frameworks
+section with its discovery status and item count.
+
+**What if it doesn't work:** if discovery reports zero items, check
+the project root first — most often the tests are in a different
+folder than the one configured. Chapter 4 explains the discovery
+statuses and their meanings.
+
+### 3.4 Framework settings reference
+
+Settings are per framework project. All of them have safe defaults;
+you only set what you need.
+
+#### Postman (Newman / Postman CLI)
+
+| Setting | What it does | Allowed values | Default |
+|---|---|---|---|
+| `engine` | which CLI runs the collection | `newman`, `postman-cli` | `newman` |
+| `environment_file` | Postman environment JSON — fills `{{variables}}` | path in repo | empty |
+| `globals_file` | Postman globals JSON | path in repo | empty |
+| `data_file` | iteration data file (CSV/JSON) | path in repo | empty |
+| `iterations` | how many times the collection runs | positive integer | 1 |
+| `delay_ms` | delay between requests | milliseconds | 0 |
+| `timeout_ms` | request timeout | milliseconds | engine default |
+| `insecure` | disables TLS certificate verification | `true`/`false` | `false` — verification ON |
+| `capture_bodies` | include raw request/response bodies in artifacts | `true`/`false` | `false` — bodies stay out |
+
+*Worked example:* your collection uses `{{host}}` everywhere. Put
+`postman/local.postman_environment.json` in **environment file** and
+the variable resolves at run time. *Common mistake:* forgetting the
+environment file — requests then go to the literal text `{{host}}`
+and fail in milliseconds. If every request fails almost instantly,
+check the environment file first.
+
+*Security note:* only turn on `insecure` for test servers with
+self-signed certificates. Never for production endpoints.
+
+#### Bruno
+
+| Setting | What it does | Allowed values | Default |
+|---|---|---|---|
+| `environment` | environment name (`--env`) | a name defined in the collection's `environments/` folder | empty |
+| `environment_file` | environment file (`--env-file`) | path in repo | empty |
+| `collection_roots` | folders that are collection roots (contain `bruno.json`) | list of paths | scan automatically |
+| `iterations` | run count | positive integer | 1 |
+| `include_tags` / `exclude_tags` | tag filters | tag names | empty |
+| `delay_ms` | delay between requests | milliseconds | 0 |
+
+*Worked example:* your collection defines an environment `local` in
+`environments/local.bru` — set **environment** to `local`.
+*Common mistake:* Bruno only runs **at the collection root** — the
+folder containing `bruno.json`. If runs fail with "You can run only
+at the root of a collection", the project root must point at the
+collection root folder, not above or below it.
+
+#### Jest
+
+| Setting | What it does | Allowed values | Default |
+|---|---|---|---|
+| `test_path_pattern` | which test files run | jest path regex | all |
+| `test_name_pattern` | which tests inside files run (`-t`) | jest name regex | all |
+
+Jest configuration is read literally from `jest.config.*` and the
+`package.json` `jest` object — JavaScript config files are never
+executed during discovery.
+
+#### All other frameworks
+
+pytest, pytest-bdd, Behave, Robot Framework, Cypress, Playwright,
+GoogleTest and Katalon carry their 2.6.0 settings unchanged — see
+the framework sections in chapter 5.
+
+
+
+---
+
+## 4. Discovery and inventory
+
+*New in 2.7.0.*
+
+### 4.1 What discovery is
+
+**Discovery** is how TestOrchestrator learns which tests exist in
+your repository. The result of discovery is the **inventory** — the
+list of individual tests you can select, run and schedule.
+
+Discovery happens automatically when you create a framework project
+or sync the repository, and you can re-run it any time with the
+**Rediscover** action on the framework project.
+
+### 4.2 The two kinds of discovery
+
+**Static discovery** is the default and runs automatically.
+TestOrchestrator reads the test files and parses their structure —
+for example the JSON of a Postman collection or the names in a
+pytest module. Static discovery:
+
+- never executes any of your repository's code,
+- never installs dependencies,
+- never sends API requests,
+- runs inside the application, bounded in time and memory.
+
+Scripts inside your tests (Postman pre-request scripts, Bruno
+scripts, jest setup files) are *repository code*. Static discovery
+flags their presence but never runs them.
+
+**Native collection** is the alternative: the framework's own tool
+(`pytest --collect-only`, `jest --listTests`, …) lists the tests on
+an isolated runner. Native collection:
+
+- runs only when you explicitly ask for it — never automatically,
+  never from a schedule,
+- may execute repository code, because the framework tool itself
+  loads your test modules,
+- for Jest, installs dependencies first — see the security note in
+  §4.5.
+
+Use static discovery unless you have a reason: some frameworks only
+reveal their real test list by executing (dynamic pytest fixtures,
+jest projects with generated tests). For Postman, Bruno and Katalon
+static discovery is authoritative — native collection is refused
+for these frameworks with a message telling you to use static
+discovery, because their structure is fully visible without
+executing anything.
+
+### 4.3 Discovery statuses
+
+Each framework project shows one of these statuses:
+
+| Status | Meaning | What to do |
+|---|---|---|
+| `ok` | discovery completed; items are in the inventory | nothing — you can select and run tests |
+| `checking` | discovery is running right now | wait |
+| `draft` | the framework project was created but not yet discovered | save triggers discovery automatically; use Rediscover if needed |
+| `failed` | discovery itself failed | read the error on the framework project page, fix the cause, rediscover |
+| `not-checked` | no discovery has run yet | use Rediscover |
+
+A refused native collection (§4.2) is not a failure — it never
+changes the discovery status.
+
+### 4.4 The inventory — what the item list means
+
+Open a framework project to see its inventory. Each row is one
+discovered item with:
+
+- its **name** and **path** inside the repository,
+- its **granularity** — whether you can run it individually.
+  Cypress, for example, is file-level only: you can run a spec file
+  but not a single `it()` inside it, because the Cypress runner
+  cannot select that finely. Postman requests are never individually
+  selectable (neither engine can run one request); folders are
+  selectable only when their name is unique in the collection.
+  Bruno items are path-addressed, so duplicate names across folders
+  stay unambiguous.
+- a **selectable** marker — items you can pick for a run,
+- the **provenance** — `static` or `native`, how this item was
+  discovered,
+- a **stale** badge when the item no longer matches the current
+  repository content (for example the test was renamed upstream).
+  Stale entries are never dropped silently — they stay visible with
+  the warning until a rediscovery refreshes the inventory.
+
+Items marked as **candidates** (for example individual jest test
+names) are informational: jest's `-t` filter is a regex over the
+full test name path, so individual-test selection becomes available
+only when native collection has proven the identity is unambiguous.
+
+### 4.5 Jest dependency preparation — what you need to know
+
+Jest tests usually depend on packages installed by npm
+(`node_modules`). Two kinds of discovery behave differently:
+
+- **Static discovery** never installs anything — it reads config
+  and test files literally and works without dependencies.
+- **Native collection** needs the dependencies in place. When an
+  administrator explicitly starts a native jest collection,
+  TestOrchestrator runs `npm ci` first.
+
+> **Security note — read before enabling.** `npm ci` runs the
+> install scripts of the packages being installed (there is no
+> `--ignore-scripts`). That means code from your dependency tree
+> executes on the runner. This is accepted deliberately, under
+> these controls: it happens only on an explicit administrator
+> action, is gated by the admin role, writes an audit event
+> including the lockfile hash, is bounded by timeouts, and is
+> refused when the repository has no `package-lock.json`. If your
+> repository vendors `node_modules` (committed into the repo), no
+> install runs at all — that is the deliberate exception.
+> The administrator manual §9 covers the full control set.
+
+### 4.6 Rediscovery — step by step
+
+1. Open the project, then the framework project.
+2. Choose **Rediscover**.
+3. Wait for the status to return to `ok`.
+
+**Expected result:** the inventory reflects the current repository
+content; renamed tests lose their stale badge.
+
+**What if it doesn't work:** a `failed` status shows the error —
+most often the project root no longer exists (renamed folder) or
+the repository binding needs syncing first. Fix the cause and
+rediscover again. A failure never removes the previous inventory —
+the last good list stays visible.
+
+
+
+---
+
+## 5. Running tests
+
+### 5.1 What you need before running
+
+A run needs four things in place:
+
+1. a **framework project** with discovery status `ok` (chapter 3–4),
+2. a **runtime** — the machine the tests execute on — that is
+   execution-ready for your framework (§5.2),
+3. a **selection** — which tests to run (§5.3),
+4. optionally a **release** to record the result against.
+
+### 5.2 Runtimes and readiness
+
+A **runtime** is a registered execution environment — a worker
+machine with the test tools installed. Each runtime shows a readiness
+verdict per framework:
+
+| Verdict | Meaning |
+|---|---|
+| `ready-execution` | the runtime proved it can execute this framework (evidence from a probe and a real per-project execution) |
+| `ready-discovery` | the runtime can discover but has not yet proven per-project execution |
+| `not-checked` | no probe has run |
+| failed probe | the probe ran and failed — read the probe output on the runtime page |
+
+The readiness probe checks the toolchain only (is `newman` installed?
+which version?). Execution readiness additionally needs one real
+execution in the project — the first run of a framework in a project
+stamps that evidence automatically. This is deliberate: a clean
+machine proves nothing about your actual project's needs until it has
+run them once.
+
+### 5.3 Selecting what to run — step by step
+
+1. Open the project and choose **Run**.
+2. Pick the **framework project**.
+3. Pick the **runtime** — only runtimes appear that are ready for
+   this framework.
+4. Select items from the inventory. You can select:
+   - the whole framework project,
+   - folders or files, where the framework supports it,
+   - individual tests, where the framework supports it (§4.4 —
+     granularity is framework-dependent and the UI only offers what
+     the runner can really select).
+5. Fill in the framework-specific run fields (§5.4).
+6. Choose **Run now** or save as a schedule (chapter 7).
+
+**Expected result:** the execution appears in the Executions list,
+starting in state `queued`, then `running`, then a terminal state.
+
+**What if it doesn't work:** if the framework project or runtime you
+expect is missing from the dropdowns, the cause is almost always
+readiness or discovery status — check both first.
+
+### 5.4 Framework-specific run fields
+
+The run form shows extra fields depending on the framework. Switching
+the framework never carries hidden values from another framework —
+foreign fields are rejected by name.
+
+**Jest**
+
+| Field | What it does | Example |
+|---|---|---|
+| Test path pattern | jest regex selecting test files | `src/.*\.spec\.ts` |
+| Test name pattern | jest `-t` regex over full test names | `login` |
+
+**Postman/Newman**
+
+| Field | What it does | Example |
+|---|---|---|
+| Collection | which collection runs | `smoke` |
+| Environment | environment file for `{{variables}}` | `postman/local.postman_environment.json` |
+| Folder | run one folder only (must be unique in the collection) | `auth` |
+| Iterations | how many times the collection runs | `3` |
+
+**Bruno**
+
+| Field | What it does | Example |
+|---|---|---|
+| Collection folder | folder inside the collection | `api/auth` |
+| Environment | environment name from `environments/` | `local` |
+| Tags | include/exclude tag filters | `smoke` |
+
+*Common mistake (both API frameworks):* variable placeholders like
+`{{host}}` stay literal when no environment is configured — every
+request fails within milliseconds. If all requests fail instantly,
+the environment is missing or misnamed.
+
+### 5.5 While the run executes
+
+Open the execution from the Executions list. You see:
+
+- the **state** — `queued`, `running`, then terminal,
+- live **step output** as steps complete,
+- the **source revision** the run checked out — runs always execute
+  a recorded, immutable revision, never a moving branch.
+
+You can **cancel** a running execution. Cancel intent governs the
+terminal state even across retries — a canceled run ends `canceled`,
+never `passed`.
+
+### 5.6 When it finishes — outcomes
+
+| Terminal state | Meaning |
+|---|---|
+| `completed` / PASSED | every test passed |
+| `completed` / FAILED | tests ran; at least one failed — this is a *test result*, not a system error |
+| `failed` / INCOMPLETE | the pipeline itself broke — artifacts missing, target unreachable, preparation failed. INCOMPLETE is never a test result |
+| `canceled` | canceled by a user |
+| `blocked` | stopped by a pre-flight guard before anything ran (for example the licensed-key guard) |
+
+Artifacts — reports, logs, screenshots the framework produces — are
+collected into the execution's artifact store automatically. An
+execution with missing artifacts is INCOMPLETE even if the tests
+themselves passed: evidence you cannot download is not evidence.
+
+## 6. Step by step — suites, releases, and plans
 
 This section walks each authoring flow end to end. Who may do what:
 
@@ -260,7 +660,7 @@ This section walks each authoring flow end to end. Who may do what:
 | Run suites / releases / run-now schedules | yes | yes | yes | no |
 | View everything | yes | yes | yes | yes |
 
-### 3.1 Create and edit a test suite
+### 6.1 Create and edit a test suite
 
 A suite is an ordered, portal-side list of test cases taken from a
 project's repository binding. It versions on every save and carries a
@@ -311,7 +711,7 @@ exist *now*, not only at setup time); if something is missing the
 portal names it and sends you to setup instead of queuing a doomed
 run.
 
-### 3.2 Create and manage a release
+### 6.2 Create and manage a release
 
 A release tracks a fixed scope of repository items (suites and
 collections) toward a target, with its own run and roll-up status.
@@ -376,7 +776,7 @@ collections) toward a target, with its own run and roll-up status.
 **Roles:** creating, editing, and scope/sync actions need Admin or
 Test Manager; running needs any of Admin / Test Manager / Tester.
 
-### 3.3 Create a plan (schedule)
+### 6.3 Create a plan (schedule)
 
 A schedule fires a target automatically — once at a set time or on a
 repeating interval. Targets are either a discovered repository item
@@ -430,9 +830,9 @@ Missed/blocked targets surface the same way as manual runs — check
 
 ---
 
-## 4. Connecting runtimes and running tests
+## 7. Connecting runtimes and running tests
 
-### 4.1 What must exist first
+### 7.1 What must exist first
 
 A run needs all of the following — an administrator sets these up
 (**Admin → Infrastructure** and **Admin → Workers & runtimes**):
@@ -465,7 +865,7 @@ A run needs all of the following — an administrator sets these up
 > showing a live run is labelled accordingly. Licensed execution was
 > not validated here.
 
-### 4.2 Starting a suite or collection
+### 7.2 Starting a suite or collection
 
 From the project's discovered inventory, open a **suite** or
 **collection** item and choose **Run**. The form offers the actually
@@ -518,7 +918,7 @@ on the run details — including when assertions fail. A missing or
 unreadable report is shown as an environment/collection problem,
 never as a green run with zero tests.
 
-### 4.3 Monitoring an execution
+### 7.3 Monitoring an execution
 
 The execution page shows lifecycle state, outcome, worker, suite,
 timestamps, a results table, artifacts, and provenance.
@@ -536,7 +936,7 @@ outcome (the machinery broke).
 
 ![Execution detail — imported run with provenance](Screenshot-Doc/user/execution-detail-imported.png)
 
-### 4.4 Cancellation, retry, and deletion
+### 7.4 Cancellation, retry, and deletion
 
 - **Cancel** — requests cancellation per selected execution (the bulk
   bar on the Executions page, or per execution). The execution moves
@@ -556,7 +956,7 @@ outcome (the machinery broke).
   another execution still references is preserved (see
   Admin Manual §9).
 
-### 4.5 Reading outcomes: test failure vs. infrastructure failure
+### 7.5 Reading outcomes: test failure vs. infrastructure failure
 
 
 | Symptom | Classification | What it means |
@@ -568,7 +968,7 @@ outcome (the machinery broke).
 
 ![Failed execution — one case failed, one passed](Screenshot-Doc/user/execution-detail-failed.png)
 
-### 4.6 The application-licence notice
+### 7.6 The application-licence notice
 
 TestOrchestrator's own application licence is **informational
 only** — it never blocks you. If the licence is missing, expired,
@@ -592,7 +992,7 @@ that must exist on each execution target (§4.1). An
 `Activation failed` result (§4.5) means the target's KRE licence, not
 the portal's application licence.
 
-### 4.7 Step by step — Robot, pytest, Playwright, Cypress
+### 7.7 Step by step — Robot, pytest, Playwright, Cypress
 
 This is the everyday "run my tests" walkthrough for the four
 non-KRE frameworks. You do not install anything — the
@@ -678,12 +1078,12 @@ for a **Check runner readiness** on that runtime (Admin Manual
 
 ---
 
-## 5. Historical-result import
+## 8. Historical-result import
 
 Import adopts existing Katalon `Reports/` output into execution
 history with provenance. It never rewrites what it imported.
 
-### 5.1 Starting an import
+### 8.1 Starting an import
 
 On the project page choose **Imports → New import**. Pick the bound
 repository, the **revision** (ref or `HEAD` — it is resolved to an
@@ -692,7 +1092,7 @@ exact commit before scanning), and the **result directory** to scan
 
 ![New import form](Screenshot-Doc/user/import-new.png)
 
-### 5.2 The preview
+### 8.2 The preview
 
 The preview materializes the chosen revision into a private staging
 checkout (your working tree is never touched), detects every result
@@ -724,7 +1124,7 @@ Group behaviour:
   producer are imported with `framework=unknown` — the run is kept,
   but flagged as an unidentified producer.
 
-### 5.3 Confirming
+### 8.3 Confirming
 
 Tick the candidates to import and choose **Import selected**.
 Duplicates and ambiguous rows are re-checked at confirm time; two
@@ -736,14 +1136,14 @@ independently. If something interrupts the batch, imported candidates
 stay imported and pending/failed ones can be retried — the staging
 checkout is retained while retryable candidates remain.
 
-### 5.4 Provenance
+### 8.4 Provenance
 
 Every imported execution records who imported it, when, the source
 repository, the resolved commit, the source result path, and the
 parser used (e.g. `kre-junit/1`). This is on the execution page and
 inside its stored snapshot.
 
-### 5.5 Warnings and missing evidence
+### 8.5 Warnings and missing evidence
 
 Import reports what it could not do: unparseable files, missing
 `execution.uuid` (matched by content instead), artifact files
@@ -752,7 +1152,7 @@ referenced but absent, and cases whose evidence could not be mapped.
 screenshot is not in the result directory, it is not in the imported
 execution either; the warnings tell you exactly what is absent.
 
-### 5.6 Retrying a failed candidate
+### 8.6 Retrying a failed candidate
 
 A candidate that failed during confirm (parse error, transient
 staging problem) stays on the preview with its failure and can be
@@ -761,9 +1161,9 @@ retryable candidates remain.
 
 ---
 
-## 6. Reports and evidence
+## 9. Reports and evidence
 
-### 6.1 Execution history
+### 9.1 Execution history
 
 **Executions** lists every run with filters for ID prefix, project,
 lifecycle state, outcome, target, schedule, date range, origin
@@ -771,7 +1171,7 @@ lifecycle state, outcome, target, schedule, date range, origin
 
 ![Execution history](Screenshot-Doc/user/execution-history.png)
 
-### 6.2 reportingLabs reports
+### 9.2 reportingLabs reports
 
 An execution's **Report** view embeds the generated reportingLabs
 HTML — overview, per-test status, failures, graphs, and timeline.
@@ -786,7 +1186,7 @@ Report generation states (`rl_status`):
 
 ![reportingLabs report](Screenshot-Doc/user/execution-rlabs.png)
 
-### 6.3 Evidence
+### 9.3 Evidence
 
 The execution page lists retained **artifacts**: JUnit XML, Katalon
 `execution.uuid`, execution/console logs, screenshots, HAR files,
@@ -797,7 +1197,7 @@ Evidence lives under managed directories owned by executions (see
 Admin Manual §9). Deleting an execution removes only the evidence it
 owns; evidence another execution also references is kept.
 
-### 6.4 Troubleshooting missing or incomplete results
+### 9.4 Troubleshooting missing or incomplete results
 
 - No results table — the run failed before producing JUnit
   (activation or infrastructure failure); read the run log artifact.
@@ -807,7 +1207,7 @@ owns; evidence another execution also references is kept.
 
 ---
 
-## 7. Fixture-vs-licensed statement for these screenshots
+## 10. Fixture-vs-licensed statement for these screenshots
 
 All screens in this manual were captured on a packaged Linux
 installation running the released 2.5.0 codebase. Live-execution
@@ -818,3 +1218,106 @@ generation, **not licensed KRE execution**. Licensed-KRE execution
 requires a valid Katalon licence/API key on the target host and was not
 validated in this environment. Imported-execution screens show
 **real Katalon 11.7.0 output** produced by a licensed run elsewhere.
+
+---
+
+## 11. Quick-start — your first run in fifteen minutes
+
+This walkthrough takes you from sign-in to a finished run. It assumes
+an administrator has installed TestOrchestrator and given you an
+account, and a runtime with your framework's tools is registered.
+
+1. **Sign in.** Open the TestOrchestrator address your administrator
+   gave you, enter your username and password.
+2. **Create a project.** Projects → New project. Give it a name —
+   anything meaningful to your team.
+3. **Connect the repository.** In the project, add a repository
+   binding: the git URL of your test repository and the branch.
+   TestOrchestrator syncs the repository — wait for the sync to
+   finish.
+4. **Add a framework project.** Pick your framework from the dropdown
+   (§3.1). If your tests live in a subfolder, enter it as the project
+   root — relative to the repository, like `tests` or `api`.
+5. **Check discovery.** Static discovery runs automatically. Status
+   `ok` with a nonzero item count means you are ready. Zero items?
+   Check the project root — see §4.6.
+6. **Run.** Choose Run, pick the framework project and runtime,
+   select items, start the run.
+7. **Watch and read.** Open the execution. When it finishes, PASSED
+   means every test passed; FAILED means test failures — open the
+   artifacts for the framework's own report; INCOMPLETE means the
+   pipeline broke — see §5.6 and troubleshooting.
+
+## 12. Troubleshooting
+
+| Symptom | Most likely cause | What to do |
+|---|---|---|
+| Discovery finds zero items | wrong project root | point the root at the folder the tests are actually in, rediscover |
+| Every API request fails in milliseconds | `{{variables}}` unresolved — no environment configured | set the environment file (Postman) or environment name (Bruno) — §5.4 |
+| "You can run only at the root of a collection" (Bruno) | project root above/below the collection root | point the project root exactly at the folder containing `bruno.json` |
+| Runtime missing from the run form | not execution-ready for this framework | check the runtime page — first run in the project stamps readiness evidence |
+| "deps_prepare requires a lockfile" | no `package-lock.json` committed | commit the lockfile or vendor `node_modules` |
+| "collect is not supported for this framework" | native collect requested for Postman/Bruno/Katalon | use static discovery — it is authoritative for these frameworks |
+| Execution INCOMPLETE but tests passed | artifact collection failed | report to your administrator — this is a pipeline defect, not a test result |
+| Item greyed out in selection | granularity limit of the framework | §4.4 — select the file or folder instead |
+| Stale badges after upstream renames | inventory predates the rename | rediscover — stale entries never drop silently |
+
+## 13. Frequently asked questions
+
+**Does discovery run my tests?** No. Static discovery parses files —
+it never executes repository code, installs nothing, sends no
+requests. Native collection runs the framework's own listing command
+on an isolated runner, only when an admin explicitly starts it.
+
+**Why can't I select a single Postman request?** Neither engine
+(Newman nor postman-cli) can run one request — the product never
+offers a selection the runner cannot honour. Select the folder or
+collection instead.
+
+**Why did my jest run install packages?** Jest needs its dependencies
+to even list tests. The install is controlled — lockfile required,
+audited, role-gated; see §4.5 and ask your administrator if your
+repository should vendor `node_modules` instead.
+
+**What happens if two people run the same tests at once?** Runs are
+independent — each gets its own execution record, its own checkout of
+its own recorded revision.
+
+**Can a run follow a moving branch?** No — every run records and
+checks out an immutable revision. History stays meaningful.
+
+**Where did my artifacts go?** Open the execution — artifacts are
+attached to it. Missing artifacts make the execution INCOMPLETE; that
+is deliberate, evidence you cannot download is not evidence.
+
+## 14. Glossary
+
+**Artifact** — a file a run produces: reports, logs, screenshots.
+Collected automatically; missing artifacts mean INCOMPLETE.
+**Binding** — the connection between a project and a git repository.
+**Candidate** — an inventory item visible but not yet individually
+selectable (see granularity).
+**Collection (framework)** — a Postman or Bruno API test collection.
+**Discovery** — how TestOrchestrator learns which tests exist; static
+(parse-only) or native (framework tool on a runner).
+**Execution** — one run of tests, with its own immutable revision,
+states, outcome and artifacts.
+**Framework** — the test tool your tests are written for.
+**Framework project** — project + framework + place in the repository.
+**Granularity** — how finely a framework can select: whole project,
+folder, file, or individual test.
+**Inventory** — the discovered list of tests for a framework project.
+**INCOMPLETE** — pipeline failure outcome; never a test result.
+**Item** — one entry in the inventory.
+**Native collection** — discovery by running the framework tool.
+**Plan** — an ordered set of suites/items run together.
+**Probe** — the readiness check of a runtime's toolchain.
+**Provenance** — how an inventory item was discovered (static/native).
+**Runtime** — a registered execution machine.
+**Schedule** — a time- or event-triggered run definition.
+**Stale** — an inventory entry that no longer matches the repository.
+**Static discovery** — parse-only discovery; never executes anything.
+**Suite** — a named, versioned set of tests defined in the app.
+**Vendored** — committed into the repository itself (node_modules).
+
+

@@ -180,6 +180,34 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 
 ### Fixed
 
+- **D-ARTIFACT-SUBDIR — artifact collection now follows the execution
+  workdir.** The node-framework exec spec hardcoded
+  `report_src="src/Reports"`, but subdirectory frameworks (Bruno at
+  its collection root, nested monorepo layouts) write reports inside
+  their workdir — nothing was ever uploaded and every such run falsely
+  ended INCOMPLETE despite the test CLI passing. `report_src` now
+  follows the execution workdir. Regression test
+  `tests/test_report_src_workdir.py`.
+
+- **Native collect refusal for collector-less frameworks.** Bruno,
+  Katalon and Postman have no collector script — a native collect
+  request previously failed deep in the pipeline and poisoned the
+  framework project's `discovery_status` to `failed`, blocking all
+  later dispatch. Collect is now refused early with a clear message
+  pointing at static discovery, the refusal never touches
+  `discovery_status`, and a pinned test loops over every
+  collector-less framework. Jest native collect runs `deps_prepare`
+  first (npm ci **without** `--ignore-scripts` — install scripts
+  execute; explicit admin action only, same role gate, audit event
+  with lockfile hash, timeout caps and lockfile requirement as the
+  dispatch path). With deps preparation off, collect fails clearly —
+  except when `node_modules` is vendored in the repository, the
+  documented exception — and never silently skips the install.
+
+- **POSIX probe scripts — syntax regression guard.** The Bruno probe
+  carried a stray `)` that failed `sh -n`; all six POSIX probe scripts
+  are now syntax-checked by `tests/test_probe_script_syntax.py`.
+
 - **ISS-023 — cancel intent now governs the terminal state across
   Buildbot retries.** A cancel racing a retry could be lost: the retry
   completed with passing results and the execution reported

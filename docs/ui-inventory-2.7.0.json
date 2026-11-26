@@ -1,0 +1,2344 @@
+{
+  "generated_from": "templates scan \u2014 scripts/gen_ui_inventory.py",
+  "template_count": 53,
+  "pages": [
+    {
+      "template": "_tz_select.html",
+      "fields": [],
+      "selects": [
+        {
+          "name": "timezone",
+          "options": [
+            {
+              "value": "{{ name }}",
+              "label": "{{ short if compact else label }}"
+            },
+            {
+              "value": "{{ current }}",
+              "label": "{{ current }} (saved \u2014 type is still honoured)"
+            }
+          ]
+        }
+      ],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "auth/account.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Use detected",
+        "Save preferences"
+      ],
+      "links": []
+    },
+    {
+      "template": "auth/change_password.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Change password"
+      ],
+      "links": []
+    },
+    {
+      "template": "auth/licence.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Activate licence"
+      ],
+      "links": []
+    },
+    {
+      "template": "auth/login.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Sign in"
+      ],
+      "links": []
+    },
+    {
+      "template": "base.html",
+      "fields": [
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "{{ current_user.display_name or current_user.username }} {{ current_user.role.label }}",
+        "Sign out"
+      ],
+      "links": []
+    },
+    {
+      "template": "error.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "main/_about_content.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Close"
+      ],
+      "links": []
+    },
+    {
+      "template": "main/about.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "main/dashboard.html",
+      "fields": [],
+      "selects": [
+        {
+          "name": "days",
+          "options": [
+            {
+              "value": "{{ d }}",
+              "label": "last {{ d }} days"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Refresh"
+      ],
+      "links": []
+    },
+    {
+      "template": "main/notices.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "portal/_project_access_panel.html",
+      "fields": [
+        {
+          "name": "user_ids",
+          "type": "checkbox"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Select all",
+        "Clear",
+        "Save access"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/_project_analytics_body.html",
+      "fields": [
+        {
+          "name": "tab",
+          "type": "hidden"
+        }
+      ],
+      "selects": [
+        {
+          "name": "period",
+          "options": [
+            {
+              "value": "{{ d }}",
+              "label": "{{ d }}d"
+            }
+          ]
+        },
+        {
+          "name": "suite",
+          "options": [
+            {
+              "value": "",
+              "label": "all"
+            },
+            {
+              "value": "{{ s.id }}",
+              "label": "{{ s.name }}"
+            }
+          ]
+        },
+        {
+          "name": "state",
+          "options": [
+            {
+              "value": "",
+              "label": "all"
+            },
+            {
+              "value": "{{ s }}",
+              "label": "{{ s }}"
+            }
+          ]
+        },
+        {
+          "name": "source_ref",
+          "options": [
+            {
+              "value": "",
+              "label": "all"
+            },
+            {
+              "value": "__none__",
+              "label": "(unavailable)"
+            },
+            {
+              "value": "{{ r }}",
+              "label": "{{ r }}"
+            }
+          ]
+        },
+        {
+          "name": "environment",
+          "options": [
+            {
+              "value": "",
+              "label": "all"
+            },
+            {
+              "value": "__none__",
+              "label": "(unavailable)"
+            },
+            {
+              "value": "{{ e }}",
+              "label": "{{ e }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Apply",
+        "Refresh"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/author_edit.html",
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "setting_description",
+          "type": "text"
+        },
+        {
+          "name": "setting_tag",
+          "type": "text"
+        },
+        {
+          "name": "setting_isRerun",
+          "type": "checkbox"
+        },
+        {
+          "name": "setting_numberOfRerun",
+          "type": "number"
+        },
+        {
+          "name": "setting_rerunImmediately",
+          "type": "checkbox"
+        },
+        {
+          "name": "setting_rerunFailedTestCasesOnly",
+          "type": "checkbox"
+        },
+        {
+          "name": "setting_pageLoadTimeout",
+          "type": "number"
+        },
+        {
+          "name": "setting_delayBetweenInstances",
+          "type": "number"
+        },
+        {
+          "name": "setting_maxConcurrentInstances",
+          "type": "number"
+        },
+        {
+          "name": "case_refs",
+          "type": "hidden"
+        },
+        {
+          "name": "review_sig",
+          "type": "hidden"
+        }
+      ],
+      "selects": [
+        {
+          "name": "setting_executionMode",
+          "options": [
+            {
+              "value": "{{ m }}",
+              "label": "{{ m }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Save draft",
+        "Publish to branch",
+        "Abandon draft"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/discovered_detail.html",
+      "fields": [
+        {
+          "name": "execution_profile",
+          "type": "text"
+        },
+        {
+          "name": "robot_test",
+          "type": "text"
+        },
+        {
+          "name": "robot_include",
+          "type": "text"
+        },
+        {
+          "name": "robot_exclude",
+          "type": "text"
+        },
+        {
+          "name": "pytest_keyword",
+          "type": "text"
+        },
+        {
+          "name": "pytest_markers",
+          "type": "text"
+        },
+        {
+          "name": "parallel",
+          "type": "number"
+        },
+        {
+          "name": "shard_index",
+          "type": "number"
+        },
+        {
+          "name": "shard_total",
+          "type": "number"
+        },
+        {
+          "name": "timeout_seconds",
+          "type": "number"
+        },
+        {
+          "name": "queue_timeout_seconds",
+          "type": "number"
+        },
+        {
+          "name": "retry_enabled",
+          "type": "hidden"
+        },
+        {
+          "name": "retry_enabled",
+          "type": "checkbox"
+        },
+        {
+          "name": "max_attempts",
+          "type": "number"
+        },
+        {
+          "name": "unit_count",
+          "type": "number"
+        },
+        {
+          "name": "spec_pattern",
+          "type": "text"
+        },
+        {
+          "name": "exclude_pattern",
+          "type": "text"
+        }
+      ],
+      "selects": [
+        {
+          "name": "release_id",
+          "options": [
+            {
+              "value": "",
+              "label": "\u2014"
+            },
+            {
+              "value": "{{ r.id }}",
+              "label": "{{ r.name }}"
+            }
+          ]
+        },
+        {
+          "name": "runner_id",
+          "options": [
+            {
+              "value": "",
+              "label": "Auto"
+            },
+            {
+              "value": "{{ r.id }}",
+              "label": "{{ r.name }}"
+            }
+          ]
+        },
+        {
+          "name": "runtime_id",
+          "options": [
+            {
+              "value": "",
+              "label": "Auto"
+            },
+            {
+              "value": "{{ rt.id }}",
+              "label": "{{ rt.name }}{% if (rt.runtime_kind or \"kre\") != \"kre\" %} [{{ rt.runtime_kind }}]{% endif %}"
+            }
+          ]
+        },
+        {
+          "name": "browser_type",
+          "options": [
+            {
+              "value": "",
+              "label": "framework default"
+            },
+            {
+              "value": "chromium",
+              "label": "chromium"
+            },
+            {
+              "value": "firefox",
+              "label": "firefox"
+            },
+            {
+              "value": "webkit",
+              "label": "webkit (Playwright)"
+            },
+            {
+              "value": "chrome",
+              "label": "chrome (Cypress)"
+            },
+            {
+              "value": "edge",
+              "label": "edge (Cypress)"
+            },
+            {
+              "value": "electron",
+              "label": "electron (Cypress)"
+            }
+          ]
+        },
+        {
+          "name": "parallel_mode",
+          "options": [
+            {
+              "value": "default",
+              "label": "framework default"
+            },
+            {
+              "value": "sequential",
+              "label": "force sequential"
+            },
+            {
+              "value": "parallel",
+              "label": "parallel"
+            }
+          ]
+        },
+        {
+          "name": "runtime_id",
+          "options": [
+            {
+              "value": "{{ r.id }}",
+              "label": "{{ r.name }} [{{ r.runtime_kind }}]"
+            }
+          ]
+        },
+        {
+          "name": "runner_id",
+          "options": [
+            {
+              "value": "",
+              "label": "Auto"
+            },
+            {
+              "value": "{{ r.id }}",
+              "label": "{{ r.name }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Run {{ item.kind }}",
+        "Preview partition",
+        "Queue partition run"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/execution_detail.html",
+      "fields": [
+        {
+          "name": "confirm_stopped",
+          "type": "hidden"
+        },
+        {
+          "name": "reason",
+          "type": "text"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Cancel execution",
+        "Retry (new attempt)",
+        "Resolve UNKNOWN (administrative \u2014 does NOT stop a process)",
+        "Refresh report collection",
+        "retry store",
+        "Publish / retry",
+        "Delete"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/executions.html",
+      "fields": [
+        {
+          "name": "q",
+          "type": "text"
+        },
+        {
+          "name": "from_date",
+          "type": "date"
+        },
+        {
+          "name": "to_date",
+          "type": "date"
+        },
+        {
+          "name": "ret",
+          "type": "hidden"
+        },
+        {
+          "name": "ex_ids",
+          "type": "checkbox"
+        }
+      ],
+      "selects": [
+        {
+          "name": "project_id",
+          "options": [
+            {
+              "value": "",
+              "label": "All projects"
+            },
+            {
+              "value": "{{ p.id }}",
+              "label": "{{ p.name }}"
+            }
+          ]
+        },
+        {
+          "name": "state",
+          "options": [
+            {
+              "value": "",
+              "label": "All states"
+            },
+            {
+              "value": "{{ s }}",
+              "label": "{{ s }}"
+            }
+          ]
+        },
+        {
+          "name": "outcome",
+          "options": [
+            {
+              "value": "",
+              "label": "All outcomes"
+            },
+            {
+              "value": "{{ o }}",
+              "label": "{{ o }}"
+            }
+          ]
+        },
+        {
+          "name": "suite_id",
+          "options": [
+            {
+              "value": "",
+              "label": "All suites"
+            },
+            {
+              "value": "{{ s.id }}",
+              "label": "{{ s.name }}"
+            }
+          ]
+        },
+        {
+          "name": "environment",
+          "options": [
+            {
+              "value": "",
+              "label": "All"
+            },
+            {
+              "value": "__none__",
+              "label": "(unset)"
+            },
+            {
+              "value": "{{ e }}",
+              "label": "{{ e }}"
+            }
+          ]
+        },
+        {
+          "name": "runner_id",
+          "options": [
+            {
+              "value": "",
+              "label": "All workers"
+            },
+            {
+              "value": "{{ r.id }}",
+              "label": "{{ r.name }}"
+            }
+          ]
+        },
+        {
+          "name": "schedule_id",
+          "options": [
+            {
+              "value": "",
+              "label": "All"
+            },
+            {
+              "value": "{{ sc.id }}",
+              "label": "{{ sc.name }}"
+            }
+          ]
+        },
+        {
+          "name": "origin",
+          "options": [
+            {
+              "value": "",
+              "label": "All"
+            },
+            {
+              "value": "live",
+              "label": "live"
+            },
+            {
+              "value": "imported",
+              "label": "imported"
+            }
+          ]
+        },
+        {
+          "name": "framework",
+          "options": [
+            {
+              "value": "",
+              "label": "All"
+            },
+            {
+              "value": "{{ f }}",
+              "label": "{{ f }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Filter",
+        "Cancel 0 selected"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/fp_collect.html",
+      "fields": [
+        {
+          "name": "ack",
+          "type": "checkbox"
+        }
+      ],
+      "selects": [
+        {
+          "name": "runtime_id",
+          "options": [
+            {
+              "value": "{{ r.id }}",
+              "label": "{{ r.name }} \u2014 {{ r.runtime_kind }} \u00b7 {{ r.os_arch }}{{ \" \u00b7 ready\" if r.ready }}"
+            },
+            {
+              "value": "",
+              "label": "No compatible {{ fp.framework }} runtime registered \u2014 add one under System \u2192 Infrastructure."
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Queue native collection"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/framework_project.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Preview discovery",
+        "Save draft",
+        "Apply changes",
+        "Preview discovery",
+        "Run discovery (validate)",
+        "Delete"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/import_new.html",
+      "fields": [
+        {
+          "name": "revision",
+          "type": "text"
+        },
+        {
+          "name": "result_dir",
+          "type": "text"
+        }
+      ],
+      "selects": [
+        {
+          "name": "binding_id",
+          "options": [
+            {
+              "value": "{{ b.id }}",
+              "label": "{{ b.name }} \u2014 {{ b.url }} ({{ b.ref }})"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Preview import"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/import_preview.html",
+      "fields": [
+        {
+          "name": "cand",
+          "type": "checkbox"
+        },
+        {
+          "name": "force_new",
+          "type": "checkbox"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Import selected"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/import_summary.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "portal/partition_preview.html",
+      "fields": [
+        {
+          "name": "mode",
+          "type": "hidden"
+        },
+        {
+          "name": "{{ k }}",
+          "type": "hidden"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Queue this partition run"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/project_access.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "portal/project_dashboard.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "portal/project_detail.html",
+      "fields": [
+        {
+          "name": "ptabs",
+          "type": "radio"
+        },
+        {
+          "name": "ptabs",
+          "type": "radio"
+        },
+        {
+          "name": "ptabs",
+          "type": "radio"
+        },
+        {
+          "name": "ptabs",
+          "type": "radio"
+        },
+        {
+          "name": "ptabs",
+          "type": "radio"
+        },
+        {
+          "name": "ptabs",
+          "type": "radio"
+        },
+        {
+          "name": "ptabs",
+          "type": "radio"
+        },
+        {
+          "name": "ptabs",
+          "type": "radio"
+        },
+        {
+          "name": "ptabs",
+          "type": "radio"
+        },
+        {
+          "name": "tab",
+          "type": "hidden"
+        },
+        {
+          "name": "since",
+          "type": "date"
+        },
+        {
+          "name": "tab",
+          "type": "hidden"
+        },
+        {
+          "name": "subtab",
+          "type": "hidden"
+        },
+        {
+          "name": "repo",
+          "type": "hidden"
+        },
+        {
+          "name": "q",
+          "type": "search"
+        },
+        {
+          "name": "submit_token",
+          "type": "hidden"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "description",
+          "type": "text"
+        },
+        {
+          "name": "start_date",
+          "type": "date"
+        },
+        {
+          "name": "end_date",
+          "type": "date"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "url",
+          "type": "text"
+        },
+        {
+          "name": "ref",
+          "type": "text"
+        },
+        {
+          "name": "authoring_writable",
+          "type": "checkbox"
+        },
+        {
+          "name": "report_writable",
+          "type": "checkbox"
+        },
+        {
+          "name": "subdirectory",
+          "type": "text"
+        },
+        {
+          "name": "prj_path",
+          "type": "text"
+        },
+        {
+          "name": "credential_ref",
+          "type": "text"
+        },
+        {
+          "name": "authoring_writable",
+          "type": "checkbox"
+        },
+        {
+          "name": "report_writable",
+          "type": "checkbox"
+        },
+        {
+          "name": "kind",
+          "type": "hidden"
+        },
+        {
+          "name": "provider",
+          "type": "hidden"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "root",
+          "type": "text"
+        },
+        {
+          "name": "subdir",
+          "type": "text"
+        },
+        {
+          "name": "bucket",
+          "type": "text"
+        },
+        {
+          "name": "region",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "endpoint_url",
+          "type": "text"
+        },
+        {
+          "name": "ca_bundle",
+          "type": "text"
+        },
+        {
+          "name": "account_url",
+          "type": "text"
+        },
+        {
+          "name": "container",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "bucket",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "endpoint_url",
+          "type": "text"
+        },
+        {
+          "name": "bucket",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "region",
+          "type": "text"
+        },
+        {
+          "name": "path_style",
+          "type": "checkbox"
+        },
+        {
+          "name": "ca_bundle",
+          "type": "text"
+        },
+        {
+          "name": "credential_ref",
+          "type": "text"
+        },
+        {
+          "name": "kind",
+          "type": "radio"
+        },
+        {
+          "name": "kind",
+          "type": "radio"
+        },
+        {
+          "name": "kind",
+          "type": "radio"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "root",
+          "type": "text"
+        },
+        {
+          "name": "subdir",
+          "type": "text"
+        },
+        {
+          "name": "root",
+          "type": "text"
+        },
+        {
+          "name": "subdir",
+          "type": "text"
+        },
+        {
+          "name": "bucket",
+          "type": "text"
+        },
+        {
+          "name": "region",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "credential_ref",
+          "type": "text"
+        },
+        {
+          "name": "endpoint_url",
+          "type": "text"
+        },
+        {
+          "name": "ca_bundle",
+          "type": "text"
+        },
+        {
+          "name": "account_url",
+          "type": "text"
+        },
+        {
+          "name": "container",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "credential_ref",
+          "type": "text"
+        },
+        {
+          "name": "bucket",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "credential_ref",
+          "type": "text"
+        },
+        {
+          "name": "endpoint_url",
+          "type": "text"
+        },
+        {
+          "name": "bucket",
+          "type": "text"
+        },
+        {
+          "name": "prefix",
+          "type": "text"
+        },
+        {
+          "name": "region",
+          "type": "text"
+        },
+        {
+          "name": "credential_ref",
+          "type": "text"
+        },
+        {
+          "name": "path_style",
+          "type": "checkbox"
+        },
+        {
+          "name": "ca_bundle",
+          "type": "text"
+        },
+        {
+          "name": "cat_{{ key }}",
+          "type": "checkbox"
+        },
+        {
+          "name": "artifact_days",
+          "type": "number"
+        },
+        {
+          "name": "metadata_days",
+          "type": "number"
+        },
+        {
+          "name": "kind",
+          "type": "hidden"
+        },
+        {
+          "name": "path",
+          "type": "hidden"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "kind",
+          "type": "hidden"
+        },
+        {
+          "name": "path",
+          "type": "hidden"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        }
+      ],
+      "selects": [
+        {
+          "name": "target_kind",
+          "options": [
+            {
+              "value": "suite",
+              "label": "Test suite"
+            },
+            {
+              "value": "collection",
+              "label": "Test suite collection"
+            },
+            {
+              "value": "selection",
+              "label": "Selection from discovery"
+            },
+            {
+              "value": "plan",
+              "label": "Plan"
+            }
+          ]
+        },
+        {
+          "name": "remote_webdriver_type",
+          "options": [
+            {
+              "value": "",
+              "label": "\u2014"
+            },
+            {
+              "value": "Selenium",
+              "label": "Selenium"
+            },
+            {
+              "value": "Appium",
+              "label": "Appium"
+            }
+          ]
+        },
+        {
+          "name": "auth_mode",
+          "options": [
+            {
+              "value": "account_key",
+              "label": "Account key (Shared Key)"
+            },
+            {
+              "value": "sas",
+              "label": "SAS token"
+            }
+          ]
+        },
+        {
+          "name": "provider",
+          "options": [
+            {
+              "value": "amazon",
+              "label": "Amazon S3"
+            },
+            {
+              "value": "azure",
+              "label": "Microsoft Azure Blob Storage"
+            },
+            {
+              "value": "google",
+              "label": "Google Cloud Storage"
+            },
+            {
+              "value": "manual",
+              "label": "Other (Manual)"
+            }
+          ]
+        },
+        {
+          "name": "auth_mode",
+          "options": [
+            {
+              "value": "account_key",
+              "label": "Account key (Shared Key)"
+            },
+            {
+              "value": "sas",
+              "label": "SAS token"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Apply",
+        "+ Test Suite",
+        "+ Test Collection",
+        "Apply",
+        "\u25b8",
+        "\u25b8",
+        "Run",
+        "Run now",
+        "{{ \"Disable\" if s.enabled else \"Enable\" }}",
+        "Delete",
+        "Apply",
+        "Cancel",
+        "Apply",
+        "Cancel",
+        "Apply",
+        "Cancel",
+        "Sync",
+        "Apply",
+        "Cancel",
+        "Create binding",
+        "Test connection",
+        "{{ \"Deactivate\" if s.active else \"Activate\" }}",
+        "Save",
+        "Cancel",
+        "Remove",
+        "Test connection",
+        "Save destination",
+        "Cancel",
+        "Save capture policy",
+        "Save retention policy",
+        "Preview cleanup",
+        "Run cleanup now",
+        "&times;",
+        "Cancel",
+        "Create and configure",
+        "&times;",
+        "Cancel",
+        "Create and configure"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/projects.html",
+      "fields": [
+        {
+          "name": "q",
+          "type": "search"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "description",
+          "type": "textarea"
+        }
+      ],
+      "selects": [
+        {
+          "name": "sort",
+          "options": [
+            {
+              "value": "name",
+              "label": "name A\u2013Z"
+            },
+            {
+              "value": "recent",
+              "label": "latest activity"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Apply",
+        "Cancel",
+        "Apply",
+        "Apply",
+        "Cancel"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/reconciliation.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Prune orphans ({{ orphan_dirs|length }})"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/release_detail.html",
+      "fields": [],
+      "selects": [
+        {
+          "name": "item_id",
+          "options": [
+            {
+              "value": "{{ a.id }}",
+              "label": "{{ a.kind }}: {{ a.path }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Remove",
+        "Add to scope",
+        "Run all in scope",
+        "{{ s }}"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/release_sync.html",
+      "fields": [
+        {
+          "name": "binding_id",
+          "type": "hidden"
+        },
+        {
+          "name": "sig",
+          "type": "hidden"
+        },
+        {
+          "name": "base",
+          "type": "hidden"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Publish to {{ binding.name }}"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/suite_detail.html",
+      "fields": [
+        {
+          "name": "execution_profile",
+          "type": "text"
+        },
+        {
+          "name": "timeout_seconds",
+          "type": "number"
+        },
+        {
+          "name": "queue_timeout_seconds",
+          "type": "number"
+        },
+        {
+          "name": "remote_webdriver_url",
+          "type": "text"
+        },
+        {
+          "name": "remote_webdriver_type",
+          "type": "text"
+        },
+        {
+          "name": "kre_retry",
+          "type": "number"
+        },
+        {
+          "name": "retry_enabled",
+          "type": "hidden"
+        },
+        {
+          "name": "retry_enabled",
+          "type": "checkbox"
+        },
+        {
+          "name": "max_attempts",
+          "type": "number"
+        }
+      ],
+      "selects": [
+        {
+          "name": "source_item",
+          "options": [
+            {
+              "value": "",
+              "label": "\u2014 run suite list \u2014"
+            },
+            {
+              "value": "{{ i.id }}",
+              "label": "{{ i.kind }}: {{ i.path }}"
+            }
+          ]
+        },
+        {
+          "name": "runner_id",
+          "options": [
+            {
+              "value": "",
+              "label": "Auto \u2014 pick any eligible worker"
+            },
+            {
+              "value": "{{ r.id }}",
+              "label": "{{ r.name }} ({{ r.os_arch or 'unknown os' }}, {{ r.health or 'ok' }})"
+            }
+          ]
+        },
+        {
+          "name": "runtime_id",
+          "options": [
+            {
+              "value": "",
+              "label": "Auto \u2014 compatible runtime on the worker"
+            },
+            {
+              "value": "{{ rt.id }}",
+              "label": "{{ rt.name }} \u2014 {{ rt.runner.name if rt.runner }}{% if (rt.runtime_kind or \"kre\") != \"kre\" %} [{{ rt.runtime_kind }}]{% endif %} ({{ rt.detected_version or 'version unknown' }})"
+            }
+          ]
+        },
+        {
+          "name": "browser_type",
+          "options": [
+            {
+              "value": "",
+              "label": "framework default"
+            },
+            {
+              "value": "chromium",
+              "label": "chromium"
+            },
+            {
+              "value": "firefox",
+              "label": "firefox"
+            },
+            {
+              "value": "webkit",
+              "label": "webkit (Playwright)"
+            },
+            {
+              "value": "chrome",
+              "label": "chrome (Cypress)"
+            },
+            {
+              "value": "edge",
+              "label": "edge (Cypress)"
+            },
+            {
+              "value": "electron",
+              "label": "electron (Cypress)"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Sync to repository",
+        "Run suite"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/suite_edit.html",
+      "fields": [
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "description",
+          "type": "textarea"
+        },
+        {
+          "name": "binding_id",
+          "type": "hidden"
+        },
+        {
+          "name": "case_refs",
+          "type": "hidden"
+        }
+      ],
+      "selects": [
+        {
+          "name": "binding_id",
+          "options": [
+            {
+              "value": "{{ b.id }}",
+              "label": "{{ b.name }} \u2014 {{ b.url[:50] }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "{{ \"Create suite\" if not suite else \"Save suite\" }}"
+      ],
+      "links": []
+    },
+    {
+      "template": "portal/suite_matrix.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "system/audit.html",
+      "fields": [
+        {
+          "name": "q",
+          "type": "search"
+        },
+        {
+          "name": "related",
+          "type": "text"
+        },
+        {
+          "name": "from",
+          "type": "date"
+        },
+        {
+          "name": "to",
+          "type": "date"
+        }
+      ],
+      "selects": [
+        {
+          "name": "event",
+          "options": [
+            {
+              "value": "",
+              "label": "all"
+            },
+            {
+              "value": "{{ t }}",
+              "label": "{{ t }}"
+            }
+          ]
+        },
+        {
+          "name": "actor",
+          "options": [
+            {
+              "value": "",
+              "label": "all"
+            },
+            {
+              "value": "{{ a }}",
+              "label": "{{ a }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Filter"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/backup.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Create &amp; download",
+        "Cancel",
+        "Upload &amp; validate"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/backup_report.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "system/backup_restore.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Apply restore",
+        "Cancel"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/changelog.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "system/health.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Restart services"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/infrastructure.html",
+      "fields": [
+        {
+          "name": "fingerprint",
+          "type": "hidden"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "description",
+          "type": "text"
+        },
+        {
+          "name": "os_arch",
+          "type": "text"
+        },
+        {
+          "name": "ssh_host",
+          "type": "text"
+        },
+        {
+          "name": "ssh_port",
+          "type": "number"
+        },
+        {
+          "name": "ssh_username",
+          "type": "text"
+        },
+        {
+          "name": "ssh_workdir",
+          "type": "text"
+        },
+        {
+          "name": "ssh_key",
+          "type": "textarea"
+        },
+        {
+          "name": "workspace_root",
+          "type": "text"
+        },
+        {
+          "name": "max_slots",
+          "type": "text"
+        },
+        {
+          "name": "max_procs",
+          "type": "text"
+        },
+        {
+          "name": "license_slots",
+          "type": "text"
+        },
+        {
+          "name": "ssh_key",
+          "type": "textarea"
+        },
+        {
+          "name": "project_ids",
+          "type": "checkbox"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "executable_path",
+          "type": "text"
+        },
+        {
+          "name": "workspace_root",
+          "type": "text"
+        },
+        {
+          "name": "credential_file",
+          "type": "text"
+        },
+        {
+          "name": "license_refs",
+          "type": "text"
+        },
+        {
+          "name": "license_server_url",
+          "type": "text"
+        },
+        {
+          "name": "concurrency",
+          "type": "text"
+        },
+        {
+          "name": "exec_location",
+          "type": "radio"
+        },
+        {
+          "name": "exec_location",
+          "type": "radio"
+        },
+        {
+          "name": "license_refs",
+          "type": "text"
+        },
+        {
+          "name": "license_server_url",
+          "type": "text"
+        }
+      ],
+      "selects": [
+        {
+          "name": "ssh_credential_ref",
+          "options": [
+            {
+              "value": "{{ r.ssh_credential_ref }}",
+              "label": "{{ r.ssh_credential_ref or \"(none)\" }}"
+            },
+            {
+              "value": "{{ s }}",
+              "label": "{{ s }}"
+            }
+          ]
+        },
+        {
+          "name": "ssh_credential_ref",
+          "options": [
+            {
+              "value": "",
+              "label": "(select)"
+            },
+            {
+              "value": "{{ s }}",
+              "label": "{{ s }}"
+            }
+          ]
+        },
+        {
+          "name": "project_id",
+          "options": [
+            {
+              "value": "{{ p.id }}",
+              "label": "{{ p.name }}"
+            }
+          ]
+        },
+        {
+          "name": "credential_ref",
+          "options": [
+            {
+              "value": "{{ rt.credential_ref }}",
+              "label": "{{ rt.credential_ref or \"(none)\" }}"
+            },
+            {
+              "value": "",
+              "label": "(none)"
+            },
+            {
+              "value": "{{ s }}",
+              "label": "{{ s }}"
+            }
+          ]
+        },
+        {
+          "name": "licensing_mode",
+          "options": [
+            {
+              "value": "online",
+              "label": "online \u2014 API-key credential"
+            },
+            {
+              "value": "offline",
+              "label": "offline \u2014 machine-bound .lic"
+            },
+            {
+              "value": "private",
+              "label": "private \u2014 API key + private license server"
+            }
+          ]
+        },
+        {
+          "name": "runtime_kind",
+          "options": [
+            {
+              "value": "kre",
+              "label": "KRE (desktop engine)"
+            },
+            {
+              "value": "playwright",
+              "label": "Playwright Test (Node.js)"
+            },
+            {
+              "value": "cypress",
+              "label": "Cypress E2E (Node.js)"
+            },
+            {
+              "value": "robot",
+              "label": "Robot Framework (Python)"
+            },
+            {
+              "value": "pytest",
+              "label": "pytest (Python)"
+            },
+            {
+              "value": "behave",
+              "label": "Behave BDD (Python)"
+            },
+            {
+              "value": "gtest",
+              "label": "GoogleTest (C/C++)"
+            },
+            {
+              "value": "postman",
+              "label": "Postman (Newman / Postman CLI)"
+            },
+            {
+              "value": "bruno",
+              "label": "Bruno (bru CLI)"
+            },
+            {
+              "value": "jest",
+              "label": "Jest (Node.js)"
+            }
+          ]
+        },
+        {
+          "name": "runner_id",
+          "options": [
+            {
+              "value": "",
+              "label": "(auto \u2014 first compatible)"
+            },
+            {
+              "value": "{{ rn.id }}",
+              "label": "{{ rn.name }} \u2014 {{ rn.id[:12] }}"
+            }
+          ]
+        },
+        {
+          "name": "credential_ref",
+          "options": [
+            {
+              "value": "",
+              "label": "(none)"
+            },
+            {
+              "value": "{{ s }}",
+              "label": "{{ s }}"
+            }
+          ]
+        },
+        {
+          "name": "licensing_mode",
+          "options": [
+            {
+              "value": "online",
+              "label": "online \u2014 API-key credential"
+            },
+            {
+              "value": "offline",
+              "label": "offline \u2014 machine-bound .lic"
+            },
+            {
+              "value": "private",
+              "label": "private \u2014 API key + private license server"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Approve host key",
+        "Test",
+        "Issue password",
+        "{{ \"Resume\" if r.draining else \"Drain\" }}",
+        "{{ \"Enable\" if not r.enabled else \"Disable\" }}",
+        "Remove",
+        "Apply",
+        "Cancel",
+        "Add target",
+        "Cancel",
+        "Check",
+        "Check runner readiness",
+        "Validate",
+        "Cancel",
+        "Apply",
+        "Cancel",
+        "{{ \"Disable\" if rt.enabled else \"Enable\" }}",
+        "Apply",
+        "Cancel",
+        "Apply",
+        "Cancel"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/integrations.html",
+      "fields": [
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        },
+        {
+          "name": "git_export_repo",
+          "type": "text"
+        },
+        {
+          "name": "git_export_credential_ref",
+          "type": "text"
+        },
+        {
+          "name": "git_export_ref",
+          "type": "text"
+        },
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        },
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "expires_days",
+          "type": "number"
+        },
+        {
+          "name": "never_expires",
+          "type": "checkbox"
+        },
+        {
+          "name": "project_ids",
+          "type": "checkbox"
+        },
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        },
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        },
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "url",
+          "type": "url"
+        },
+        {
+          "name": "events",
+          "type": "text"
+        },
+        {
+          "name": "project_ids",
+          "type": "checkbox"
+        },
+        {
+          "name": "sign",
+          "type": "checkbox"
+        }
+      ],
+      "selects": [
+        {
+          "name": "scope",
+          "options": [
+            {
+              "value": "read",
+              "label": "read \u2014 poll status/results"
+            },
+            {
+              "value": "run",
+              "label": "run \u2014 also trigger/cancel/retry"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Save integration settings",
+        "Revoke",
+        "Create token",
+        "{{ 'Disable' if w.enabled else 'Enable' }}",
+        "Delete",
+        "Create webhook"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/licence.html",
+      "fields": [
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        },
+        {
+          "name": "licence_code",
+          "type": "text"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Add licence"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/log_export.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "system/network.html",
+      "fields": [
+        {
+          "name": "candidate",
+          "type": "radio"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Save address",
+        "Save ports",
+        "Generate local certificate",
+        "Validate &amp; import",
+        "Apply network configuration",
+        "Roll back to last known good"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/operational_logs.html",
+      "fields": [
+        {
+          "name": "q",
+          "type": "text"
+        },
+        {
+          "name": "since",
+          "type": "date"
+        },
+        {
+          "name": "until",
+          "type": "date"
+        }
+      ],
+      "selects": [
+        {
+          "name": "severity",
+          "options": [
+            {
+              "value": "",
+              "label": "all"
+            },
+            {
+              "value": "{{ s }}",
+              "label": "{{ s }}"
+            }
+          ]
+        },
+        {
+          "name": "component",
+          "options": [
+            {
+              "value": "",
+              "label": "all"
+            },
+            {
+              "value": "{{ c }}",
+              "label": "{{ c }}"
+            }
+          ]
+        },
+        {
+          "name": "category",
+          "options": [
+            {
+              "value": "",
+              "label": "all"
+            },
+            {
+              "value": "{{ c }}",
+              "label": "{{ c }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Apply"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/reporting.html",
+      "fields": [
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        },
+        {
+          "name": "reportinglabs_enabled",
+          "type": "checkbox"
+        },
+        {
+          "name": "retention_artifact_days",
+          "type": "number"
+        },
+        {
+          "name": "retention_metadata_days",
+          "type": "number"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Save settings"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/runtime_wizard.html",
+      "fields": [
+        {
+          "name": "framework",
+          "type": "radio"
+        },
+        {
+          "name": "runner_id",
+          "type": "radio"
+        },
+        {
+          "name": "name",
+          "type": "text"
+        },
+        {
+          "name": "description",
+          "type": "text"
+        },
+        {
+          "name": "workspace_root",
+          "type": "text"
+        },
+        {
+          "name": "cfg_{{ p.engine_field[0] }}",
+          "type": "radio"
+        },
+        {
+          "name": "cfg_{{ key }}",
+          "type": "textarea"
+        },
+        {
+          "name": "cfg_{{ key }}",
+          "type": "text"
+        }
+      ],
+      "selects": [
+        {
+          "name": "cfg_{{ key }}",
+          "options": [
+            {
+              "value": "{{ val }}",
+              "label": "{{ lbl }}"
+            }
+          ]
+        },
+        {
+          "name": "cfg_{{ key }}",
+          "options": [
+            {
+              "value": "",
+              "label": "(none)"
+            },
+            {
+              "value": "{{ s }}",
+              "label": "{{ s }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Save runtime"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/secrets.html",
+      "fields": [
+        {
+          "name": "scope",
+          "type": "textarea"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Save scope",
+        "Delete",
+        "Store encrypted",
+        "Cancel"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/settings.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [],
+      "links": []
+    },
+    {
+      "template": "system/setup.html",
+      "fields": [],
+      "selects": [],
+      "buttons": [
+        "Re-verify"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/setup_step.html",
+      "fields": [
+        {
+          "name": "csrf_token",
+          "type": "hidden"
+        },
+        {
+          "name": "{{ fld.name }}",
+          "type": "{{ fld.type }}"
+        }
+      ],
+      "selects": [
+        {
+          "name": "{{ fld.name }}",
+          "options": [
+            {
+              "value": "",
+              "label": "\u2014 select worker \u2014"
+            },
+            {
+              "value": "{{ w.id }}",
+              "label": "{{ w.name }}"
+            }
+          ]
+        }
+      ],
+      "buttons": [
+        "Save",
+        "Run verification"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/user_access.html",
+      "fields": [
+        {
+          "name": "project_ids",
+          "type": "checkbox"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Select all",
+        "Clear",
+        "Save project access"
+      ],
+      "links": []
+    },
+    {
+      "template": "system/users.html",
+      "fields": [
+        {
+          "name": "next",
+          "type": "hidden"
+        },
+        {
+          "name": "temporary_password",
+          "type": "password"
+        },
+        {
+          "name": "project_ids",
+          "type": "checkbox"
+        }
+      ],
+      "selects": [],
+      "buttons": [
+        "Save",
+        "Deactivate",
+        "Delete",
+        "Reset password",
+        "Create",
+        "Cancel"
+      ],
+      "links": []
+    }
+  ]
+}

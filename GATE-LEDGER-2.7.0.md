@@ -574,3 +574,27 @@ REBUILD #5 BLOCKED ON: suite pass + commit of owed items. Then install,
 rerun 6 cells citing exact head+sha256, Option A 7/7 rerun, jest
 collect live cell, test-level+subdirectory cells. Stub start/stop must
 be committed with fixtures (stub8899.py currently ad-hoc on guest).
+
+## D-HARNESS-BINDING-FALLBACK (test-harness defect, fixed in driver)
+
+The guest driver scripts fell back to the first available binding when
+a hardcoded binding id was wrong — silently dispatching against the
+monorepo fixture instead of to-fixture. Fixed: drivers now hard-fail
+on an unknown binding id before any dispatch. This is a harness-only
+defect; no product change. Evidence: bruno alignment investigation.
+
+## Review-note items status
+
+- Contributor notes: docs/framework-integration.md added — pinned
+  collector-less set {bruno, katalon, postman} + refusal rules.
+- Katalon static discovery path verified working (it is importer-backed
+  historical-results discovery; refusal message points to static
+  discovery). Pinned by test_collect_refusal_covers_every_collectorless_framework.
+- Vendored node_modules exception: documented in framework-integration.md;
+  MUST also land in Admin Manual 2.7.0 + release notes (manuals task).
+
+## Guest access path (recorded)
+
+VM is Multipass `to-accept-linux` at 10.97.0.14. SSH key auth from the
+host is currently denied (publickey) — use `multipass exec
+to-accept-linux -- <cmd>` and `multipass transfer` for files.
