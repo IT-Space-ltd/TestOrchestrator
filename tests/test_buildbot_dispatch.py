@@ -1006,3 +1006,34 @@ def test_cancel_unconfirmed_with_results_stays_failed_infra(
         assert ex.state == ExecutionState.FAILED
         assert ex.error_kind == "infrastructure"
         assert ex.outcome == Outcome.INCOMPLETE
+
+
+def test_requested_cancel_clears_racing_unrequested_text(
+        app, monkeypatch, tmp_path):
+    """Live cell 45566a02: a racing first pass can write the
+    unrequested-abort message before the cancel commit lands; when the
+    requested-cancel classification later wins, the contradicting text
+    must not survive — CANCELED carries no error."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 6, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.CANCEL_REQUESTED
+        ex.cancel_reason = "user cancel"
+        # stale text from the racing first pass
+        ex.error_kind = "infrastructure"
+        ex.error_text = ("buildbot run bb:7 ended CANCELLED without a "
+                         "recorded cancellation request")
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.CANCELED
+        assert not ex.error_text
+        assert not ex.error_kind
