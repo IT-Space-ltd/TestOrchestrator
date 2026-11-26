@@ -53,3 +53,41 @@ CHANGELOG (product collections, suite generalization, plan polymorphism).
   - Limitation: legacy gitsync discovery does not extract collection
     runmode (the new framework adapter does — shown in tree once the
     final build lands).
+
+## 2026-11-26 late-night — node-framework matrix attempt (INCOMPLETE — resume here)
+
+**Done:** schedule cells (see above), `.tsc` discovery fix `70272675`.
+Guest toolchain provisioned: jest-cli vendored INTO the fixture repo
+(commit 57a9fc8 — node_modules must be committed because staging is
+git-sync-based; key learning), newman + bru installed globally and
+symlinked into /usr/local/bin.
+
+**Cell status (node frameworks):**
+- jest file/test-level, negative, subdirectory, ssh: **not run** —
+  blocked at runtime readiness. Discovery persists correctly (4 items,
+  suite+test granularity). Probes run but report `target-unavailable`;
+  the probe detail was not captured before session end. Next step:
+  find the probe output (buildbot steps for the rdy-* builds, or
+  re-run the probe manually as the testorchestrator user with the
+  staged fixture) — likely PATH/env inside the probe shell or
+  expectations about project layout (framework root 'jest' vs where
+  npx looks for node_modules).
+- postman/bruno: same probe state; postman discovery warns collection
+  scripts are repo-code (correct behavior). Not run.
+- Validation gate works correctly — dispatch REFUSES with a clear
+  message (`not dispatch-ready (target-unavailable)`) rather than
+  running unready runtimes. This is correct product behavior.
+
+**Resume recipe:** scripts on guest `/home/ubuntu/nodefw_run.py`
+(submit probes → poll_all_pending → validate → sync_framework_project
+→ run_cell). RuntimeExecutable paths: jest=/usr/local/bin/node,
+postman=/usr/local/bin/newman, bruno=/usr/local/bin/bru — VERIFY these
+match what adapters expect (nodefw runs via npx, so executable_path
+may need to be npx or the node binary — unaudited).
+
+**Katalon-cert repo:** private/404 — owner asked to make it public or
+provide access. Not blocking: synthetic fixture covers the cells.
+
+**Still not run:** remaining-framework subdirectory/ssh cells, git
+publication, taskkill /F, nested/monorepo/unicode node layouts,
+Phase 6 entirely.
