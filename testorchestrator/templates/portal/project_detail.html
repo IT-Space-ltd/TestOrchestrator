@@ -819,24 +819,32 @@
 
     <fieldset>
       <legend><strong>Step 1 — Choose storage type</strong></legend>
-      <div class="field">
-        <label><input type="radio" name="kind" value="local" checked>
-          Local folder</label>
-        <small class="muted">A folder on the TestOrchestrator
-        storage host — not a path on your laptop or a worker's
-        temporary checkout.</small></div>
-      <div class="field">
-        <label><input type="radio" name="kind" value="mounted">
-          Mounted network folder</label>
-        <small class="muted">An existing mount on the storage host.
-        This does not mount a share or change host
-        permissions.</small></div>
-      <div class="field">
-        <label><input type="radio" name="kind" value="object">
-          Object storage (cloud)</label>
-        <small class="muted">A cloud object-storage destination —
-        pick the provider below; each provider uses its real
-        API.</small></div>
+      <div class="store-kind-grid">
+        <label class="fw-tile">
+          <input type="radio" name="kind" value="local" checked>
+          <span class="fw-tile-body">
+            <strong>Local folder</strong>
+            <small class="muted">A folder on the TestOrchestrator
+            storage host — not a path on your laptop or a worker's
+            temporary checkout.</small></span>
+        </label>
+        <label class="fw-tile">
+          <input type="radio" name="kind" value="mounted">
+          <span class="fw-tile-body">
+            <strong>Mounted network folder</strong>
+            <small class="muted">An existing mount on the storage
+            host. This does not mount a share or change host
+            permissions.</small></span>
+        </label>
+        <label class="fw-tile">
+          <input type="radio" name="kind" value="object">
+          <span class="fw-tile-body">
+            <strong>Object storage (cloud)</strong>
+            <small class="muted">A cloud object-storage destination
+            — pick the provider below; each provider uses its real
+            API.</small></span>
+        </label>
+      </div>
     </fieldset>
 
     <fieldset>

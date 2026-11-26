@@ -227,7 +227,7 @@ a { color: var(--accent); }
 .button.primary { background: #2f6df0; color: #fff; }
 .btn-row .button { flex: 0 0 auto; }
 .field label, .field .lbl { display: block; margin-bottom: 0.25rem; font-weight: 600; }
-.field input {
+.field input:not([type=radio]):not([type=checkbox]):not([type=file]) {
   width: 100%;
   padding: 0.5rem;
   border: 1px solid var(--border);
@@ -266,8 +266,18 @@ a { color: var(--accent); }
 .fw-tile-body small { font-weight: 400; }
 .fw-tile:has(input[type=radio]:checked) {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
 }
+.fw-tile input[type=radio] { accent-color: var(--accent); }
+
+/* Storage-type selector — same tile language, single column so the
+ * description lines read cleanly. */
+.store-kind-grid {
+  display: grid; grid-template-columns: 1fr;
+  gap: 0.55rem; margin-bottom: 1rem;
+}
+.store-kind-grid .fw-tile { padding: 0.7rem 0.9rem; }
 
 .changelog {
   background: var(--panel);
