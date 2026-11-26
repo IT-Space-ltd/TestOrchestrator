@@ -2010,6 +2010,8 @@ def create_runtime():
     kre_missing_path = (
         _kind in ("kre", "robot", "pytest", "behave")
         and not (form.executable_path.data or "").strip())
+    pyfamily_err = _python_family_exec_error(
+        _kind, form.executable_path.data or "")
     cred_ref_err = _runtime_cred_ref_error(form.credential_ref.data)
     # Licensing mode + offline-license refs (KRE only — other kinds
     # keep the default online gate).
@@ -2028,7 +2030,8 @@ def create_runtime():
                      or "private licensing mode requires a license "
                         "server URL")
     if (form.validate_on_submit() and not kre_missing_path
-            and not cred_ref_err and not _lref_err):
+            and not cred_ref_err and not _lref_err
+            and not pyfamily_err):
         _rt = RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
@@ -2069,13 +2072,17 @@ def create_runtime():
             flash("KRE and Robot runtimes require the executable "
                   "path on the selected worker (KRE binary or "
                   "Python interpreter).", "error")
+        if pyfamily_err:
+            flash(f"Executable path rejected — {pyfamily_err}",
+                  "error")
         if cred_ref_err:
             flash(f"Credential reference rejected — {cred_ref_err}",
                   "error")
         if _lref_err:
             flash(f"License configuration rejected — {_lref_err}",
                   "error")
-        if errs or kre_missing_path or cred_ref_err or _lref_err:
+        if errs or kre_missing_path or cred_ref_err or _lref_err \
+                or pyfamily_err:
             from ..execution import Project as _P
             runner_form = RunnerForm()
             runner_form.allowed_projects.choices = [
@@ -2237,6 +2244,25 @@ def edit_runner(runner_id):
 
 @system_bp.route("/runtimes/<runtime_id>/edit", methods=["POST"])
 @role_required(Role.ADMIN)
+
+def _python_family_exec_error(kind: str, executable_path: str) -> str:
+    """pytest/behave/robot runtimes invoke the framework as a module of
+    the configured interpreter (`python -m pytest` / `-m behave` /
+    `-m robot`) — the executable must be the python interpreter, never
+    the framework entry-point binary. Catch the common misconfiguration
+    at save time rather than at probe time."""
+    if (kind or "") not in ("pytest", "behave", "robot"):
+        return ""
+    base = (executable_path or "").strip().replace("\\", "/") \
+        .rsplit("/", 1)[-1].lower()
+    if base in ("robot", "robot.exe", "pytest", "pytest.exe",
+                "behave", "behave.exe"):
+        return (f"{kind} runtimes execute as 'python -m {kind}' — the "
+                f"executable must be the python interpreter (e.g. "
+                f"/opt/venv/bin/python), not the {base!r} entry-point "
+                "binary")
+    return ""
+
 def edit_runtime(runtime_id):
     """Edit mutable runtime fields; executable/workspace changes
     clear the last probe result (old check no longer validates the
@@ -2255,6 +2281,10 @@ def edit_runtime(runtime_id):
         wr is not None and wr != rt.workspace_root) or (
         rn is not None and rn != (rt.runner_id or "")))
     if ep is not None:
+        ep_err = _python_family_exec_error(rt.runtime_kind or "", ep)
+        if ep_err:
+            flash(f"Executable path rejected — {ep_err}", "error")
+            return redirect(url_for("system.infrastructure"))
         rt.executable_path = ep
     if wr is not None:
         rt.workspace_root = wr

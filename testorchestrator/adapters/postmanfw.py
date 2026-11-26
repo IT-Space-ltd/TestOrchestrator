@@ -136,7 +136,7 @@ command -v newman >/dev/null 2>&1 \\
   && p "newman=$(newman --version 2>/dev/null | head -1)" \\
   || (npx --no-install newman --version >/dev/null 2>&1 \\
       && p "newman=$(npx --no-install newman --version | head -1) via npx" \\
-      || p "newman=missing (no binary, npx --no-install failed)")
+      || p "newman=missing (no binary, npx --no-install failed) — the Newman CLI is required — install with: npm install -g newman")
 command -v postman >/dev/null 2>&1 \\
   && p "postman_cli=$(postman --version 2>/dev/null | head -1)" \\
   || p "postman_cli=missing"

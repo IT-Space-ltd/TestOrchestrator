@@ -272,12 +272,14 @@ def project_detail(project_id):
         {"v": f"repo:{d.id}",
          "l": f"{d.name or d.path.split('/')[-1].rsplit('.', 1)[0]} "
              f"({d.kind}) · {bind_names.get(d.binding_id, '?')} · "
-             f"{d.path}"} for d in repo_defs]
+             f"{d.path}",
+         "fw": d.framework or "katalon"} for d in repo_defs]
     schedule_form.target_id.choices = (
         [(f"repo:{d.id}", f"{bind_names.get(d.binding_id, '?')} · "
           f"{d.kind} · {d.path}") for d in repo_defs] +
         [(f"app:{s.id}", f"app-side suite · {s.name}")
          for s in project.suites])
+    schedule_form.framework.choices = _schedule_fw_choices(project)
     from ..execution import Runner, RuntimeConnection
     _runners = [x for x in Runner.query.filter_by(enabled=True).all()
                 if not x.draining]
@@ -3542,6 +3544,61 @@ def view_log(execution_id, name):
 
 
 
+
+# Framework-specific schedule fields (create/edit) — must mirror the
+# run form's per-framework options exactly, never invent new ones.
+# Frameworks without run-form fields get common fields only.
+SCHED_FW_FIELDS = {
+    "katalon": {"execution_profile", "browser_type",
+                "remote_webdriver_url", "remote_webdriver_type",
+                "runtime_id"},
+    "cypress": {"browser_type"},
+    "playwright": {"browser_type"},
+    "pytest": {"pytest_keyword", "pytest_markers"},
+    "pytest-bdd": {"pytest_keyword", "pytest_markers"},
+    "behave": set(),
+    "robot": {"robot_test", "robot_include", "robot_exclude"},
+    "gtest": set(),
+    "jest": {"jest_test_path", "jest_test_name"},
+    "postman": {"postman_collection", "postman_environment",
+                "postman_folder", "postman_iterations"},
+    "bruno": {"bruno_collection", "bruno_environment", "bruno_tags"},
+}
+SCHED_FW_LABELS = {
+    "katalon": "Katalon", "cypress": "Cypress",
+    "playwright": "Playwright", "pytest": "pytest",
+    "pytest-bdd": "pytest-bdd", "behave": "behave",
+    "robot": "Robot", "gtest": "GoogleTest",
+    "jest": "Jest", "postman": "Postman/Newman", "bruno": "Bruno",
+}
+SCHED_FW_ORDER = ["katalon", "cypress", "playwright", "pytest",
+                  "pytest-bdd", "behave", "robot", "gtest",
+                  "jest", "postman", "bruno"]
+
+
+def project_frameworks(project) -> list:
+    """Frameworks this project actually has, in canonical order —
+    framework projects by their adapter kind, plus 'katalon' when
+    legacy (framework-less) items or app suites exist. Falls back to
+    katalon for an empty project so the form stays usable."""
+    from ..execution import FrameworkProject
+    have = {fp.framework for fp in
+            FrameworkProject.query.filter_by(project_id=project.id)
+            .all() if fp.framework in SCHED_FW_FIELDS}
+    legacy = DiscoveredItem.query.join(GitBinding).filter(
+        GitBinding.project_id == project.id,
+        DiscoveredItem.framework == "").first()
+    if project.suites or legacy:
+        have.add("katalon")
+    if not have:
+        have.add("katalon")
+    return [f for f in SCHED_FW_ORDER if f in have]
+
+
+def _schedule_fw_choices(project):
+    return [(f, SCHED_FW_LABELS[f]) for f in project_frameworks(project)]
+
+
 @portal_bp.route("/projects/<project_id>/schedules", methods=["POST"])
 @role_required(*EDIT_ROLES)
 def create_schedule(project_id):
@@ -3565,6 +3622,7 @@ def create_schedule(project_id):
             enabled=True).all() if not r.draining]
     form.runtime_id.choices = [("", "Auto")] + [
         (x.id, x.name) for x in _RT.query.filter_by(enabled=True).all()]
+    form.framework.choices = _schedule_fw_choices(project)
     if form.validate_on_submit():
         kind = form.kind.data
         run_at = _parse_run_at(form.run_at.data)
@@ -3583,6 +3641,7 @@ def create_schedule(project_id):
         tid = form.target_id.data or ""
         targets = []
         suite_id = tid
+        item_fw = ""
         if tid.startswith("repo:"):
             d = db.session.get(DiscoveredItem, tid[5:])
             if d is None or d.project_id != project.id:
@@ -3594,6 +3653,108 @@ def create_schedule(project_id):
                         "source_item_id": d.id,
                         "binding_id": d.binding_id}]
             suite_id = None
+            item_fw = d.framework or "katalon"
+        else:
+            item_fw = "katalon"        # app-side suite
+        # Framework: explicit pick wins, else inferred from the target.
+        # A pick that contradicts the target's framework is rejected —
+        # the schedule would otherwise store a config its target can
+        # never use.
+        fw = (form.framework.data or "").strip() or item_fw
+        if fw not in SCHED_FW_FIELDS:
+            flash(f"Unknown framework {fw!r}.", "error")
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
+        if tid.startswith("repo:") and item_fw and fw != item_fw:
+            flash(f"Framework mismatch — the selected target is "
+                  f"{SCHED_FW_LABELS.get(item_fw, item_fw)}, not "
+                  f"{SCHED_FW_LABELS.get(fw, fw)}.", "error")
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
+        # Type-specific values that don't belong to the chosen
+        # framework are REJECTED with a clear message — never silently
+        # dropped, never carried over from a hidden field.
+        allowed = SCHED_FW_FIELDS[fw]
+        foreign = []
+        submitted = {
+            "execution_profile": form.execution_profile.data,
+            "browser_type": form.browser_type.data,
+            "remote_webdriver_url": form.remote_webdriver_url.data,
+            "remote_webdriver_type": form.remote_webdriver_type.data,
+            "pytest_keyword": form.pytest_keyword.data,
+            "pytest_markers": form.pytest_markers.data,
+            "robot_test": form.robot_test.data,
+            "robot_include": form.robot_include.data,
+            "robot_exclude": form.robot_exclude.data,
+            "jest_test_path": form.jest_test_path.data,
+            "jest_test_name": form.jest_test_name.data,
+            "postman_collection": form.postman_collection.data,
+            "postman_environment": form.postman_environment.data,
+            "postman_folder": form.postman_folder.data,
+            "postman_iterations":
+                str(form.postman_iterations.data or ""),
+            "bruno_collection": form.bruno_collection.data,
+            "bruno_environment": form.bruno_environment.data,
+            "bruno_tags": form.bruno_tags.data,
+        }
+        for fname, val in submitted.items():
+            if fname in allowed:
+                continue
+            # browser_type's default is a real value — only an
+            # explicit non-default counts as a foreign submission;
+            # the same applies to execution_profile's 'default'.
+            if fname == "browser_type" and val in ("", "Chrome (headless)"):
+                continue
+            if fname == "execution_profile" and val in ("", "default"):
+                continue
+            if (val or "").strip():
+                foreign.append(fname)
+        if foreign:
+            flash(f"Fields not applicable to "
+                  f"{SCHED_FW_LABELS.get(fw, fw)}: "
+                  f"{', '.join(sorted(foreign))} — clear them or "
+                  "switch the framework.", "error")
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
+        rc = {
+            "timeout_seconds": form.timeout_seconds.data or 3600,
+            "runner_id": form.runner_id.data or "",
+        }
+        if "execution_profile" in allowed:
+            rc["profile"] = form.execution_profile.data or "default"
+        if "browser_type" in allowed:
+            rc["browser"] = form.browser_type.data or ""
+        if "remote_webdriver_url" in allowed:
+            rc["remote_webdriver_url"] = \
+                (form.remote_webdriver_url.data or "").strip()
+        if "remote_webdriver_type" in allowed:
+            rc["remote_webdriver_type"] = \
+                (form.remote_webdriver_type.data or "").strip()
+        if "runtime_id" in allowed:
+            rc["runtime_id"] = form.runtime_id.data or ""
+        for f in ("pytest_keyword", "pytest_markers", "robot_test",
+                  "robot_include", "robot_exclude"):
+            if f in allowed:
+                rc[f] = (submitted[f] or "").strip()
+        # jest/postman/bruno form fields map onto the execution-native
+        # run-config keys the dispatch layer already consumes.
+        if "jest_test_path" in allowed:
+            rc["jest_path_pattern"] = \
+                (submitted["jest_test_path"] or "").strip()
+        if "jest_test_name" in allowed:
+            rc["test_pattern"] = \
+                (submitted["jest_test_name"] or "").strip()
+        for f in ("postman_collection", "postman_environment",
+                  "postman_folder", "bruno_collection",
+                  "bruno_environment", "bruno_tags"):
+            if f in allowed:
+                rc[f] = (submitted[f] or "").strip()
+        if "postman_iterations" in allowed:
+            try:
+                rc["postman_iterations"] = \
+                    int(submitted["postman_iterations"] or 0)
+            except (TypeError, ValueError):
+                rc["postman_iterations"] = 0
         db.session.add(Schedule(
             project_id=project.id, name=form.name.data.strip(),
             description=form.description.data or "",
@@ -3604,17 +3765,7 @@ def create_schedule(project_id):
             next_run_at=run_at, enabled=True,
             overlap_policy=form.overlap_policy.data or "allow",
             misfire_policy=form.misfire_policy.data or "late",
-            run_config_json=json.dumps({
-                "profile": form.execution_profile.data or "default",
-                "browser": form.browser_type.data or "",
-                "remote_webdriver_url":
-                    (form.remote_webdriver_url.data or "").strip(),
-                "remote_webdriver_type":
-                    (form.remote_webdriver_type.data or "").strip(),
-                "timeout_seconds": form.timeout_seconds.data or 3600,
-                "runner_id": form.runner_id.data or "",
-                "runtime_id": form.runtime_id.data or "",
-            }),
+            run_config_json=json.dumps(rc),
             created_by=current_user.username))
         db.session.commit()
         record_audit(current_user.username, "schedule.created", project.id)
@@ -3648,6 +3799,18 @@ def edit_schedule(schedule_id):
         abort(404)
     _project_or_404(sched.project_id)
     form = ScheduleForm()
+    # Choice lists must be populated before validation — an empty
+    # SelectField raises rather than validates (pre-existing defect
+    # surfaced by legacy-schedule editing). The edit path reads only
+    # raw request.form values; the form object exists for CSRF.
+    form.target_id.choices = [
+        (f"repo:{d.id}", "x") for d in
+        DiscoveredItem.query.join(GitBinding).filter(
+            GitBinding.project_id == sched.project_id).all()]
+    form.runner_id.choices = [("", "Auto")]
+    form.runtime_id.choices = [("", "Auto")]
+    form.framework.choices = _schedule_fw_choices(
+        db.session.get(Project, sched.project_id))
     form.validate_on_submit()
     if request.form.get("name"):
         sched.name = request.form["name"].strip()

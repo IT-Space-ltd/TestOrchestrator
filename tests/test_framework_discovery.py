@@ -207,6 +207,34 @@ def test_pytestbdd_unbound_scenario_is_candidate(tmp_path):
     assert "binding" in scen[0].warnings
 
 
+def test_pytestbdd_unbound_feature_not_selectable(tmp_path):
+    """ISS-026: pytest never collects a bare .feature positional, so a
+    feature with no exact @scenario binding can never execute — the
+    suite item is marked not selectable with the reason."""
+    wt = _write(tmp_path, {
+        "features/x.feature": "Feature: X\n  Scenario: a\n    Given b\n",
+        "tests/test_nothing.py": "def test_x(): pass\n"})
+    res = discover(_fp("pytest-bdd", feature_roots=["features"],
+                       test_roots=["tests"]), _B(wt))
+    suite = [i for i in res.items if i.kind == "suite"]
+    assert len(suite) == 1
+    assert not suite[0].selectable
+    assert "no exact @scenario binding" in suite[0].warnings
+
+
+def test_pytestbdd_bound_feature_stays_selectable(tmp_path):
+    wt = _write(tmp_path, {
+        "features/login.feature": FEATURE,
+        "tests/test_bdd.py": (
+            "from pytest_bdd import scenario\n"
+            "@scenario('../features/login.feature', 'valid login')\n"
+            "def test_login(): pass\n")})
+    res = discover(_fp("pytest-bdd", feature_roots=["features"],
+                       test_roots=["tests"]), _B(wt))
+    suite = [i for i in res.items if i.kind == "suite"]
+    assert suite[0].selectable
+
+
 # ---------- robot adapter ----------
 
 def test_robot_tests_tags_templates(tmp_path):

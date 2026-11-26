@@ -132,11 +132,13 @@ def parse(ctx) -> Result:
             continue
         feat = gherkin.parse_feature(text, rel)
         res.warnings += feat["warnings"]
-        res.items.append(Item(
-            kind="suite", path=rel, name=feat["title"] or p.stem,
-            parent=str(p.parent.relative_to(base)),
-            node_id=rel, granularity="file", selectable=True,
-            tags=",".join(feat["tags"])))
+        # Resolve per-scenario bindings first: the feature's suite
+        # item is executable only through the exact node IDs of its
+        # bound scenarios — pytest never collects a bare .feature
+        # positional (ISS-026), so a feature with no exact binding
+        # is marked not selectable with the reason.
+        scen_items = []
+        exact_nids = []
         for s in feat["scenarios"]:
             nid = bound.get((rel, s["name"]))
             warn = ""
@@ -153,12 +155,33 @@ def parse(ctx) -> Result:
                 warn = ("no @scenario/scenarios binding found — "
                         "native collection required")
                 res.needs_native = True
-            res.items.append(Item(
+            if nid:
+                exact_nids.append(nid)
+            scen_items.append(Item(
                 kind="scenario", path=rel, name=s["name"],
                 parent=feat["title"] or p.stem,
                 node_id=nid or "",
                 granularity="scenario", selectable=bool(nid),
                 tags=",".join(s["tags"]), warnings=warn))
+        suite_warn = ""
+        suite_selectable = True
+        if not exact_nids:
+            suite_selectable = False
+            if feat["scenarios"]:
+                suite_warn = (
+                    "no exact @scenario binding for any scenario — "
+                    "feature-level selection cannot resolve node IDs; "
+                    "bind scenarios with @scenario(feature, name) or "
+                    "use native collection")
+            else:
+                suite_warn = "feature has no scenarios"
+        res.items.append(Item(
+            kind="suite", path=rel, name=feat["title"] or p.stem,
+            parent=str(p.parent.relative_to(base)),
+            node_id=rel, granularity="file",
+            selectable=suite_selectable,
+            tags=",".join(feat["tags"]), warnings=suite_warn))
+        res.items.extend(scen_items)
     if not feats:
         res.warnings.append("no .feature files under feature roots")
     return res

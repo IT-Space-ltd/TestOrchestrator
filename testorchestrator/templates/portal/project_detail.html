@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ project.name }} · TestOrchestrator<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>{% endblock %}
+{% block title %}{{ project.name }} · TestOrchestrator{% endblock %}
 {% block content_class %}content-wide{% endblock %}
 {% block content %}
 <h1>{{ project.name }}</h1>
@@ -330,21 +330,110 @@
         <small class="muted">Repository suites/collections — each
           runs through the configured profile/worker/runtime.</small></div>
       <div class="hidden-field">{{ schedule_form.target_id(**{"aria-label": "Schedule target"}) }}</div>
+      <div class="field"><label for="sch-framework">What to schedule</label>
+        {{ schedule_form.framework(id="sch-framework", aria_describedby="sch-fw-ex") }}
+        <small class="muted" id="sch-fw-ex">Only frameworks this project
+          actually has are listed. Selecting a target below sets the
+          framework from it.</small></div>
       <div class="field">{{ schedule_form.kind.label }} {{ schedule_form.kind() }}</div>
-      <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}
-        <small class="muted">Schedule execution zone is UTC — the
+      <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at(aria_describedby="sch-runat-ex") }}
+        <small class="muted" id="sch-runat-ex">Schedule execution zone is UTC — the
           schedule fires at the entered UTC instant regardless of your
           display preference ({{ TZ_NAME() }}); upcoming runs on this
           page are shown in {{ TZ_NAME() }}.</small></div>
-      <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes() }}</div>
-      <div class="field">{{ schedule_form.execution_profile.label }} {{ schedule_form.execution_profile() }}</div>
-      <div class="field">{{ schedule_form.browser_type.label }} {{ schedule_form.browser_type() }}</div>
-      <div class="field">{{ schedule_form.remote_webdriver_url.label }} {{ schedule_form.remote_webdriver_url() }}</div>
-      <div class="field">{{ schedule_form.remote_webdriver_type.label }} {{ schedule_form.remote_webdriver_type() }}</div>
-      <div class="field">{{ schedule_form.runner_id.label }} {{ schedule_form.runner_id() }}</div>
-      <div class="field">{{ schedule_form.runtime_id.label }} {{ schedule_form.runtime_id() }}</div>
-      <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds() }}</div>
-      <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy() }}</div>
+      <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes(aria_describedby="sch-interval-ex") }}
+        <small class="muted" id="sch-interval-ex"><code>60</code> runs every hour,
+          <code>1440</code> runs once a day.</small></div>
+      <div class="field" data-fws="katalon">{{ schedule_form.execution_profile.label }}
+        {{ schedule_form.execution_profile(aria_describedby="sch-profile-ex") }}
+        <small class="muted" id="sch-profile-ex"><code>default</code>, or a profile
+          name such as <code>staging</code>.</small></div>
+      <div class="field" data-fws="katalon cypress playwright">{{ schedule_form.browser_type.label }}
+        {{ schedule_form.browser_type(aria_describedby="sch-browser-ex") }}
+        <small class="muted" id="sch-browser-ex">Katalon runs use the KRE browser
+          list; Cypress/Playwright use the framework values
+          (<code>chromium</code>, <code>firefox</code>, …) or
+          <i>framework default</i>.</small></div>
+      <div class="field" data-fws="katalon">{{ schedule_form.remote_webdriver_url.label }}
+        {{ schedule_form.remote_webdriver_url(aria_describedby="sch-rwdurl-ex") }}
+        <small class="muted" id="sch-rwdurl-ex">e.g.
+          <code>http://selenium-hub:4444/wd/hub</code>.</small></div>
+      <div class="field" data-fws="katalon">{{ schedule_form.remote_webdriver_type.label }}
+        <select name="remote_webdriver_type" id="remote_webdriver_type"
+                aria-describedby="sch-rwdtype-ex">
+          <option value="">—</option>
+          <option value="Selenium">Selenium</option>
+          <option value="Appium">Appium</option>
+        </select>
+        <small class="muted" id="sch-rwdtype-ex">Accepted values for KRE remote
+          execution: <code>Selenium</code> or <code>Appium</code>.</small></div>
+      <div class="field" data-fws="pytest pytest-bdd">{{ schedule_form.pytest_keyword.label }}
+        {{ schedule_form.pytest_keyword(aria_describedby="sch-kw-ex") }}
+        <small class="muted" id="sch-kw-ex">pytest <code>-k</code> expression, e.g.
+          <code>test_login and not slow</code>.</small></div>
+      <div class="field" data-fws="pytest pytest-bdd">{{ schedule_form.pytest_markers.label }}
+        {{ schedule_form.pytest_markers(aria_describedby="sch-markers-ex") }}
+        <small class="muted" id="sch-markers-ex">pytest <code>-m</code> expression, e.g.
+          <code>smoke and not flaky</code>.</small></div>
+      <div class="field" data-fws="robot">{{ schedule_form.robot_test.label }}
+        {{ schedule_form.robot_test(aria_describedby="sch-rtest-ex") }}
+        <small class="muted" id="sch-rtest-ex">Exact test name, e.g.
+          <code>Valid Login</code>.</small></div>
+      <div class="field" data-fws="robot">{{ schedule_form.robot_include.label }}
+        {{ schedule_form.robot_include(aria_describedby="sch-rinc-ex") }}
+        <small class="muted" id="sch-rinc-ex">Comma-separated tags, e.g.
+          <code>smoke,regression</code>.</small></div>
+      <div class="field" data-fws="robot">{{ schedule_form.robot_exclude.label }}
+        {{ schedule_form.robot_exclude(aria_describedby="sch-rexc-ex") }}
+        <small class="muted" id="sch-rexc-ex">Comma-separated tags, e.g.
+          <code>slow,known-failure</code>.</small></div>
+      <div class="field" data-fws="jest">{{ schedule_form.jest_test_path.label }}
+        {{ schedule_form.jest_test_path(aria_describedby="sch-jpath-ex") }}
+        <small class="muted" id="sch-jpath-ex">Run only test files matching this
+          pattern. Example: <code>tests/api/</code>.</small></div>
+      <div class="field" data-fws="jest">{{ schedule_form.jest_test_name.label }}
+        {{ schedule_form.jest_test_name(aria_describedby="sch-jname-ex") }}
+        <small class="muted" id="sch-jname-ex">Run only tests whose name matches.
+          Example: <code>login</code>.</small></div>
+      <div class="field" data-fws="postman">{{ schedule_form.postman_collection.label }}
+        {{ schedule_form.postman_collection(aria_describedby="sch-pmcol-ex") }}
+        <small class="muted" id="sch-pmcol-ex">The collection file to run. Example:
+          <code>collections/api-smoke.postman_collection.json</code>.</small></div>
+      <div class="field" data-fws="postman">{{ schedule_form.postman_environment.label }}
+        {{ schedule_form.postman_environment(aria_describedby="sch-pmenv-ex") }}
+        <small class="muted" id="sch-pmenv-ex">The environment file or name. Example:
+          <code>environments/staging.postman_environment.json</code>.</small></div>
+      <div class="field" data-fws="postman">{{ schedule_form.postman_folder.label }}
+        {{ schedule_form.postman_folder(aria_describedby="sch-pmfld-ex") }}
+        <small class="muted" id="sch-pmfld-ex">Run only one folder of the collection.
+          Example: <code>Login</code>.</small></div>
+      <div class="field" data-fws="postman">{{ schedule_form.postman_iterations.label }}
+        {{ schedule_form.postman_iterations(aria_describedby="sch-pmit-ex") }}
+        <small class="muted" id="sch-pmit-ex">How many times to run the collection.
+          Example: <code>1</code>.</small></div>
+      <div class="field" data-fws="bruno">{{ schedule_form.bruno_collection.label }}
+        {{ schedule_form.bruno_collection(aria_describedby="sch-brcol-ex") }}
+        <small class="muted" id="sch-brcol-ex">The folder to run. Example:
+          <code>api-tests/auth</code>.</small></div>
+      <div class="field" data-fws="bruno">{{ schedule_form.bruno_environment.label }}
+        {{ schedule_form.bruno_environment(aria_describedby="sch-brenv-ex") }}
+        <small class="muted" id="sch-brenv-ex">The environment name. Example:
+          <code>staging</code>.</small></div>
+      <div class="field" data-fws="bruno">{{ schedule_form.bruno_tags.label }}
+        {{ schedule_form.bruno_tags(aria_describedby="sch-brtags-ex") }}
+        <small class="muted" id="sch-brtags-ex">Run only requests with these tags.
+          Example: <code>smoke</code>.</small></div>
+      <div class="field">{{ schedule_form.runner_id.label }} {{ schedule_form.runner_id(aria_describedby="sch-runner-ex") }}
+        <small class="muted" id="sch-runner-ex"><i>Auto</i> picks the first eligible
+          runner. Choose one to pin it.</small></div>
+      <div class="field" data-fws="katalon">{{ schedule_form.runtime_id.label }} {{ schedule_form.runtime_id(aria_describedby="sch-runtime-ex") }}
+        <small class="muted" id="sch-runtime-ex"><i>Auto</i> picks a compatible
+          installation on the runner.</small></div>
+      <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds(aria_describedby="sch-timeout-ex") }}
+        <small class="muted" id="sch-timeout-ex"><code>3600</code> is one hour.</small></div>
+      <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy(aria_describedby="sch-overlap-ex") }}
+        <small class="muted" id="sch-overlap-ex">“Allow overlap” starts a new run even
+          if the last one is still running. “Skip” does not.</small></div>
       <button type="submit" class="button">Apply</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form>
@@ -1143,6 +1232,7 @@
 
 </div>
 <script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>
+<script src="{{ url_for('static', filename='js/schedule-form.js') }}?v={{ js_v }}" defer></script>
 {% if discovered and discovered.binding %}
 <!-- ============ CREATION MODALS ============ -->
 <div class="modal" id="suite-modal" role="dialog" aria-modal="true" aria-labelledby="suite-modal-t">

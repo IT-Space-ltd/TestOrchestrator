@@ -118,13 +118,13 @@ PY="${PYBIN:-python3}"
   || p "python=missing ($PY not runnable)"
 v=$("$PY" -m pytest --version 2>/dev/null | head -1)
 [ -n "$v" ] && p "pytest=$v" \\
-  || p "pytest=missing ($PY -m pytest --version failed)"
+  || p "pytest=missing ($PY -m pytest --version failed) — install with: $PY -m pip install pytest"
 IFS=','
 for lib in ${REQUIRED_LIBS:-}; do
   lib=$(echo "$lib" | tr -d ' ')
   [ -z "$lib" ] && continue
   "$PY" -c "import $lib" >/dev/null 2>&1 \\
-    && p "lib_$lib=ok" || p "lib_$lib=MISSING"
+    && p "lib_$lib=ok" || p "lib_$lib=MISSING — install with: $PY -m pip install $lib"
 done
 unset IFS
 "$PY" -c "import xdist" >/dev/null 2>&1 \
@@ -157,7 +157,7 @@ if "%PYBIN%"=="" (set PY=python) else (set "PY=%PYBIN%")
 "%PY%" --version >nul 2>&1
 if errorlevel 1 (echo TO-PROBE python=missing ^(%PY% not runnable^) & >>"%L%" echo TO-PROBE python=missing ^(%PY% not runnable^)) else (for /f "delims=" %%v in ('"%PY%" --version 2^>nul') do (echo TO-PROBE python=%%v & >>"%L%" echo TO-PROBE python=%%v))
 "%PY%" -m pytest --version >nul 2>&1
-if errorlevel 1 (echo TO-PROBE pytest=missing ^(%PY% -m pytest --version failed^) & >>"%L%" echo TO-PROBE pytest=missing ^(%PY% -m pytest --version failed^)) else (for /f "delims=" %%v in ('"%PY%" -m pytest --version 2^>nul') do (echo TO-PROBE pytest=%%v & >>"%L%" echo TO-PROBE pytest=%%v))
+if errorlevel 1 (echo TO-PROBE pytest=missing ^(%PY% -m pytest --version failed^) — install with: %PY% -m pip install pytest & >>"%L%" echo TO-PROBE pytest=missing ^(%PY% -m pytest --version failed^) — install with: %PY% -m pip install pytest) else (for /f "delims=" %%v in ('"%PY%" -m pytest --version 2^>nul') do (echo TO-PROBE pytest=%%v & >>"%L%" echo TO-PROBE pytest=%%v))
 if not defined REQUIRED_LIBS goto nolibs
 for %%l in (%REQUIRED_LIBS%) do call libchk.cmd %%l
 :nolibs

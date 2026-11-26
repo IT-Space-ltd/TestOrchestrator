@@ -45,6 +45,7 @@ def validate_browser(kind: str, browser: str) -> tuple:
 def build_args(kind: str, browser: str = "", spec: str = "",
                headed: bool = False, workers: int = 0,
                shard: str = "", projects=(), test_pattern: str = "",
+               path_pattern: str = "",
                list_tests: bool = False) -> list:
     """argv after the npx executable — every output path inside
     Reports/ so collection finds junit + evidence untouched.
@@ -109,6 +110,10 @@ def build_args(kind: str, browser: str = "", spec: str = "",
             args += ["-t", test_pattern]
         if spec:
             args += ["--runTestsByPath", spec]
+        if path_pattern:
+            # jest positional args are regexes matched against test
+            # FILE paths — the schedule form's 'test path pattern'.
+            args += [path_pattern]
     else:
         raise ValueError(f"unknown node runner kind {kind!r}")
     return args
@@ -166,12 +171,12 @@ case "%KIND%" in
   playwright)
     v=$(npx --no-install playwright --version 2>/dev/null)
     [ -n "$v" ] && p "playwright=$v" \\
-      || p "playwright=missing (npx --no-install playwright --version failed)"
+      || p "playwright=missing (npx --no-install playwright --version failed) — install with: npm ci in the project root, or npm install @playwright/test"
     ;;
   cypress)
     v=$(npx --no-install cypress version 2>/dev/null | head -1)
     [ -n "$v" ] && p "cypress=$v" \\
-      || p "cypress=missing (npx --no-install cypress version failed)"
+      || p "cypress=missing (npx --no-install cypress version failed) — install with: npm ci in the project root, or npm install cypress"
     npx --no-install cypress verify >/dev/null 2>&1 \\
       && p "cypress_binary=ok" \\
       || p "cypress_binary=unavailable to this account"
@@ -179,7 +184,7 @@ case "%KIND%" in
   jest)
     v=$(npx --no-install jest --version 2>/dev/null | head -1)
     [ -n "$v" ] && p "jest=$v" \\
-      || p "jest=missing (npx --no-install jest --version failed)"
+      || p "jest=missing (npx --no-install jest --version failed) — jest must be in the project's node_modules (the collector uses node_modules/jest-cli/bin/jest.js) — install with: npm ci in the project root, or npm install jest"
     npx --no-install jest --listTests --json 2>/dev/null | head -c1 \\
       | grep -q '\\[' && p "jest_listtests=ok" \\
       || p "jest_listtests=unsupported-or-failed"

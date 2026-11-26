@@ -49,8 +49,38 @@ class ScheduleForm(FlaskForm):
     name = StringField("Schedule name",
                        validators=[DataRequired(), Length(max=128)])
     description = TextAreaField("Description", validators=[Optional()])
+    framework = SelectField("What to schedule", validators=[Optional()],
+                            choices=[])
     target_type = SelectField("Target", choices=[("suite", "Suite")])
     target_id = SelectField("Runs", validators=[DataRequired()])
+    pytest_keyword = StringField("Keyword expression (-k)",
+                                 validators=[Optional(), Length(max=256)])
+    pytest_markers = StringField("Marker expression (-m)",
+                                 validators=[Optional(), Length(max=256)])
+    robot_test = StringField("Test name",
+                             validators=[Optional(), Length(max=256)])
+    robot_include = StringField("Include tags",
+                                validators=[Optional(), Length(max=256)])
+    robot_exclude = StringField("Exclude tags",
+                                validators=[Optional(), Length(max=256)])
+    jest_test_path = StringField("Test path pattern",
+                                 validators=[Optional(), Length(max=512)])
+    jest_test_name = StringField("Test name pattern",
+                                 validators=[Optional(), Length(max=256)])
+    postman_collection = StringField(
+        "Collection", validators=[Optional(), Length(max=512)])
+    postman_environment = StringField(
+        "Environment", validators=[Optional(), Length(max=512)])
+    postman_folder = StringField(
+        "Folder", validators=[Optional(), Length(max=256)])
+    postman_iterations = IntegerField(
+        "Iteration count", validators=[Optional()])
+    bruno_collection = StringField(
+        "Collection folder", validators=[Optional(), Length(max=512)])
+    bruno_environment = StringField(
+        "Environment", validators=[Optional(), Length(max=256)])
+    bruno_tags = StringField(
+        "Tags", validators=[Optional(), Length(max=256)])
     kind = SelectField("Kind", choices=[("once", "Once"),
                                         ("interval", "Repeating")])
     run_at = StringField("First run (UTC, YYYY-MM-DD HH:MM)",

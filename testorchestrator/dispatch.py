@@ -101,9 +101,11 @@ def _fp_item_gate(source_item, rc=None):
             "discovery was validated for a different repository "
             "revision — refresh the binding and re-run discovery")
     if not source_item.selectable:
+        detail = (source_item.warnings or "").strip()
         raise DispatchError(
             f"{source_item.name!r} is a discovery candidate — it "
-            "needs native collection before it can execute")
+            "needs native collection before it can execute" +
+            (f" ({detail})" if detail else ""))
     if rc:
         rid = str(rc.get("runtime_id") or "").strip()
         if rid:
@@ -329,7 +331,31 @@ def create_execution(username: str, suite: Suite = None,
         elif source_item.node_id and \
                 source_item.granularity == "file":
             fw = source_item.framework or ""
-            if fw in ("cypress", "playwright", "jest"):
+            if fw == "pytest-bdd":
+                # pytest never collects a bare .feature positional —
+                # collection happens through the python modules that
+                # bind scenarios (ISS-026). Translate the feature
+                # selection into the exact node IDs of its bound
+                # scenarios from the discovery inventory; unbound
+                # scenarios simply have no node ID and stay unrun,
+                # which keeps negative selection intact.
+                from .execution import DiscoveredItem
+                nids = [r.node_id for r in DiscoveredItem.query.filter_by(
+                    framework_project_id=source_item.framework_project_id,
+                    path=source_item.path, granularity="scenario",
+                    selectable=True).all() if r.node_id]
+                if not nids:
+                    raise DispatchError(
+                        "pytest-bdd feature has no exact @scenario "
+                        "bindings — feature-level selection cannot "
+                        "resolve node IDs; bind scenarios with "
+                        "@scenario(feature, name) or select a "
+                        "bound scenario directly")
+                # suite_path stays in the snapshot for provenance;
+                # the argv builder already drops the positional when
+                # node_ids are present.
+                rc.setdefault("node_ids", nids)
+            elif fw in ("cypress", "playwright", "jest"):
                 rc.setdefault("spec", source_item.node_id)
             elif fw == "postman":
                 rc.setdefault("postman_collection",
@@ -2539,7 +2565,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                 workers=_pw_workers,
                 shard=_shard,
                 projects=rc.get("projects") or (),
-                test_pattern=rc.get("test_pattern") or "")
+                test_pattern=rc.get("test_pattern") or "",
+                path_pattern=rc.get("jest_path_pattern") or "")
         win = (runner.os_arch or "").lower().startswith("win")
         node_env = nodefw.junit_env(node_kind, win=win)
         # npm sits next to npx — an explicit executable_path resolves
@@ -2907,10 +2934,12 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             paths=list(rc.get("postman_paths") or []),
             collection_format=str(rc.get("postman_format") or
                                   "v2.1"),
-            environment=str(pmc.get("environment_file") or ""),
+            environment=str(rc.get("postman_environment") or
+                            pmc.get("environment_file") or ""),
             globals_file=str(pmc.get("globals_file") or ""),
             data=str(pmc.get("data_file") or ""),
-            iterations=int(pmc.get("iterations") or 0),
+            iterations=int(rc.get("postman_iterations") or
+                           pmc.get("iterations") or 0),
             delay_ms=int(pmc.get("delay_ms") or 0),
             timeout_ms=int(pmc.get("timeout_ms") or 0),
             insecure=bool(pmc.get("insecure")),
@@ -2966,13 +2995,17 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         recurse = bool(rc.get("bruno_recurse"))
         bru_args = brunofw.build_args(
             col_root, paths=paths, recurse=recurse,
-            environment=str(bs.get("environment") or ""),
+            environment=str(rc.get("bruno_environment") or
+                            bs.get("environment") or ""),
             environment_file=str(bs.get("environment_file") or ""),
             global_environment=str(bs.get("global_environment") or ""),
             workspace_path=str(bs.get("workspace_path") or ""),
             env_vars=list(bs.get("env_vars") or []),
             global_env_vars=list(bs.get("global_env_vars") or []),
-            include_tags=list(bs.get("include_tags") or []),
+            include_tags=([t.strip() for t in str(
+                rc.get("bruno_tags") or "").split(",") if t.strip()]
+                if rc.get("bruno_tags")
+                else list(bs.get("include_tags") or [])),
             exclude_tags=list(bs.get("exclude_tags") or []),
             tests_only=bool(bs.get("tests_only")),
             bail=bool(bs.get("bail")),

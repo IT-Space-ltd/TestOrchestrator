@@ -1074,3 +1074,101 @@ def test_suite_path_rebased_for_subdirectory_binding(app, monkeypatch, tmp_path)
             "u", None, run_config={"runtime_id": rtid},
             source_item=db.session.get(DiscoveredItem, diid))
         assert ex3.snapshot()["run_config"]["suite_path"] == "pytest/test_smoke.py"
+
+
+def _bdd_env(app, monkeypatch, stub, tmp_path):
+    """pytest-bdd fixture: one framework project, two features — the
+    selected one with two exactly-bound scenarios, plus a bound
+    scenario in the OTHER feature (the negative-selection witness)."""
+    from testorchestrator.execution import FrameworkProject
+    _, rtid, diid = _env(app, monkeypatch, stub,
+                         worktree=tmp_path / "wt")
+    di = db.session.get(DiscoveredItem, diid)
+    rt = db.session.get(RuntimeConnection, rtid)
+    rt.runtime_kind = "pytest"
+    fp = FrameworkProject(project_id=di.project_id, name="bdd",
+                          framework="pytest-bdd", binding_id=di.binding_id,
+                          discovery_status="ok")
+    db.session.add(fp)
+    db.session.flush()
+
+    def _item(kind, path, name, gran, node_id="", selectable=True):
+        it = DiscoveredItem(
+            project_id=di.project_id, binding_id=di.binding_id,
+            framework_project_id=fp.id, framework="pytest-bdd",
+            kind=kind, path=path, name=name, sha="s", order_idx=0,
+            node_id=node_id, granularity=gran, selectable=selectable)
+        db.session.add(it)
+        return it
+
+    suite = _item("suite", "features/smoke.feature", "smoke", "file",
+                  node_id="features/smoke.feature")
+    _item("scenario", "features/smoke.feature", "addition works",
+          "scenario", node_id="tests/test_bdd.py::test_addition")
+    _item("scenario", "features/smoke.feature", "addition negative",
+          "scenario", node_id="tests/test_bdd.py::test_addition_neg")
+    # unbound scenario in the same feature — no node id, must not run
+    _item("scenario", "features/smoke.feature", "unbound", "scenario",
+          node_id="", selectable=False)
+    # negative witness: a bound scenario of a DIFFERENT feature
+    _item("scenario", "features/fail.feature", "subtraction fails",
+          "scenario", node_id="tests/test_bdd.py::test_subtraction")
+    db.session.commit()
+    return fp, suite, rtid
+
+
+def test_pytestbdd_feature_translates_to_bound_scenario_node_ids(
+        app, monkeypatch, tmp_path):
+    """ISS-026: pytest never collects a bare .feature positional — the
+    feature selection must dispatch the exact node IDs of its bound
+    scenarios, and ONLY those (negative selection)."""
+    stub = _BBProbe()
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        from testorchestrator import execution_readiness
+        monkeypatch.setattr(execution_readiness, "execution_ready",
+                            lambda rt, pid: True)
+        fp, suite, rtid = _bdd_env(app, monkeypatch, stub, tmp_path)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, suite.id))
+        rc = ex.snapshot()["run_config"]
+        nids = sorted(rc.get("node_ids") or [])
+        assert nids == ["tests/test_bdd.py::test_addition",
+                        "tests/test_bdd.py::test_addition_neg"]
+        # negative selection: the other feature's bound scenario and
+        # this feature's unbound scenario are absent
+        assert "tests/test_bdd.py::test_subtraction" not in nids
+        assert all("unbound" not in n for n in nids)
+        # suite_path stays for provenance; argv drops it (node_ids win)
+        assert rc["suite_path"] == "features/smoke.feature"
+        from testorchestrator.adapters import pytestfw
+        args = pytestfw.build_args(suite_path=rc["suite_path"],
+                                   node_ids=rc["node_ids"])
+        assert "features/smoke.feature" not in args
+
+
+def test_pytestbdd_feature_without_binding_refused(
+        app, monkeypatch, tmp_path):
+    """A feature whose scenarios all lack exact bindings cannot resolve
+    node IDs — dispatch refuses with the explanation."""
+    stub = _BBProbe()
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        from testorchestrator import execution_readiness
+        monkeypatch.setattr(execution_readiness, "execution_ready",
+                            lambda rt, pid: True)
+        fp, suite, rtid = _bdd_env(app, monkeypatch, stub, tmp_path)
+        # sever every binding in the selected feature
+        for it in DiscoveredItem.query.filter_by(
+                framework_project_id=fp.id,
+                path="features/smoke.feature",
+                granularity="scenario").all():
+            it.node_id = ""
+            it.selectable = False
+        db.session.commit()
+        import pytest as _pt
+        with _pt.raises(d.DispatchError, match="no exact @scenario"):
+            d.create_execution(
+                "u", None, run_config={"runtime_id": rtid},
+                source_item=db.session.get(DiscoveredItem, suite.id))

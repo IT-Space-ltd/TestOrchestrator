@@ -147,13 +147,13 @@ PY="${PYBIN:-python3}"
   || p "python=missing ($PY not runnable)"
 v=$("$PY" -m robot --version 2>/dev/null)
 [ -n "$v" ] && p "robot=$v" \\
-  || p "robot=missing ($PY -m robot --version failed)"
+  || p "robot=missing ($PY -m robot --version failed) — install with: $PY -m pip install robotframework"
 IFS=','
 for lib in ${REQUIRED_LIBS:-}; do
   lib=$(echo "$lib" | tr -d ' ')
   [ -z "$lib" ] && continue
   "$PY" -c "import $lib" >/dev/null 2>&1 \\
-    && p "lib_$lib=ok" || p "lib_$lib=MISSING"
+    && p "lib_$lib=ok" || p "lib_$lib=MISSING — install with: $PY -m pip install $lib"
 done
 unset IFS
 "$PY" -c "import pabot" >/dev/null 2>&1 \
@@ -189,7 +189,7 @@ rem robot --version exits 251 (informational exit) — presence is judged
 rem on emitted output like the POSIX probe, not the exit code.
 set "RFV="
 for /f "delims=" %%v in ('"%PY%" -m robot --version 2^>nul') do set "RFV=%%v"
-if not defined RFV (echo TO-PROBE robot=missing ^(%PY% -m robot --version failed^) & >>"%L%" echo TO-PROBE robot=missing ^(%PY% -m robot --version failed^)) else (echo TO-PROBE robot=!RFV! & >>"%L%" echo TO-PROBE robot=!RFV!)
+if not defined RFV (echo TO-PROBE robot=missing ^(%PY% -m robot --version failed^) — install with: %PY% -m pip install robotframework & >>"%L%" echo TO-PROBE robot=missing ^(%PY% -m robot --version failed^) — install with: %PY% -m pip install robotframework) else (echo TO-PROBE robot=!RFV! & >>"%L%" echo TO-PROBE robot=!RFV!)
 if not defined REQUIRED_LIBS goto nolibs
 for %%l in (%REQUIRED_LIBS%) do call libchk.cmd %%l
 :nolibs

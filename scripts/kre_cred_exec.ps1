@@ -32,6 +32,9 @@ param(
 
 function Fail([string]$m) {
     [Console]::Error.WriteLine("kre_cred_exec: $m")
+    if ($script:toDelivered -and $script:CredentialFile) {
+        Remove-Item -LiteralPath $script:CredentialFile -Force -ErrorAction SilentlyContinue
+    }
     exit 3
 }
 
@@ -39,6 +42,17 @@ if (-not $CredentialFile -or -not $KreExecutable) {
     [Console]::Error.WriteLine(
         "usage: kre_cred_exec <credential-file> <katalonc> [kre-args...]")
     exit 3
+}
+
+# Delivered-file qualification is computed BEFORE any validation can
+# fail so every exit path — validation failure included — can honour
+# the removal contract (mirrors the POSIX EXIT trap).
+$toDelivered = $false
+if ($CredentialFile -like "..\*" -or
+        $CredentialFile -eq ".to_kre_cred" -or
+        $CredentialFile -like "*\.to_kre_cred" -or
+        $CredentialFile -like "*/.to_kre_cred") {
+    $toDelivered = $true
 }
 
 foreach ($a in @($KreArgs)) {
@@ -65,6 +79,23 @@ if ($key -notmatch '^[A-Za-z0-9_-]{1,128}$') {
 }
 if (-not (Test-Path -LiteralPath $KreExecutable -PathType Leaf)) {
     Fail "KRE executable not found at the configured path"
+}
+
+# Immediate-delete design (mirrors the POSIX launcher): the key is
+# already in memory, so a per-run DELIVERED credential file is deleted
+# BEFORE KRE launches — the on-disk window shrinks to this launcher's
+# own startup, and even an untrappable hard kill (taskkill /F,
+# TerminateProcess) leaves nothing behind. The scrubber key comes
+# from the in-memory variable — this process IS the scrubber, so no
+# descriptor handoff is needed. NEVER deleted: operator-placed files
+# — only the per-run delivered forms qualify: the ..\ drop-dir
+# relative form, or a basename of .to_kre_cred (the per-run delivery
+# name). The finally-backstop below covers validation-failure exits
+# after this point; for a hard kill nothing can run — residue then
+# falls to the controller-side kill-path scrub and the prepare-time
+# sweep (both implemented controller-side), same as POSIX SIGKILL.
+if ($toDelivered) {
+    Remove-Item -LiteralPath $CredentialFile -Force -ErrorAction SilentlyContinue
 }
 
 # CommandLineToArgvW-compatible quoting for ProcessStartInfo.Arguments
@@ -173,5 +204,10 @@ $proc.WaitForExit()
 $err = $errTask.Result
 if ($err) {
     [Console]::Error.Write($err.Replace($key, "***REDACTED***"))
+}
+# Backstop only — the delivered file was already deleted pre-launch;
+# this covers the edge where the pre-launch delete itself failed.
+if ($toDelivered) {
+    Remove-Item -LiteralPath $CredentialFile -Force -ErrorAction SilentlyContinue
 }
 exit $proc.ExitCode
