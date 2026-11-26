@@ -48,6 +48,13 @@ def store_secret(app, name: str, kind: str, value: str,
                  meta: dict = None, internal: bool = False) -> None:
     """Create or rotate a named credential. The plaintext is accepted,
     encrypted, and never persisted anywhere else."""
+    if kind == "ssh":
+        # HTML form submission normalizes textarea newlines to CRLF —
+        # a pasted OpenSSH/PEM private key then arrives with \r\n line
+        # endings, which both OpenSSH and paramiko reject
+        # ("error in libcrypto"). Key material is LF-format by spec, so
+        # the CRLF form is never meaningful input.
+        value = value.replace("\r\n", "\n")
     fernet = _load_fernet(app)
     row = SecretRef.query.filter_by(name=name).first()
     if row is None:
