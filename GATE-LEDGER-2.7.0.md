@@ -157,3 +157,39 @@ secrets present):**
 run (dispatch.py ~2583) — unconditional, inside the staged workdir,
 re-installed every run since workdirs are cleaned up. The opt-in
 prepare-step proposal builds on this existing mechanism.
+
+## 2026-11-27c — Option A implemented (bd2507ac), bruno probe debug state
+
+**Implemented + committed (`bd2507ac`):**
+- Jest probe prepare-aware: missing framework + npm present is NOT
+  fatal (probe runs before install — confirmed as the reason jest
+  dispatch was refused; `_summarize` treated missing jest as fatal
+  even though npm ci would install it). Message now names the prepare
+  step. npm absent remains fatal.
+- `deps_prepare` run-config key: default ON (preserves 2.7.0
+  behavior), explicit `deps_prepare=false` disables; lockfile early
+  refusal at dispatch-submit (package-lock.json/npm-shrinkwrap.json
+  in the bound root) with a clear message naming the opt-out.
+- Tests: 5/5 in tests/test_deps_prepare.py — prepare never runs in
+  native collection (discovery/preview), linkage to
+  request_native_collection pinned, verdict tests, lockfile text.
+- CHANGELOG documents: npm ci runs install scripts on target,
+  role-gated decision, audit with lockfile hash, caps.
+- NOT done within Option A (honest): timeout/output cap values
+  specific to the prepare step (inherits step caps today), the
+  schedule-form visibility toggle for deps_prepare, audit-event
+  wiring of the lockfile hash. Record for final phase.
+
+**Bruno probe truncation — debug state:** probe.txt truncates exactly
+after `npx=...` before the bruno marker, but every probe command runs
+fine manually as the service user with the worker's own PATH
+(/usr/local/bin present; bru 4.4.0 rc=0; --sandbox detected). Worker
+env PATH confirmed sane. node/npx resolve via /usr/local/bin symlinks.
+Next step: read the buildbot step STDOUT (not the artifact) for the
+rdy build — the shell dies between the npx line and `command -v bru`;
+suspect step-level timeout during node startup or a worker-exec
+environment difference (env sanitization dropping something bru
+needs — e.g. HOME). Not a product defect proven yet.
+**Jest no-artifact state:** probe builds not producing artifact dirs
+— check whether the jest probe build is even scheduled (buildbot
+reconfig after runtime creation, or validation overwrite loop).
