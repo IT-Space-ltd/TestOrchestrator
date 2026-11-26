@@ -328,6 +328,39 @@ def test_stale_sibling_swept_fresh_and_foreign_kept(tmp_path):
     assert os.path.exists(young), "fresh dirs must survive"
 
 
+def test_active_workdir_never_swept(tmp_path):
+    """ISS-024 sweep: a stale-aged workdir whose run.pid is still ALIVE
+    must survive — a long-running execution outliving the retention
+    window must not lose its workdir to a sibling's prepare sweep."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-active"
+    import os, time, subprocess
+    live_proc = subprocess.Popen(["sleep", "60"])
+    try:
+        active = root / "active-exec"
+        active.mkdir(parents=True)
+        (active / "run.sh").write_text("#!/bin/sh\n")
+        (active / "run.pid").write_text(str(live_proc.pid))
+        dead = root / "dead-exec"
+        dead.mkdir(parents=True)
+        (dead / "run.sh").write_text("#!/bin/sh\n")
+        (dead / "run.pid").write_text("999999")   # no such process
+        wd = root / "e2e-ssh-sweep-active"
+        exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+        spec_p = _spec(tmp_path, server, exe, wd)
+        spec = json.loads(spec_p.read_text())
+        spec["workdir_retention_s"] = 2
+        spec_p.write_text(json.dumps(spec))
+        time.sleep(3)
+        proc = _run_dispatcher(spec_p, tmp_path)
+        out, _ = proc.communicate(timeout=60)
+        assert proc.returncode == 0, out[-600:]
+        assert os.path.exists(active), "live-pid workdir must never be swept"
+        assert not os.path.exists(dead), "dead-pid stale workdir must be swept"
+    finally:
+        live_proc.kill()
+
+
 def test_workdir_removed_after_cancel(tmp_path):
     """ISS-024: a confirmed cancel kill also removes the workdir —
     no credential or staging residue survives the cancellation."""

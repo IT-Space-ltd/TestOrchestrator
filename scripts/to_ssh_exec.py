@@ -270,7 +270,9 @@ def _sweep_stale_workdirs(client, spec) -> None:
     """Bounded remote-workdir retention (ISS-024): sibling per-execution
     workdirs older than the retention bound are removed — but ONLY when
     they carry TO run markers (run.sh/run.pid), never the workdir root
-    or foreign content. Runs left for reconciliation after a timeout are
+    or foreign content, and never while the recorded run pid is still
+    alive: a long-running execution outliving the retention window must
+    not lose its workdir mid-flight to a sibling's prepare sweep. Runs left for reconciliation after a timeout are
     reattachable inside this window; the bound prevents the unbounded
     /tmp growth that filled tmpfs and broke SFTP staging on the
     acceptance guest."""
@@ -290,7 +292,12 @@ def _sweep_stale_workdirs(client, spec) -> None:
         f"  if [ -f \"$d\"run.sh ] || [ -f \"$d\"run.pid ]; then "
         f"    m=$(stat -c %Y \"$d\" 2>/dev/null || echo 0); "
         f"    if [ \"$m\" -gt 0 ] && [ \"$m\" -lt \"$cutoff\" ]; then "
-        f"      rm -rf \"$d\"; "
+        f"      live=0; "
+        f"      if [ -f \"$d\"run.pid ]; then "
+        f"        p=$(cat \"$d\"run.pid 2>/dev/null); "
+        f"        if [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null; then live=1; fi; "
+        f"      fi; "
+        f"      if [ \"$live\" = 0 ]; then rm -rf \"$d\"; fi; "
         f"    fi; "
         f"  fi; "
         f"done; true")
