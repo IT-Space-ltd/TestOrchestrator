@@ -220,6 +220,7 @@ def test_credential_wrapper_staged_and_scrubs(tmp_path):
     spec = _spec(tmp_path, server, exe, tmp_path / "rd6")
     data = json.loads(spec.read_text())
     data["credential_file"] = str(cred_file)
+    data["keep_workdir"] = True
     spec.write_text(json.dumps(data))
     work = tmp_path / "dwork6"
     work.mkdir()
@@ -262,6 +263,7 @@ def test_credential_wrapper_explicit_remote_path_not_staged(tmp_path):
     spec = _spec(tmp_path, server, exe, wd)
     data = json.loads(spec.read_text())
     data["credential_file"] = str(cred_file)
+    data["keep_workdir"] = True
     data["remote_cred_wrapper"] = str(wrapper)
     spec.write_text(json.dumps(data))
     work = tmp_path / "dwork7"
@@ -272,3 +274,70 @@ def test_credential_wrapper_explicit_remote_path_not_staged(tmp_path):
     run_sh = (wd / "run.sh").read_text()
     assert str(wrapper) in run_sh
     assert not (wd / "kre_cred_exec.sh").exists()
+
+
+def _remote_exists(server, path):
+    import os
+    return os.path.exists(path)
+
+
+def test_workdir_removed_after_success(tmp_path):
+    """ISS-024: after a successful run + collect the remote workdir is
+    removed — bounded retention, no unbounded /tmp growth."""
+    server = TestSSHServer(Path("/"))
+    wd = tmp_path / "rroot" / "e2e-ssh-clean"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec = _spec(tmp_path, server, exe, wd)
+    proc = _run_dispatcher(spec, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    assert not os.path.exists(wd), "remote workdir must be removed after collect"
+
+
+def test_stale_sibling_swept_fresh_and_foreign_kept(tmp_path):
+    """ISS-024 sweep: at the next run's prepare, sibling workdirs older
+    than the retention with TO markers are removed; younger ones and
+    foreign dirs survive."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot2"
+    old = root / "old-exec"
+    old.mkdir(parents=True)
+    (old / "run.sh").write_text("#!/bin/sh\n")
+    # age the dir beyond retention: spec uses tiny retention (2s)
+    import os, time
+    foreign = root / "foreign"
+    foreign.mkdir()
+    young = root / "young-exec"
+    young.mkdir()
+    (young / "run.sh").write_text("#!/bin/sh\n")
+    wd = root / "e2e-ssh-sweep"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec_p = _spec(tmp_path, server, exe, wd)
+    spec = json.loads(spec_p.read_text())
+    spec["workdir_retention_s"] = 2
+    spec_p.write_text(json.dumps(spec))
+    time.sleep(3)   # everything ages past the 2s retention
+    # 'young' is created after aging, so re-create marker fresh — it
+    # must survive because we touch it post-aging
+    os.utime(young, None)
+    proc = _run_dispatcher(spec_p, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    assert not os.path.exists(old), "stale marked workdir must be swept"
+    assert os.path.exists(foreign), "foreign dirs must survive"
+    assert os.path.exists(young), "fresh dirs must survive"
+
+
+def test_workdir_removed_after_cancel(tmp_path):
+    """ISS-024: a confirmed cancel kill also removes the workdir —
+    no credential or staging residue survives the cancellation."""
+    server = TestSSHServer(Path("/"))
+    wd = tmp_path / "rroot3" / "e2e-ssh-cancel"
+    exe = _runner_exec(tmp_path, "sleep 300\n")
+    spec = _spec(tmp_path, server, exe, wd)
+    proc = _run_dispatcher(spec, tmp_path)
+    time.sleep(6)
+    proc.send_signal(signal.SIGTERM)
+    out, _ = proc.communicate(timeout=60)
+    assert "cancel-confirmed" in out
+    assert not os.path.exists(wd), "workdir must be removed after confirmed kill"

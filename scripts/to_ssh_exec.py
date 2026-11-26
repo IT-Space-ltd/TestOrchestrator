@@ -139,6 +139,7 @@ def _prepare(client, spec) -> None:
     sftp = client.open_sftp()
     try:
         q = shlex.quote
+        _sweep_stale_workdirs(client, spec)
         rc, out, err = _exec(
             client,
             f"mkdir -p {q(wd)} && "
@@ -263,6 +264,59 @@ def _prepare(client, spec) -> None:
         _exec(client, f"chmod 700 {remote(wd)}/run.sh")
     finally:
         sftp.close()
+
+
+def _sweep_stale_workdirs(client, spec) -> None:
+    """Bounded remote-workdir retention (ISS-024): sibling per-execution
+    workdirs older than the retention bound are removed — but ONLY when
+    they carry TO run markers (run.sh/run.pid), never the workdir root
+    or foreign content. Runs left for reconciliation after a timeout are
+    reattachable inside this window; the bound prevents the unbounded
+    /tmp growth that filled tmpfs and broke SFTP staging on the
+    acceptance guest."""
+    import posixpath
+    wd = spec["remote_workdir"]
+    root = posixpath.dirname(wd.rstrip("/"))
+    if not root or root == "/":
+        return
+    retention = int(spec.get("workdir_retention_s") or 86400)
+    q = shlex.quote
+    # Epoch comparison — find -mmin is minute-granular, too coarse for
+    # short retention windows. Only dirs carrying a TO run marker are
+    # eligible; the root itself is never touched.
+    script = (
+        f"cutoff=$(( $(date +%s) - {retention} )); "
+        f"for d in {q(root)}/*/; do "
+        f"  if [ -f \"$d\"run.sh ] || [ -f \"$d\"run.pid ]; then "
+        f"    m=$(stat -c %Y \"$d\" 2>/dev/null || echo 0); "
+        f"    if [ \"$m\" -gt 0 ] && [ \"$m\" -lt \"$cutoff\" ]; then "
+        f"      rm -rf \"$d\"; "
+        f"    fi; "
+        f"  fi; "
+        f"done; true")
+    try:
+        _exec(client, script, timeout=30)
+    except Exception:
+        pass    # sweep is best-effort; a failure must not block the run
+
+
+def _cleanup_remote_workdir(client, spec) -> None:
+    """Remove the per-execution remote workdir after collection or a
+    confirmed cancel kill (ISS-024). Delivered credential material is
+    already wiped separately at collect/kill — this bounds everything
+    else the run staged (source.tar, licpack, run.sh, Reports).
+    ``keep_workdir`` in the spec is the operator debugging opt-out —
+    the age-based sweep still bounds what is kept."""
+    if spec.get("keep_workdir"):
+        return
+    wd = (spec.get("remote_workdir") or "").strip()
+    if len(wd) < 8 or wd == "/":
+        return
+    q = shlex.quote
+    try:
+        _exec(client, f"rm -rf {q(wd)} 2>/dev/null; true", timeout=30)
+    except Exception:
+        pass
 
 
 def _launch(client, spec) -> None:
@@ -439,6 +493,8 @@ def main(argv=None) -> int:
                     ok = False
                 print("TO-SSH: cancel-confirmed" if ok
                       else "TO-SSH: cancel-unconfirmed")
+                if ok:
+                    _cleanup_remote_workdir(client, spec)
                 return 0 if ok else 15
             if time.monotonic() > deadline:
                 print("TO-SSH: timeout — remote run left for "
@@ -447,6 +503,7 @@ def main(argv=None) -> int:
             time.sleep(POLL_S)
         _tail_remote_log(client, spec)
         _collect(client, spec, local_artifacts)
+        _cleanup_remote_workdir(client, spec)
         print(f"TO-SSH: runner exit_code={exit_code}; artifacts "
               "collected")
         return 0 if exit_code == 0 else 3
