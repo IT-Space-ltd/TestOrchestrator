@@ -142,5 +142,62 @@ path.
     path required. Effort ~1–2 d. Risk: high if wrong — customer
     lockout; migration and rollback tests mandatory.
 
+### Epic: Reports main menu (owner-specified)
+
+Top-level Reports menu: build, save and export reports with charts.
+Prerequisite per owner: check the existing analytics page first —
+reuse its data layer, do not duplicate; any new server-side dependency
+for charts/PDF/docx/xlsx needs explicit owner approval before adding.
+
+32. **Report builder** — choose report type, filters, charts and
+    sections; preview, save the definition, export. Effort ~1 wk.
+    Risk: medium — new UI surface, needs the same accessibility
+    standard as other forms.
+33. **Starter report types** — execution summary; pass-rate and
+    duration trends; top failing and flaky tests; failure analysis by
+    error kind (config/infrastructure/license/test failure); plan,
+    suite and collection results; runner and runtime utilization;
+    schedule reliability; framework comparison; traceability where
+    requirement/issue links exist; admin audit and compliance report.
+    Effort ~2–3 wks for the full set (can ship incrementally). Risk:
+    medium — each type needs its numbers verified against the execution
+    data model; flaky-test detection needs a defined heuristic.
+34. **Filters** — all combinable, with saved filter sets: time range
+    (presets+custom), project, plan/suite/collection, framework and
+    framework project, runner/runtime/environment, status/outcome,
+    branch/ref/commit, trigger (manual/schedule/API), user, tags,
+    release; compare two filtered sets side by side. Effort ~1 wk.
+    Risk: medium — combinatorial query correctness; every filter must
+    compose with project scoping.
+35. **Export formats** — PDF, docx, xlsx plus CSV. Charts must appear
+    in exported files (not just on screen) and look the same in all
+    three; Excel includes a raw-data sheet next to the summary and
+    full execution history; server-side real PDF generation, never a
+    browser print dialog; optional title page, logo, date range and
+    applied-filter summary on every export. Effort ~1–2 wks. Risk:
+    medium-high — this is where new dependencies (pdf/xlsx/docx/chart
+    rendering) will be proposed; owner approval required per item.
+36. **Saved and scheduled reports** — saved definitions per user or
+    shared by project; optional scheduled generation with downloadable
+    result; shareable links with expiry. Effort ~1 wk. Risk: medium —
+    share links are an authorization surface (expiry + audit mandatory).
+37. **Quality and safety** — role-based access and project scoping on
+    every query (a user must never see data outside their projects);
+    escape all report text and discovered content; background
+    generation for large reports with size/time limits, progress, clear
+    failure message; audit exports and shared links; no N+1 queries in
+    large tables; charts need a data-table alternative and labels for
+    accessibility. Effort embedded in 32–36. Risk: high if skipped —
+    these are acceptance gates.
+38. **Data-layer reuse check** — verify the existing analytics page's
+    data layer covers these queries; reuse, don't duplicate; produce
+    the dependency proposal (charts, PDF, docx, xlsx) for owner
+    approval before any implementation. Effort ~2–3 d. Risk: low.
+39. **Testing plan** — seed data across projects, plans, frameworks,
+    time ranges; verify each filter, that export files open correctly
+    in Word/Excel/PDF readers, that exported numbers match on-screen
+    numbers, and that role scoping holds. Effort ~1 wk. Risk: low.
+
+
 2.7.0 ships the read-only side only: tree view over existing inventory,
 stale badges, last-result column, and the schedule-form target picker.
