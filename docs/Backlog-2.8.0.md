@@ -199,5 +199,75 @@ for charts/PDF/docx/xlsx needs explicit owner approval before adding.
     numbers, and that role scoping holds. Effort ~1 wk. Risk: low.
 
 
+### Epic: Admin > Database — SQLite-to-PostgreSQL migration wizard (owner-specified)
+
+Principles: SQLite stays the built-in default (nothing changes for
+users who don't opt in); PostgreSQL is never bundled or installed by
+the product — the admin runs it themselves, we only connect and
+migrate; admin-only, role-gated, audited; modern accessible UI; the
+app database and the Buildbot master state move together in one flow;
+rollback within a time window only — no reverse migration in v1
+(recorded as deferred).
+
+40. **Admin > Database page** — current engine, version, location,
+    size, health, last backup, migration state for both databases;
+    "Switch to PostgreSQL" CTA; post-switch rollback window with
+    countdown and "Roll back to SQLite"/"Finalize" actions.
+    Effort ~3 d. Risk: low.
+41. **Wizard flow** — steps: (1) before-you-start with checklist,
+    downtime estimate, maintenance-mode notice; (2) connect (host,
+    port, database, user, password with show/hide, SSL mode; password
+    from env var or secret store); (3) test connectivity/version
+    range/UTF-8/privileges/empty targets/latency with specific fixes;
+    (4) pre-flight sizes, row counts, duration estimate, free disk,
+    idle-system requirement or drain step; (5) mandatory verified
+    backups with SHA256; (6) migrate in maintenance mode — Alembic
+    schema on PG, table-by-table batched copy in dependency order with
+    live progress and resumable state, sequence resets, explicit type
+    conversion, then Buildbot state per the audit; (7) verify row
+    counts, per-table checksums, smoke queries, Buildbot health + smoke
+    build — block on any mismatch; (8) atomic settings write, ordered
+    service restart, worker reconnect, health checks, exit maintenance;
+    (9) rollback within window only — SQLite files never modified,
+    one-step settings restore, typed confirmation after showing counts
+    of runs/changes that would be lost; window close or Finalize
+    archives. Effort ~4–6 wks total. Risk: high — data-critical path;
+    the two-database cutover must never leave a split state.
+42. **Security and operations** — admin role gate, CSRF-safe flow,
+    audit events for test/start/switch/rollback/finalize; password
+    never logged, never returned to the browser, masked in audit; TLS
+    verification modes with a warning when SSL is off; single-host
+    scope — refuse if other instances are detected; downloadable
+    migration report; idempotent resumable process. Effort included
+    in 41. Risk: high if skipped — acceptance gates.
+43. **UX and accessibility** — stepper layout, inline validation,
+    progress screen with cancel before the point of no return,
+    keyboard access, screen-reader friendly with aria-live progress,
+    all displayed content escaped. Effort ~2–3 d. Risk: low.
+44. **Audit-first: application database** — run all Alembic migrations
+    on PostgreSQL; check types, constraint names, raw SQL; replace
+    SQLite-specific code; define supported PG version range and driver;
+    decide dependency packaging for Linux and Windows installers.
+    Effort ~1 wk audit. Risk: medium — installer dependency decisions
+    need owner approval like any new dependency.
+45. **Audit-first: Buildbot state** — audit how Buildbot stores state
+    and what must be kept; decide whether history needs copying or a
+    fresh state plus the app's own run history suffices; define
+    behavior for in-flight builds and queued schedules; cover
+    Buildbot's upgrade/migration steps on PG, restart order, worker
+    reconnection; record driver/version requirements Buildbot's PG
+    support adds. Effort ~1 wk audit. Risk: medium-high — least-known
+    surface in the epic.
+46. **Testing** — PostgreSQL job in the test suite and CI matrix
+    covering app+Buildbot together; installed-package live cell for
+    the full switch and rollback, synthetic credentials only.
+    Effort ~1 wk. Risk: low.
+47. **Related work** — retention and rollup tables for reports;
+    document connection pooling and performance settings.
+    Effort ~2–3 d. Risk: low.
+    **Out of scope**: bundling PostgreSQL, clustering/HA, multi-host,
+    reverse migration, DuckDB and Turso (watch list only).
+
+
 2.7.0 ships the read-only side only: tree view over existing inventory,
 stale badges, last-result column, and the schedule-form target picker.
