@@ -127,6 +127,20 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 
 ### Fixed
 
+- **SSH private keys pasted into forms no longer corrupt (ISS-021).**
+  HTML form submission normalizes textarea newlines to CRLF, so a
+  private key pasted into the ssh-target form was stored with `\r\n`
+  line endings verbatim — the materialized key file then failed to
+  parse in both OpenSSH and paramiko ("error in libcrypto") and every
+  ssh-target execution failed authentication. `store_secret` now
+  normalizes CRLF to LF for `ssh`-kind secrets (key material is
+  LF-format by spec); other kinds are stored verbatim. Regression
+  test in `test_infra.py` pins both behaviors. Surfaced on the Linux
+  acceptance VM when the e2e-ui suite re-seeded the ssh target
+  through the UI form — the failure chain (probe verdict → validation
+  gate → dispatch refusal) correctly reported it as an ssh-target
+  problem rather than fabricating success.
+
 - **KRE credential delivery hardening.** Delivered credentials now
   land inside a prep-created restricted drop dir (`build/.to_cred`:
   0700 on POSIX, SYSTEM+Administrators DACL on Windows) instead of a
