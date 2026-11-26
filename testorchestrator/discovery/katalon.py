@@ -61,7 +61,7 @@ def parse(ctx) -> Result:
             granularity="case"))
 
     for p in iter_files(root / "Test Suites", base, res.warnings):
-        if p.suffix != ".ts":
+        if p.suffix not in (".ts", ".tsc"):
             continue
         tag, warn = _xml_root(p)
         if warn:

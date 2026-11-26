@@ -422,7 +422,10 @@ def discover_project(binding, sha: str = "") -> dict:
                 name=p.stem, parent=str(p.parent.relative_to(root))))
         # Suites vs collections: content root tag, not filename.
         ts_dir = root / "Test Suites"
-        for p in sorted(ts_dir.rglob("*.ts")) if ts_dir.exists() else []:
+        ts_files = (sorted(ts_dir.rglob("*.ts")) +
+                    sorted(ts_dir.rglob("*.tsc"))) \
+            if ts_dir.exists() else []
+        for p in ts_files:
             if not p.resolve().is_relative_to(base_r):
                 out["warnings"].append(
                     f"{p.relative_to(base)}: symlink escape skipped")
