@@ -262,7 +262,27 @@ def create_execution(username: str, suite: Suite = None,
     rc = dict(run_config or {})
     if source_item is not None:
         _fp_item_gate(source_item, rc)
-        rc.setdefault("suite_path", source_item.path)
+        suite_path = source_item.path
+        # Discovered paths are REPO-ROOT-relative, but a binding with
+        # `subdirectory` stages that subdir as the source root — the
+        # verbatim path does not exist under the shifted root and the
+        # runner exits with 'file or directory not found' before writing
+        # any results ( surfaced as 'no result data (path not found)').
+        # Rebase against the subdirectory: node_ids are already
+        # location-relative and unaffected; only the file/suite path
+        # carries the stale base.
+        eff_binding = binding
+        if eff_binding is None and getattr(source_item, "binding_id", ""):
+            eff_binding = db.session.get(GitBinding, source_item.binding_id)
+        sub = (eff_binding.subdirectory or "").strip("/") \
+            if eff_binding is not None else ""
+        if sub and suite_path:
+            sp = suite_path.strip("/")
+            if sp == sub:
+                suite_path = ""
+            elif sp.startswith(sub + "/"):
+                suite_path = sp[len(sub) + 1:]
+        rc.setdefault("suite_path", suite_path)
         rc.setdefault("collection", source_item.kind == "collection")
         if source_item.node_id and \
                 source_item.granularity in ("test", "scenario"):

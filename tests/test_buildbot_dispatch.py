@@ -1037,3 +1037,40 @@ def test_requested_cancel_clears_racing_unrequested_text(
         assert ex.state == ExecutionState.CANCELED
         assert not ex.error_text
         assert not ex.error_kind
+
+
+def test_suite_path_rebased_for_subdirectory_binding(app, monkeypatch, tmp_path):
+    """Discovered paths are repo-root-relative but a subdirectory binding
+    stages that subdir as the source root — suite_path must be rebased or
+    the runner exits 'file or directory not found' with no results."""
+    stub = _BBProbe()
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        _, rtid, diid = _env(app, monkeypatch, stub,
+                             worktree=tmp_path / "wt")
+        di = db.session.get(DiscoveredItem, diid)
+        b = db.session.get(GitBinding, di.binding_id)
+        b.subdirectory = "pytest"
+        di.path = "pytest/test_smoke.py"
+        db.session.commit()
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        assert ex.snapshot()["run_config"]["suite_path"] == "test_smoke.py"
+        # exact-subdir selection means 'the whole staged root'
+        di2 = DiscoveredItem(project_id=di.project_id, binding_id=b.id,
+                             kind="suite", path="pytest", name="root",
+                             sha="s", order_idx=9)
+        db.session.add(di2)
+        db.session.commit()
+        ex2 = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, di2.id))
+        assert ex2.snapshot()["run_config"]["suite_path"] == ""
+        # no subdirectory — path passes through verbatim
+        b.subdirectory = ""
+        db.session.commit()
+        ex3 = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        assert ex3.snapshot()["run_config"]["suite_path"] == "pytest/test_smoke.py"
