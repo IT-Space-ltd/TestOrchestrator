@@ -310,7 +310,16 @@ def cleanup_abandoned(owner: str = "") -> int:
     n = 0
     for d in rows:
         wt = _authoring_wt(d.binding_id)
-        if wt.exists():
+        # The worktree is shared per binding — drop it only when no
+        # LIVE draft remains on the same binding: an in-flight publish
+        # writes+commits there, and active drafts re-use it. The row
+        # itself is always removed (draft content lives in the DB —
+        # the tree is a re-cloneable checkout, not user work).
+        live = AuthoringDraft.query.filter(
+            AuthoringDraft.binding_id == d.binding_id,
+            AuthoringDraft.status == "draft",
+            AuthoringDraft.id != d.id).count()
+        if not live and wt.exists():
             shutil.rmtree(wt, ignore_errors=True)
         db.session.delete(d)
         n += 1
