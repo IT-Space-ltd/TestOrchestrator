@@ -697,7 +697,7 @@
       </code>
       {%- set provider = c.provider or ('manual' if s.kind == 's3' else s.kind) -%}
       {%- if s.kind in ('s3','azure','gcs') %}<br><small class="muted">provider:
-        {{ {'amazon':'Amazon','azure':'Ms Azure','gcs':'Google (interop)','google':'Google (interop)','manual':'Other (Manual)'}[provider] }}</small>{% endif %}
+        {{ {'amazon':'Amazon','azure':'Microsoft Azure','gcs':'Google (interop)','google':'Google (interop)','manual':'Other (Manual)'}[provider] }}</small>{% endif %}
       {% if s.credential_ref %}<br><small class="muted">credential:
         <code>••••••</code> (reference
         <code>{{ s.credential_ref }}</code>)</small>{% endif %}</td>
@@ -731,7 +731,7 @@
                    value="{{ 'object' if s.kind in ('s3','azure','gcs') else s.kind }}">
             <input type="hidden" name="provider" value="{{ provider }}">
             <div class="field"><label for="provider-{{ s.id }}">Provider</label>
-              <input id="provider-{{ s.id }}" value="{{ {'amazon':'Amazon','azure':'Ms Azure','gcs':'Google','google':'Google','manual':'Other (Manual)','local':'Local folder','mounted':'Mounted folder'}[provider] }}" disabled>
+              <input id="provider-{{ s.id }}" value="{{ {'amazon':'Amazon','azure':'Microsoft Azure','gcs':'Google (interop)','google':'Google (interop)','manual':'Other (Manual)','local':'Local folder','mounted':'Mounted folder'}[provider] }}" disabled>
               <small class="muted">Provider/API is fixed — create a
                 new destination to change it.</small></div>
             <div class="field"><label for="name-{{ s.id }}">Display name</label>
@@ -874,7 +874,7 @@
         <div class="field"><label for="store-provider">Object Storage Provider</label>
           <select id="store-provider" name="provider">
             <option value="amazon">Amazon</option>
-            <option value="azure">Ms Azure</option>
+            <option value="azure">Microsoft Azure</option>
             <option value="google">Google</option>
             <option value="manual" selected>Other (Manual)</option>
           </select>
