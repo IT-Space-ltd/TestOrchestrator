@@ -15,7 +15,7 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 
 ### Added
 
-- **Test tree view (Test tab default).** Read-only inventory tree —
+- **Test tree view (Test tab default — owner decision, recorded).** Read-only inventory tree —
   collection → suite → test cases — with per-level counts, repo badges
   (repository-defined items refreshed on sync), per-framework
   granularity labels (Cypress is file-level only), stale-member badges
