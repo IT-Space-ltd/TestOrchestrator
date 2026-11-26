@@ -542,3 +542,35 @@ two added tests are the collector-refusal and static-discovery pins).
   PASSED with artifacts; negative must end expected-FAILED with
   artifacts. Nothing counted so far — all cells in flight or blocked
   on rebuild #5.
+
+## Owed-items implementation state (before rebuild #5)
+
+DONE in repo (uncommitted until suite passes):
+1. Collect-refusal generalized — test loops ALL collector-less
+   frameworks; pin caught katalon too (bruno, katalon, postman);
+   behavioral test proves refused collect leaves fp status untouched.
+2. Jest deps-in-collect conditions — deps-off collect refuses clearly
+   (vendored node_modules documented exception, never silent); admin-
+   action-only pinned structurally (single caller: role-gated ack
+   route); audit-event assertion on collect path. 18/18 in
+   test_deps_prepare.py.
+3. Bruno root alignment — NOT a product defect: the product expresses
+   subdirectory workdirs correctly (bru accepted the collection root
+   once the right content was staged). The actual failure chain was
+   fixture-side: (a) my driver hardcoded a WRONG binding id falling
+   back to the monorepo binding; (b) the correct binding never
+   re-synced (stale sha 57a9fc8 vs head 2f2d9f2). Fixed both; correct
+   sha synced. Remaining fixture-state inconsistency: inventory items
+   are keyed to binding ids from the wrong-binding era — rediscovery
+   needed on the correct binding before cells (RD3 reported MISSING).
+   THIS IS THE FIRST TASK next session: rediscover on the correct
+   binding, then dispatch postman/bruno positive+negative; jest cells
+   likewise.
+
+Unit suite: first run collided with tests/e2e-ui conftest (pre-existing
+layout — e2e runs separately in Phase 6, NOT a regression). Rerunning
+as tests/ --ignore=tests/e2e-ui, result pending in /tmp/unitsuite2.log.
+REBUILD #5 BLOCKED ON: suite pass + commit of owed items. Then install,
+rerun 6 cells citing exact head+sha256, Option A 7/7 rerun, jest
+collect live cell, test-level+subdirectory cells. Stub start/stop must
+be committed with fixtures (stub8899.py currently ad-hoc on guest).

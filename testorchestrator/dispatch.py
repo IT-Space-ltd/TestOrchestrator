@@ -2604,6 +2604,27 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             (False, "false", "0", 0)
         deps_argv = ([npm, "ci", "--no-audit", "--no-fund"]
                      if deps_on else [])
+        if rc.get("native_collect") and not deps_on:
+            # Owner condition: deps-off collect must never silently skip
+            # the install and then fail opaquely — jest --listTests needs
+            # project deps. Vendored node_modules in the bound root is
+            # the documented alternative; otherwise refuse with a clear
+            # message before anything is staged.
+            import pathlib as _pl2
+            _b0 = db.session.get(GitBinding, ex.binding_id) \
+                if ex.binding_id else None
+            _base0 = _pl2.Path(_b0.worktree_path or "") if _b0 else None
+            if _b0 is not None and _b0.subdirectory:
+                _base0 = _base0 / _b0.subdirectory
+            vendored = bool(_base0 and _base0.is_dir()
+                            and (_base0 / "node_modules").is_dir())
+            if not vendored:
+                raise DispatchError(
+                    "deps_prepare is off — jest native collection "
+                    "requires project dependencies for --listTests. "
+                    "Enable deps_prepare (npm ci, lockfile required) or "
+                    "commit node_modules to the project. Collection "
+                    "never skips dependency installation silently.")
         _bnd = db.session.get(GitBinding, ex.binding_id) \
             if ex.binding_id else None
         if deps_on and _bnd is not None:

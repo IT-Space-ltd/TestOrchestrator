@@ -131,3 +131,98 @@ def test_native_collect_prepare_allowed_with_lockfile(tmp_path):
     src = inspect.getsource(dispatch._submit_buildbot)
     # the deps_on condition must not exclude native_collect
     assert '(not rc.get("native_collect"))' not in src
+
+
+def test_collect_refusal_covers_every_collectorless_framework():
+    """Every framework missing from COLLECT_SCRIPTS must hit the early
+    refusal — and the refusal happens before any fp state mutation, so
+    fp.discovery_status can never be poisoned by a refused collect."""
+    from testorchestrator import collectors
+    from testorchestrator.discovery import FRAMEWORKS
+    import inspect
+    from testorchestrator import gitsync
+    src = inspect.getsource(gitsync.request_native_collection)
+    # refusal precedes the execution-creation call site (not the import)
+    refusal_pos = src.index("has no native collector")
+    call_pos = src.index("ex = create_execution(")
+    assert refusal_pos < call_pos
+    # every discovered framework either has a collector or is covered by
+    # the generic refusal path (the check is not framework-specific)
+    collectorless = [f for f in sorted(FRAMEWORKS)
+                     if f not in collectors.COLLECT_SCRIPTS]
+    assert collectorless, "expected at least one collector-less framework"
+    # the refusal has no per-framework special-casing: one generic check
+    assert "fp.framework not in collectors.COLLECT_SCRIPTS" in src
+    # pin the current set so a new framework forces a conscious decision
+    assert set(collectorless) == {"bruno", "katalon", "postman"}, collectorless
+
+
+def test_refused_collect_never_touches_fp_status(app):
+    """A refused collect must leave discovery_status exactly as it was."""
+    import pytest
+    from testorchestrator import collectors
+    with app.app_context():
+        from testorchestrator.extensions import db
+        from testorchestrator.execution import (FrameworkProject,
+                                                GitBinding, Project)
+        from testorchestrator.gitsync import request_native_collection
+        proj = Project(name="refusal-test")
+        db.session.add(proj)
+        db.session.flush()
+        b = GitBinding(project_id=proj.id, name="b", url="file:///x",
+                       ref="main")
+        db.session.add(b)
+        db.session.flush()
+        for fw in ("postman", "bruno"):
+            fp = FrameworkProject(
+                project_id=proj.id, binding_id=b.id, framework=fw,
+                name=fw, discovery_status="ok")
+            db.session.add(fp)
+            db.session.flush()
+            with pytest.raises(ValueError, match="no native collector"):
+                request_native_collection(fp, b, None, "admin")
+            db.session.expire_all()
+            from testorchestrator.execution import FrameworkProject as FP2
+            fp2 = db.session.get(FP2, fp.id)
+            assert fp2.discovery_status == "ok", \
+                f"refused collect poisoned status for {fw}"
+        db.session.rollback()
+
+
+def test_deps_off_collect_fails_clearly_not_silently():
+    """Owner condition: deps-off collect must refuse with a clear
+    message (vendored node_modules excepted) — never silently skip."""
+    import inspect
+    from testorchestrator import dispatch
+    src = inspect.getsource(dispatch._submit_buildbot)
+    assert 'rc.get("native_collect") and not deps_on' in src
+    assert "never skips dependency installation silently" in src
+    assert "node_modules" in src   # vendored escape documented
+
+
+def test_native_collect_is_admin_action_only():
+    """Native collection must only be reachable through the role-gated
+    portal route with the explicit ack — never automatic rediscovery,
+    schedules, or the worker loop."""
+    import inspect
+    from testorchestrator import gitsync
+    # exactly one production caller exists
+    import subprocess
+    out = subprocess.run(
+        ["grep", "-rn", "request_native_collection", "testorchestrator",
+         "--include=*.py"], capture_output=True, text=True).stdout
+    files = {l.split(":")[0] for l in out.splitlines()
+             if "def request_native_collection" not in l}
+    files.discard("testorchestrator/gitsync.py")
+    assert files == {"testorchestrator/portal/routes.py"}, files
+    # that route requires the ack checkbox
+    src = open("testorchestrator/portal/routes.py").read()
+    assert 'request.form.get("ack")' in src
+    assert "Native collection needs the approval checkbox" in src
+
+
+def test_collect_path_audit_event():
+    """The collect route records an audit event naming the execution."""
+    src = open("testorchestrator/portal/routes.py").read()
+    assert "framework_project.native_collect" in src
+    assert "record_audit" in src
