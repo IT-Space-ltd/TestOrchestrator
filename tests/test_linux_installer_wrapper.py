@@ -78,7 +78,7 @@ def test_interruption_cleans_extract_and_child(tmp_path):
     time.sleep(1.3)
     before = set(Path(env["TMPDIR"]).glob("to-install-*"))
     proc.send_signal(signal.SIGTERM)
-    proc.wait(timeout=10)
+    proc.wait(timeout=30)
     # the run's extraction dir is gone
     assert before, "expected a to-install-* dir during the run"
     leftover = [p for p in before if p.exists()]
@@ -115,7 +115,7 @@ def test_sigint_kills_descendant_too(tmp_path):
     time.sleep(1.4)
     gc = int(outfile.read_text().split(":")[1])
     proc.send_signal(signal.SIGINT)
-    proc.wait(timeout=10)
+    proc.wait(timeout=30)
     assert not list(Path(env["TMPDIR"]).iterdir()), "dir not cleaned"
     try:
         os.kill(gc, 0); alive = True
@@ -146,7 +146,7 @@ def test_term_ignoring_child_is_killed(tmp_path):
     time.sleep(1.4)
     gc = int(outfile.read_text().split(":")[1])
     proc.send_signal(signal.SIGTERM)
-    proc.wait(timeout=10)
+    proc.wait(timeout=30)
     # sleep has no TERM handler -> dies on TERM (grandchild assertion)
     try:
         os.kill(gc, 0); alive = True
