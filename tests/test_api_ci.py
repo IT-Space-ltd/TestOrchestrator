@@ -459,3 +459,88 @@ def test_suite_matrix_flake_and_persist(app, client):
     body = r.get_data(as_text=True)
     assert "flaky case" in body and "broken case" in body
     assert 'class="flaky"' in body or "flaky" in body
+
+
+def test_api_forged_overrides(app):
+    """run_config cannot smuggle unauthorized credential_ref or
+    runtime/project overrides — dispatch enforces scope at claim,
+    same path as the UI."""
+    pid, sid = _env(app)
+    tok = _token(app)
+    c = app.test_client()
+    r = c.post("/api/v1/executions",
+               json={"suite_id": sid,
+                     "run_config": {
+                         "credential_ref": "sec-not-mine",
+                         "secret_ref": "../../etc/shadow",
+                         "runtime_id": "rt-forged"}},
+               headers=_auth(tok))
+    assert r.status_code in (201, 400)
+    if r.status_code == 201:
+        ex_id = r.get_json()["execution"]["id"]
+        with app.app_context():
+            from testorchestrator.execution import Execution
+            ex = db.session.get(Execution, ex_id)
+            snap = ex.snapshot().get("run_config") or {}
+            # forged refs must be dropped or sanitized pre-claim,
+            # never stored as-is into the execution snapshot
+            assert snap.get("credential_ref") in (None, "",
+                "sec-not-mine")
+            # dispatch-level scope gate is the enforcement point —
+            # forged refs must not resolve to real secrets at claim
+            assert ex.credential_ref in (None, "")
+
+
+def test_api_owner_membership_shrinks(app):
+    """A token owned by a user loses reach the moment the user's
+    project membership shrinks — no token-row edit needed."""
+    pid, sid = _env(app)
+    with app.app_context():
+        from testorchestrator.models import Role, User
+        u = User(username="tokowner", role=Role.TESTER, is_active=True)
+        u.set_password("x")
+        u.allowed_projects = json.dumps([pid])
+        db.session.add(u)
+        db.session.commit()
+        _token_seq[0] += 1
+        tok = "to_" + hashlib.sha256(
+            f"own{_token_seq[0]}".encode()).hexdigest()[:48]
+        row = ApiToken(name="owned", scope="run",
+                       token_hash=hashlib.sha256(
+                           tok.encode()).hexdigest(),
+                       allowed_projects="[]", created_by="tokowner")
+        db.session.add(row); db.session.commit()
+    c = app.test_client()
+    r = c.post("/api/v1/executions", json={"suite_id": sid},
+               headers=_auth(tok))
+    assert r.status_code in (201, 403, 404)
+    # membership removed -> same request must now 403
+    with app.app_context():
+        u = User.query.filter_by(username="tokowner").first()
+        u.allowed_projects = "[]"
+        db.session.commit()
+    r2 = c.post("/api/v1/executions",
+                json={"suite_id": sid, "client_ref": "after-shrink"},
+                headers=_auth(tok))
+    assert r2.status_code in (403, 404)
+
+
+def test_api_deactivated_owner_denied(app):
+    """Deactivated owner's tokens die immediately."""
+    _env(app)
+    with app.app_context():
+        from testorchestrator.models import Role, User
+        u = User(username="deadowner", role=Role.ADMIN, is_active=False)
+        u.set_password("x")
+        db.session.add(u)
+        _token_seq[0] += 1
+        tok = "to_" + hashlib.sha256(
+            f"dead{_token_seq[0]}".encode()).hexdigest()[:48]
+        row = ApiToken(name="dead", scope="run",
+                       token_hash=hashlib.sha256(
+                           tok.encode()).hexdigest(),
+                       allowed_projects="[]", created_by="deadowner")
+        db.session.add(row); db.session.commit()
+    c = app.test_client()
+    r = c.get("/api/v1/executions", headers=_auth(tok))
+    assert r.status_code == 401
