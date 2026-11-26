@@ -140,28 +140,28 @@ or license KRE.</p>
             <summary class="button secondary sm">Edit</summary>
             <form method="post" action="{{ url_for('system.edit_runner', runner_id=r.id) }}" class="edit-form">
               {{ runner_form.csrf_token }}
-              <div class="field"><label>Name</label><input name="name" value="{{ r.name }}"></div>
-              <div class="field"><label>Description</label><input name="description" value="{{ r.description }}"></div>
-              <div class="field"><label>OS/arch</label><input name="os_arch" value="{{ r.os_arch }}"></div>
+              <div class="field"><label for="name-{{ r.id }}">Name</label><input id="name-{{ r.id }}" name="name" value="{{ r.name }}"></div>
+              <div class="field"><label for="description-{{ r.id }}">Description</label><input id="description-{{ r.id }}" name="description" value="{{ r.description }}"></div>
+              <div class="field"><label for="os_arch-{{ r.id }}">OS/arch</label><input id="os_arch-{{ r.id }}" name="os_arch" value="{{ r.os_arch }}"></div>
               {% if r.target_type == "ssh" %}
-              <div class="field"><label>SSH host</label><input name="ssh_host" value="{{ r.ssh_host }}"></div>
-              <div class="field"><label>SSH port</label><input name="ssh_port" type="number" value="{{ r.ssh_port or 22 }}"></div>
-              <div class="field"><label>SSH username</label><input name="ssh_username" value="{{ r.ssh_username }}"></div>
-              <div class="field"><label>Remote working directory</label><input name="ssh_workdir" value="{{ r.ssh_workdir }}"></div>
-              <div class="field"><label>SSH credential (existing secret)</label>
-                <select name="ssh_credential_ref">
+              <div class="field"><label for="ssh_host-{{ r.id }}">SSH host</label><input id="ssh_host-{{ r.id }}" name="ssh_host" value="{{ r.ssh_host }}"></div>
+              <div class="field"><label for="ssh_port-{{ r.id }}">SSH port</label><input id="ssh_port-{{ r.id }}" name="ssh_port" type="number" value="{{ r.ssh_port or 22 }}"></div>
+              <div class="field"><label for="ssh_username-{{ r.id }}">SSH username</label><input id="ssh_username-{{ r.id }}" name="ssh_username" value="{{ r.ssh_username }}"></div>
+              <div class="field"><label for="ssh_workdir-{{ r.id }}">Remote working directory</label><input id="ssh_workdir-{{ r.id }}" name="ssh_workdir" value="{{ r.ssh_workdir }}"></div>
+              <div class="field"><label for="ssh_credential_ref-{{ r.id }}">SSH credential (existing secret)</label>
+                <select id="ssh_credential_ref-{{ r.id }}" name="ssh_credential_ref">
                   <option value="{{ r.ssh_credential_ref }}" selected>{{ r.ssh_credential_ref or "(none)" }}</option>
                   {% for s in secret_names if s != r.ssh_credential_ref %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
                 </select></div>
-              <div class="field"><label>Replace SSH private key</label>
-                <textarea name="ssh_key" rows="3" placeholder="Paste a PEM private key to replace the stored credential — stored encrypted, never shown back"></textarea></div>
+              <div class="field"><label for="ssh_key-{{ r.id }}">Replace SSH private key</label>
+                <textarea id="ssh_key-{{ r.id }}" name="ssh_key" rows="3" placeholder="Paste a PEM private key to replace the stored credential — stored encrypted, never shown back"></textarea></div>
               <small class="muted">Changing host, port, or username clears the pinned host key — re-approve after saving.</small>
               {% else %}
-              <div class="field"><label>Workspace root</label><input name="workspace_root" value="{{ r.workspace_root }}"></div>
+              <div class="field"><label for="workspace_root-{{ r.id }}">Workspace root</label><input id="workspace_root-{{ r.id }}" name="workspace_root" value="{{ r.workspace_root }}"></div>
               {% endif %}
-              <div class="field"><label>Max slots</label><input name="max_slots" value="{{ r.max_slots }}"></div>
-              <div class="field"><label>Max procs</label><input name="max_procs" value="{{ r.max_procs or '' }}" placeholder="unlimited"><small>total framework processes across all concurrent jobs; empty = unconstrained</small></div>
-              <div class="field"><label>License slots</label><input name="license_slots" value="{{ r.license_slots if r.license_slots is not none else '' }}" placeholder="(unlimited)"></div>
+              <div class="field"><label for="max_slots-{{ r.id }}">Max slots</label><input id="max_slots-{{ r.id }}" name="max_slots" value="{{ r.max_slots }}"></div>
+              <div class="field"><label for="max_procs-{{ r.id }}">Max procs</label><input id="max_procs-{{ r.id }}" name="max_procs" value="{{ r.max_procs or '' }}" placeholder="unlimited"><small>total framework processes across all concurrent jobs; empty = unconstrained</small></div>
+              <div class="field"><label for="license_slots-{{ r.id }}">License slots</label><input id="license_slots-{{ r.id }}" name="license_slots" value="{{ r.license_slots if r.license_slots is not none else '' }}" placeholder="(unlimited)"></div>
               <button type="submit" class="button">Apply</button>
               <button type="button" class="button danger" data-cancel-details>Cancel</button>
             </form></details>
@@ -208,15 +208,15 @@ or license KRE.</p>
       <div class="field">{{ runner_form.ssh_workdir.label }} {{ runner_form.ssh_workdir(placeholder="/var/lib/to-runs") }}
         <small>Base directory for isolated runs — must be writable by
           the SSH account; verified by Test Connection.</small></div>
-      <div class="field">{{ runner_form.ssh_credential_ref.label }}
-        <select name="ssh_credential_ref">
+      <div class="field"><label for="ssh_credential_ref">SSH credential (existing secret)</label>
+        <select name="ssh_credential_ref" id="ssh_credential_ref">
           <option value="">(select)</option>
           {% for s in secret_names %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
         </select>
         <small>An existing secret holding a PEM private key — or paste
           a new one below.</small></div>
-      <div class="field">{{ runner_form.ssh_key.label }}
-        <textarea name="ssh_key" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+      <div class="field"><label for="ssh_key">New SSH private key</label>
+        <textarea name="ssh_key" id="ssh_key" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
         <small>Stored encrypted under a generated reference — never
           shown again.</small></div>
     </fieldset>
@@ -320,9 +320,9 @@ or license KRE.</p>
                                        runtime_id=rt.id) }}"
                     class="edit-form">
                 {{ runtime_form.csrf_token }}
-                <div class="field"><label>Project</label>
+                <div class="field"><label for="project_id-{{ rt.id }}">Project</label>
                   {% set rt_allowed = rt.allowed_projects | default('[]') %}
-                  <select name="project_id">
+                  <select id="project_id-{{ rt.id }}" name="project_id">
                     {% for p in all_projects %}
                     {% if (not rt.allowed_projects or rt.allowed_projects == '[]' or p.id in rt.allowed_projects) %}
                     <option value="{{ p.id }}">{{ p.name }}</option>
@@ -344,7 +344,7 @@ or license KRE.</p>
                                        runtime_id=rt.id) }}"
                     class="edit-form">
                 {{ runtime_form.csrf_token }}
-                <div class="field"><label>Allowed projects</label>
+                <div class="field" role="group" aria-labelledby="ap-lbl-{{ rt.id }}"><span class="lbl" id="ap-lbl-{{ rt.id }}">Allowed projects</span>
                   {% set rt_projects = rt.allowed_projects | default('[]') %}
                   {% for p in all_projects %}
                   <label class="check-label">
@@ -367,33 +367,33 @@ or license KRE.</p>
               <summary class="button secondary sm">Edit</summary>
               <form method="post" action="{{ url_for('system.edit_runtime', runtime_id=rt.id) }}" class="edit-form">
                 {{ runtime_form.csrf_token }}
-                <div class="field"><label>Name</label><input name="name" value="{{ rt.name }}"></div>
-                <div class="field"><label>Executable path</label><input name="executable_path" value="{{ rt.executable_path }}">
+                <div class="field"><label for="name-{{ rt.id }}">Name</label><input id="name-{{ rt.id }}" name="name" value="{{ rt.name }}"></div>
+                <div class="field"><label for="executable_path-{{ rt.id }}">Executable path</label><input id="executable_path-{{ rt.id }}" name="executable_path" value="{{ rt.executable_path }}">
                   <small class="muted">On the worker's filesystem. Linux: <code>/usr/local/bin/katalonc</code> · Windows: <code>C:\Katalon\Katalon_Studio_Engine\katalonc.exe</code></small></div>
-                <div class="field"><label>Working directory</label><input name="workspace_root" value="{{ rt.workspace_root }}">
+                <div class="field"><label for="workspace_root-{{ rt.id }}">Working directory</label><input id="workspace_root-{{ rt.id }}" name="workspace_root" value="{{ rt.workspace_root }}">
                   <small class="muted">Linux: <code>/var/lib/to-runs</code> · Windows: <code>C:\to\runs</code></small></div>
-                <div class="field"><label>Credential reference</label>
-                  <select name="credential_ref">
+                <div class="field"><label for="credential_ref-{{ rt.id }}">Credential reference</label>
+                  <select id="credential_ref-{{ rt.id }}" name="credential_ref">
                     <option value="{{ rt.credential_ref }}" selected>{{ rt.credential_ref or "(none)" }}</option>
                     <option value="">(none)</option>
                     {% for s in runtime_secret_names if s != rt.credential_ref %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
                   </select>
                   <small class="muted">Delivered securely to the target per execution — overrides the legacy file below. E.g. <code>kre-api-key</code> (kind <code>runtime</code> under System → Secrets).</small></div>
-                <div class="field"><label>Credential file on target (legacy)</label><input name="credential_file" value="{{ rt.credential_file }}" placeholder="Absolute path on target, 0600 — only if no credential reference">
+                <div class="field"><label for="credential_file-{{ rt.id }}">Credential file on target (legacy)</label><input id="credential_file-{{ rt.id }}" name="credential_file" value="{{ rt.credential_file }}" placeholder="Absolute path on target, 0600 — only if no credential reference">
                   <small class="muted">Linux: <code>/opt/to/cred/kre-api-key.txt</code> · Windows: <code>C:\to\cred\kre-api-key.txt</code></small></div>
                 {% if (rt.runtime_kind or "kre") == "kre" %}
-                <div class="field"><label>Licensing mode</label>
-                  <select name="licensing_mode">
+                <div class="field"><label for="licensing_mode-{{ rt.id }}">Licensing mode</label>
+                  <select id="licensing_mode-{{ rt.id }}" name="licensing_mode">
                     <option value="online" {{ "selected" if (rt.licensing_mode or "online") == "online" }}>online — API-key credential</option>
                     <option value="offline" {{ "selected" if (rt.licensing_mode or "online") == "offline" }}>offline — machine-bound .lic</option>
                     <option value="private" {{ "selected" if (rt.licensing_mode or "online") == "private" }}>private — API key + private license server</option>
                   </select>
                   <small class="muted">KRE licensing mode — not a fallback: the runtime uses exactly the selected mechanism.</small></div>
-                <div class="field"><label>Offline license secrets</label><input name="license_refs" value="{{ rt.license_refs | replace('[','') | replace(']','') | replace('"','') }}" placeholder="Comma-separated 'license'-kind secret names — one .lic each">
+                <div class="field"><label for="license_refs-{{ rt.id }}">Offline license secrets</label><input id="license_refs-{{ rt.id }}" name="license_refs" value="{{ rt.license_refs | replace('[','') | replace(']','') | replace('"','') }}" placeholder="Comma-separated 'license'-kind secret names — one .lic each">
                   <small class="muted">One genuine Katalon-issued .lic per name; delivered to the execution account's <code>~/.katalon/license</code> (persistent). One .lic = one concurrent offline session.</small></div>
-                <div class="field"><label>Private license server URL</label><input name="license_server_url" value="{{ rt.license_server_url }}" placeholder="https://license.internal — only for 'private' mode"></div>
+                <div class="field"><label for="license_server_url-{{ rt.id }}">Private license server URL</label><input id="license_server_url-{{ rt.id }}" name="license_server_url" value="{{ rt.license_server_url }}" placeholder="https://license.internal — only for 'private' mode"></div>
                 {% endif %}
-                <div class="field"><label>Concurrency</label><input name="concurrency" value="{{ rt.concurrency }}"></div>
+                <div class="field"><label for="concurrency-{{ rt.id }}">Concurrency</label><input id="concurrency-{{ rt.id }}" name="concurrency" value="{{ rt.concurrency }}"></div>
                 <button type="submit" class="button">Apply</button>
                 <button type="button" class="button danger" data-cancel-details>Cancel</button>
               </form></details>
@@ -423,8 +423,8 @@ or license KRE.</p>
   <details class="block-details"><summary class="button">Add Runtime (Manual)</summary>
   <form method="post" action="{{ url_for('system.create_runtime') }}">
     {{ runtime_form.csrf_token }}
-    <div class="field"><label>Runner type</label>
-      <select name="runtime_kind">
+    <div class="field"><label for="runtime_kind">Runner type</label>
+      <select id="runtime_kind" name="runtime_kind">
         <option value="kre">KRE (desktop engine)</option>
         <option value="playwright">Playwright Test (Node.js)</option>
         <option value="cypress">Cypress E2E (Node.js)</option>
@@ -464,8 +464,8 @@ or license KRE.</p>
         host) — a path is not a connection. It is verified on
         <em>that</em> computer, never run here.</small>
     </fieldset>
-    <div class="field" id="runner-select-field"><label>Remote runner</label>
-      <select name="runner_id">
+    <div class="field" id="runner-select-field"><label for="runner_id">Remote runner</label>
+      <select id="runner_id" name="runner_id">
         <option value="">(auto — first compatible)</option>
         {% for rn in runners if rn.connection_mode == 'remote' and rn.enabled %}
         <option value="{{ rn.id }}"{{ ' selected' if request.form.get('runner_id') == rn.id }}>{{ rn.name }} — {{ rn.id[:12] }}</option>
@@ -475,7 +475,7 @@ or license KRE.</p>
       runtime binds to; validated against compatibility. Pick the
       Buildbot worker or SSH host you added under <em>Workers</em>
       above — e.g. <code>acc-lin</code> for a Linux worker.</small></div>
-    <div class="field"><label>Executable location</label> {{ runtime_form.executable_path() }}
+    <div class="field"><label for="executable_path">Executable location</label> {{ runtime_form.executable_path() }}
       <small><strong>Required for KRE.</strong> Path on the
       <em>worker's</em> filesystem (for local workers: this host) to
       the KRE CLI binary (<code>katalonc</code> /
@@ -490,8 +490,8 @@ or license KRE.</p>
       runtime only — path on the worker's filesystem.<br>
       Linux example: <code>/var/lib/to-runs</code> ·
       Windows example: <code>C:\to\runs</code></small></div>
-    <div class="field"><label>Credential reference</label>
-      <select name="credential_ref">
+    <div class="field"><label for="credential_ref">Credential reference</label>
+      <select id="credential_ref" name="credential_ref">
         <option value="" selected>(none)</option>
         {% for s in runtime_secret_names %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
       </select>
@@ -503,7 +503,7 @@ or license KRE.</p>
       Example: <code>kre-api-key</code> — create it under System →
       Secrets with kind <code>runtime</code> first, then select it
       here.</small></div>
-    <div class="field"><label>Credential file on target (legacy)</label> {{ runtime_form.credential_file() }}
+    <div class="field"><label for="credential_file">Credential file on target (legacy)</label> {{ runtime_form.credential_file() }}
       <small>Optional. Legacy mode: absolute path on the <em>target</em>
       to a protected credential file (0700 dir / 0600 file) you placed
       there yourself — prefer a credential reference, which needs no
@@ -513,8 +513,8 @@ or license KRE.</p>
       uses a credential.<br>
       Linux example: <code>/opt/to/cred/kre-api-key.txt</code> ·
       Windows example: <code>C:\to\cred\kre-api-key.txt</code></small></div>
-    <div class="field"><label>Licensing mode (KRE)</label>
-      <select name="licensing_mode">
+    <div class="field"><label for="licensing_mode">Licensing mode (KRE)</label>
+      <select id="licensing_mode" name="licensing_mode">
         <option value="online" selected>online — API-key credential</option>
         <option value="offline">offline — machine-bound .lic</option>
         <option value="private">private — API key + private license server</option>
@@ -525,16 +525,16 @@ or license KRE.</p>
       no API key needed; <em>private</em> is online against your own
       license server (<code>-serverUrl</code>). There is no hybrid
       execution mode — run different modes on different runtimes.</small></div>
-    <div class="field"><label>Offline license secrets</label>
-      <input name="license_refs" placeholder="Comma-separated 'license'-kind secret names — one .lic each">
+    <div class="field"><label for="license_refs">Offline license secrets</label>
+      <input id="license_refs" name="license_refs" placeholder="Comma-separated 'license'-kind secret names — one .lic each">
       <small>Optional, for <em>offline</em> mode. Each named secret
       (kind <code>license</code>) holds one genuine Katalon-issued
       .lic file; delivered to the execution account's
       <code>~/.katalon/license</code> where it persists. One .lic =
       one concurrent offline session. Leave empty if the operator
       placed .lic files on the target directly.</small></div>
-    <div class="field"><label>Private license server URL</label>
-      <input name="license_server_url" placeholder="https://license.internal — only for 'private' mode"></div>
+    <div class="field"><label for="license_server_url">Private license server URL</label>
+      <input id="license_server_url" name="license_server_url" placeholder="https://license.internal — only for 'private' mode"></div>
     <div class="field">{{ runtime_form.concurrency.label }} {{ runtime_form.concurrency() }}
       <small><strong>Required.</strong> Max parallel sessions for this
       runtime; integer ≥ 1, capped by the worker's free slots.<br>

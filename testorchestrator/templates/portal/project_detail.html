@@ -18,8 +18,10 @@
   <input type="radio" name="ptabs" id="tab-inventory" class="tab-input" {% if request.args.get("tab")=="inventory" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-bindings" class="tab-input" {% if request.args.get("tab")=="bindings" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-storage" class="tab-input" {% if request.args.get("tab")=="storage" %}checked{% endif %}>
-  <input type="radio" name="ptabs" id="tab-access" class="tab-input" {% if request.args.get("tab")=="access" %}checked{% endif %}>
-  <input type="radio" name="ptabs" id="tab-analytics" class="tab-input" {% if request.args.get("tab")=="analytics" %}checked{% endif %}>
+  {% if current_user.role.value == "admin" %}
+  <input type="radio" name="ptabs" id="tab-access" class="tab-input" aria-label="Access tab" {% if request.args.get("tab")=="access" %}checked{% endif %}>
+  {% endif %}
+  <input type="radio" name="ptabs" id="tab-analytics" class="tab-input" aria-label="Analytics tab" {% if request.args.get("tab")=="analytics" %}checked{% endif %}>
   <nav class="tab-bar">
     <label for="tab-dash">Dashboard</label>
     <a class="tsub tsub-analytics"
@@ -42,8 +44,8 @@
   <h2>Dashboard</h2>
   <form method="get" class="filter-bar">
     <input type="hidden" name="tab" value="dash">
-    <div class="field"><label>Since (UTC)</label>
-      <input type="date" name="since" value="{{ dash.since }}"></div>
+    <div class="field"><label for="since">Since (UTC)</label>
+      <input type="date" id="since" name="since" value="{{ dash.since }}"></div>
     <button type="submit" class="button secondary">Apply</button>
   </form>
   <div class="stat-cards">
@@ -295,9 +297,9 @@
             <summary class="button secondary">Edit</summary>
             <form method="post" action="{{ url_for('portal.edit_schedule', schedule_id=s.id) }}" class="edit-form">
               {{ plain_form.csrf_token }}
-              <div class="field"><label>Name</label>
-                <input name="name" value="{{ s.name }}"></div>
-              <div class="field"><label>Targets</label>
+              <div class="field"><label for="name-{{ s.id }}">Name</label>
+                <input id="name-{{ s.id }}" name="name" value="{{ s.name }}"></div>
+              <div class="field" role="group" aria-labelledby="tg-lbl-{{ s.id }}"><span class="lbl" id="tg-lbl-{{ s.id }}">Targets</span>
                 <div data-case-selector
                      data-cases='{{ repo_targets | tojson }}'
                      data-selected='{{ s.targets() | map(attribute="source_item_id") | map("regex_replace", "^", "repo:") | list | tojson }}'>
@@ -320,14 +322,14 @@
       {{ schedule_form.csrf_token }}
       <div class="field">{{ schedule_form.name.label }} {{ schedule_form.name() }}</div>
       <div class="field">{{ schedule_form.target_type.label }} {{ schedule_form.target_type() }}</div>
-      <div class="field"><label>Targets</label>
+      <div class="field" role="group" aria-labelledby="tg-lbl-new"><span class="lbl" id="tg-lbl-new">Targets</span>
         <div data-case-selector
              data-cases='{{ repo_targets | tojson }}'
              data-selected='{{ sched_targets | tojson }}'>
           <div data-hidden></div></div>
         <small class="muted">Repository suites/collections — each
           runs through the configured profile/worker/runtime.</small></div>
-      <div class="hidden-field">{{ schedule_form.target_id() }}</div>
+      <div class="hidden-field">{{ schedule_form.target_id(**{"aria-label": "Schedule target"}) }}</div>
       <div class="field">{{ schedule_form.kind.label }} {{ schedule_form.kind() }}</div>
       <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}
         <small class="muted">Schedule execution zone is UTC — the
@@ -445,10 +447,10 @@
     <summary class="button">Create release</summary>
     <form method="post" action="{{ url_for('portal.create_release', project_id=project.id) }}" class="add-form">
       {{ plain_form.csrf_token }}
-      <div class="field"><label>Name</label><input name="name"></div>
-      <div class="field"><label>Description</label><input name="description"></div>
-      <div class="field"><label>Start date</label><input name="start_date" type="date"></div>
-      <div class="field"><label>Target end date</label><input name="end_date" type="date"></div>
+      <div class="field"><label for="rel-name">Name</label><input id="rel-name" name="name"></div>
+      <div class="field"><label for="description">Description</label><input id="description" name="description"></div>
+      <div class="field"><label for="start_date">Start date</label><input id="start_date" name="start_date" type="date"></div>
+      <div class="field"><label for="end_date">Target end date</label><input id="end_date" name="end_date" type="date"></div>
       <button type="submit" class="button">Apply</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form>
@@ -570,12 +572,12 @@
           <details class="inline-details"><summary class="button secondary">Edit</summary>
             <form method="post" action="{{ url_for('portal.edit_binding', binding_id=b.id) }}" class="edit-form">
               {{ binding_form.csrf_token }}
-              <div class="field"><label>Name</label>
-                <input name="name" value="{{ b.name }}"></div>
-              <div class="field"><label>URL</label>
-                <input name="url" value="{{ b.url }}"></div>
-              <div class="field"><label>Ref / branch</label>
-                <input name="ref" value="{{ b.ref }}"></div>
+              <div class="field"><label for="name-{{ b.id }}">Name</label>
+                <input id="name-{{ b.id }}" name="name" value="{{ b.name }}"></div>
+              <div class="field"><label for="url-{{ b.id }}">URL</label>
+                <input id="url-{{ b.id }}" name="url" value="{{ b.url }}"></div>
+              <div class="field"><label for="ref-{{ b.id }}">Ref / branch</label>
+                <input id="ref-{{ b.id }}" name="ref" value="{{ b.ref }}"></div>
               <div class="field checkbox-field">
                 <label class="check-label">
                   <input type="checkbox" name="authoring_writable" value="1"
@@ -589,12 +591,12 @@
                   <span>Report write-back (publish execution reports)</span></label>
                 <small class="muted">Allows commit+push of reports to
                 {{ b.url }} on ref {{ b.ref }} — disabled by default.</small></div>
-              <div class="field"><label>Subdirectory</label>
-                <input name="subdirectory" value="{{ b.subdirectory }}"></div>
-              <div class="field"><label>Project root (.prj)</label>
-                <input name="prj_path" value="{{ b.prj_path }}"></div>
-              <div class="field"><label>Credential ref</label>
-                <input name="credential_ref" value="{{ b.credential_ref }}"></div>
+              <div class="field"><label for="subdirectory-{{ b.id }}">Subdirectory</label>
+                <input id="subdirectory-{{ b.id }}" name="subdirectory" value="{{ b.subdirectory }}"></div>
+              <div class="field"><label for="prj_path-{{ b.id }}">Project root (.prj)</label>
+                <input id="prj_path-{{ b.id }}" name="prj_path" value="{{ b.prj_path }}"></div>
+              <div class="field"><label for="credential_ref-{{ b.id }}">Credential ref</label>
+                <input id="credential_ref-{{ b.id }}" name="credential_ref" value="{{ b.credential_ref }}"></div>
               <div class="btn-row">
               <button type="submit" class="button primary">Apply</button>
               <button type="button" class="button danger" data-cancel-details>Cancel</button></div>
@@ -728,62 +730,62 @@
             <input type="hidden" name="kind"
                    value="{{ 'object' if s.kind in ('s3','azure','gcs') else s.kind }}">
             <input type="hidden" name="provider" value="{{ provider }}">
-            <div class="field"><label>Provider</label>
-              <input value="{{ {'amazon':'Amazon','azure':'Ms Azure','gcs':'Google','google':'Google','manual':'Other (Manual)','local':'Local folder','mounted':'Mounted folder'}[provider] }}" disabled>
+            <div class="field"><label for="provider-{{ s.id }}">Provider</label>
+              <input id="provider-{{ s.id }}" value="{{ {'amazon':'Amazon','azure':'Ms Azure','gcs':'Google','google':'Google','manual':'Other (Manual)','local':'Local folder','mounted':'Mounted folder'}[provider] }}" disabled>
               <small class="muted">Provider/API is fixed — create a
                 new destination to change it.</small></div>
-            <div class="field"><label>Display name</label>
-              <input name="name" maxlength="128" value="{{ s.name }}"></div>
+            <div class="field"><label for="name-{{ s.id }}">Display name</label>
+              <input id="name-{{ s.id }}" name="name" maxlength="128" value="{{ s.name }}"></div>
             {% if s.kind in ("local", "mounted") %}
-            <div class="field"><label>{{ "Mounted folder" if s.kind == "mounted" else "Storage folder" }}</label>
-              <input name="root" maxlength="512" value="{{ c.root }}"></div>
-            <div class="field"><label>Subdirectory (optional)</label>
-              <input name="subdir" maxlength="256" value="{{ c.subdir }}"></div>
+            <div class="field"><label for="root-{{ s.id }}">{{ "Mounted folder" if s.kind == "mounted" else "Storage folder" }}</label>
+              <input id="root-{{ s.id }}" name="root" maxlength="512" value="{{ c.root }}"></div>
+            <div class="field"><label for="subdir-{{ s.id }}">Subdirectory (optional)</label>
+              <input id="subdir-{{ s.id }}" name="subdir" maxlength="256" value="{{ c.subdir }}"></div>
             {% elif provider == "amazon" %}
-            <div class="field"><label>Bucket</label>
-              <input name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
-            <div class="field"><label>Region</label>
-              <input name="region" maxlength="64" value="{{ c.region }}"></div>
-            <div class="field"><label>Key prefix (optional)</label>
-              <input name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
-            <div class="field"><label>Endpoint override (advanced)</label>
-              <input name="endpoint_url" maxlength="256" value="{{ c.endpoint_url }}"></div>
-            <div class="field"><label>Custom CA bundle (optional)</label>
-              <input name="ca_bundle" maxlength="256" value="{{ c.ca_bundle }}"></div>
+            <div class="field"><label for="bucket-{{ s.id }}">Bucket</label>
+              <input id="bucket-{{ s.id }}" name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
+            <div class="field"><label for="region-{{ s.id }}">Region</label>
+              <input id="region-{{ s.id }}" name="region" maxlength="64" value="{{ c.region }}"></div>
+            <div class="field"><label for="prefix-{{ s.id }}">Key prefix (optional)</label>
+              <input id="prefix-{{ s.id }}" name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label for="endpoint_url-{{ s.id }}">Endpoint override (advanced)</label>
+              <input id="endpoint_url-{{ s.id }}" name="endpoint_url" maxlength="256" value="{{ c.endpoint_url }}"></div>
+            <div class="field"><label for="ca_bundle-{{ s.id }}">Custom CA bundle (optional)</label>
+              <input id="ca_bundle-{{ s.id }}" name="ca_bundle" maxlength="256" value="{{ c.ca_bundle }}"></div>
             {% elif provider == "azure" %}
-            <div class="field"><label>Service endpoint</label>
-              <input name="account_url" maxlength="256" value="{{ c.account_url }}"></div>
-            <div class="field"><label>Container</label>
-              <input name="container" maxlength="128" value="{{ c.container }}"></div>
-            <div class="field"><label>Blob prefix (optional)</label>
-              <input name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
-            <div class="field"><label>Authentication</label>
-              <select name="auth_mode">
+            <div class="field"><label for="account_url-{{ s.id }}">Service endpoint</label>
+              <input id="account_url-{{ s.id }}" name="account_url" maxlength="256" value="{{ c.account_url }}"></div>
+            <div class="field"><label for="container-{{ s.id }}">Container</label>
+              <input id="container-{{ s.id }}" name="container" maxlength="128" value="{{ c.container }}"></div>
+            <div class="field"><label for="prefix-{{ s.id }}">Blob prefix (optional)</label>
+              <input id="prefix-{{ s.id }}" name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label for="auth_mode-{{ s.id }}">Authentication</label>
+              <select id="auth_mode-{{ s.id }}" name="auth_mode">
                 <option value="account_key" {% if c.auth_mode == "account_key" %}selected{% endif %}>Account key (Shared Key)</option>
                 <option value="sas" {% if c.auth_mode == "sas" %}selected{% endif %}>SAS token</option>
               </select></div>
             {% elif provider == "gcs" or provider == "google" %}
-            <div class="field"><label>Bucket</label>
-              <input name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
-            <div class="field"><label>Key prefix (optional)</label>
-              <input name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label for="bucket-{{ s.id }}">Bucket</label>
+              <input id="bucket-{{ s.id }}" name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
+            <div class="field"><label for="prefix-{{ s.id }}">Key prefix (optional)</label>
+              <input id="prefix-{{ s.id }}" name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
             {% else %}
-            <div class="field"><label>Endpoint (compatible services)</label>
-              <input name="endpoint_url" maxlength="256" value="{{ c.endpoint_url }}"></div>
-            <div class="field"><label>Bucket</label>
-              <input name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
-            <div class="field"><label>Key prefix (optional)</label>
-              <input name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
-            <div class="field"><label>Region (if required)</label>
-              <input name="region" maxlength="64" value="{{ c.region }}"></div>
+            <div class="field"><label for="endpoint_url-{{ s.id }}">Endpoint (compatible services)</label>
+              <input id="endpoint_url-{{ s.id }}" name="endpoint_url" maxlength="256" value="{{ c.endpoint_url }}"></div>
+            <div class="field"><label for="bucket-{{ s.id }}">Bucket</label>
+              <input id="bucket-{{ s.id }}" name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
+            <div class="field"><label for="prefix-{{ s.id }}">Key prefix (optional)</label>
+              <input id="prefix-{{ s.id }}" name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label for="region-{{ s.id }}">Region (if required)</label>
+              <input id="region-{{ s.id }}" name="region" maxlength="64" value="{{ c.region }}"></div>
             <div class="field"><label><input type="checkbox" name="path_style"
                   value="1" {% if c.path_style %}checked{% endif %}> path-style addressing</label></div>
-            <div class="field"><label>Custom CA bundle (optional)</label>
-              <input name="ca_bundle" maxlength="256" value="{{ c.ca_bundle }}"></div>
+            <div class="field"><label for="ca_bundle-{{ s.id }}">Custom CA bundle (optional)</label>
+              <input id="ca_bundle-{{ s.id }}" name="ca_bundle" maxlength="256" value="{{ c.ca_bundle }}"></div>
             {% endif %}
             {% if s.kind not in ("local", "mounted") %}
-            <div class="field"><label>Credential reference</label>
-              <input name="credential_ref" maxlength="64" value=""
+            <div class="field"><label for="credential_ref-{{ s.id }}">Credential reference</label>
+              <input id="credential_ref-{{ s.id }}" name="credential_ref" maxlength="64" value=""
                      placeholder="{{ s.credential_ref or 'approved secret name' }}">
               <small class="muted">Leave blank to keep
                 {% if s.credential_ref %}<code>{{ s.credential_ref }}</code>{% else %}unset{% endif %}
@@ -1142,9 +1144,9 @@
       <input type="hidden" name="path" id="suite-path-auto">
       <div class="modal-body">
         <div class="modal-error" role="alert"></div>
-        <div class="field"><label>Suite name</label>
-          <input name="name" required placeholder="e.g. Smoke Suite" data-path-auto="suite-path-auto"></div>
-        <div class="field"><label>Test cases</label>
+        <div class="field"><label for="suite-name">Suite name</label>
+          <input id="suite-name" name="name" required placeholder="e.g. Smoke Suite" data-path-auto="suite-path-auto"></div>
+        <div class="field" role="group" aria-labelledby="tc-lbl-new"><span class="lbl" id="tc-lbl-new">Test cases</span>
           <div data-case-selector
                data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
             <div data-hidden></div></div></div>
@@ -1169,8 +1171,8 @@
       <input type="hidden" name="path" id="coll-path-auto">
       <div class="modal-body">
         <div class="modal-error" role="alert"></div>
-        <div class="field"><label>Collection name</label>
-          <input name="name" required placeholder="e.g. Regression Pack" data-path-auto="coll-path-auto"></div>
+        <div class="field"><label for="coll-name">Collection name</label>
+          <input id="coll-name" name="name" required placeholder="e.g. Regression Pack" data-path-auto="coll-path-auto"></div>
         <details class="adv"><summary>Member suites</summary>
           <div data-case-selector
                data-cases='{{ repo_suites | tojson }}' data-selected='[]'>

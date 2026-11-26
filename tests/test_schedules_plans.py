@@ -56,6 +56,36 @@ def test_interval_schedule_reschedules(app):
         assert dispatch.fire_due_schedules() == 0
 
 
+def test_run_now_plan_target_dispatches(app, client, login_as):
+    """ISS-019: run-now on a plan-type schedule must dispatch the plan —
+    the portal path hardcoded `plan = None` so it always raised
+    "scheduled plan no longer exists" while the cron path worked."""
+    with app.app_context():
+        p, s = _project_suite()
+        plan = Plan(project_id=p.id, name="PL")
+        db.session.add(plan); db.session.flush()
+        db.session.add(PlanEntry(plan_id=plan.id, order=0,
+                                 suite_id=s.id))
+        sched = Schedule(project_id=p.id, name="pl-sched",
+                         target_type="plan", plan_id=plan.id,
+                         kind="interval", interval_minutes=60,
+                         next_run_at=utcnow() + timedelta(hours=1),
+                         enabled=True, created_by="manager")
+        db.session.add(sched); db.session.commit()
+        sc_id, plan_id = sched.id, plan.id
+    login_as("admin")
+    resp = client.post(f"/schedules/{sc_id}/run-now",
+                       follow_redirects=True)
+    assert resp.status_code == 200
+    with app.app_context():
+        exs = Execution.query.filter_by(schedule_id=sc_id).all()
+        assert len(exs) == 1
+        assert exs[0].snapshot()["plan_id"] == plan_id
+        assert exs[0].created_by == "admin"
+        # next_run_at untouched — the due fire still happens
+        assert db.session.get(Schedule, sc_id).next_run_at is not None
+
+
 def test_plan_run_id_groups_entries(app):
     with app.app_context():
         p, s = _project_suite()

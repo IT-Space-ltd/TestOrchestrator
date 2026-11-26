@@ -79,7 +79,7 @@ on the selected target.</p>
               {% if selected_fw != fw %}disabled hidden{% endif %}>
       <legend>{{ p.label }}</legend>
       {% if p.engine_field %}
-        <div class="field"><label>{{ p.engine_field[1] }} (required)</label>
+        <div class="field" role="group" aria-labelledby="ef-lbl-{{ fw }}"><span class="lbl" id="ef-lbl-{{ fw }}">{{ p.engine_field[1] }} (required)</span>
           {% for val, lbl in p.engine_field[2] %}
           <label><input type="radio" name="cfg_{{ p.engine_field[0] }}"
                  value="{{ val }}"> {{ lbl }}</label>

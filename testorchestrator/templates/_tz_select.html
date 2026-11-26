@@ -3,7 +3,8 @@
    Expects: tz_groups [(region, [(iana, label)])] and current (str —
    the saved zone, "" when creating). A saved zone that is not in the
    curated list is appended and kept selected so nothing is lost. #}
-<select name="timezone" id="{{ select_id or 'timezone' }}" required>
+<select name="timezone" id="{{ select_id or 'timezone' }}" required
+        {% if aria_label %}aria-label="{{ aria_label }}"{% endif %}>
   {% set tzns = namespace(listed=false) %}
   {% for region, opts in tz_groups %}
   <optgroup label="{{ region }}">

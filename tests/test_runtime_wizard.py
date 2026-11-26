@@ -128,11 +128,14 @@ def test_katalon_wizard_creates_kre(app, client):
         "framework": "katalon", "runner_id": rid, "name": "k",
         "cfg_exec_path": "/usr/local/bin/katalonc",
         "cfg_credential_ref": "nope-404"})
-    # bad concurrency → refused
-    client.post("/system/infrastructure/add-runtime", data={
-        "framework": "katalon", "runner_id": rid, "name": "k",
-        "cfg_exec_path": "/usr/local/bin/katalonc",
-        "cfg_concurrency": "zero"})
+    # bad concurrency → refused (non-integer, zero and negative all
+    # rejected — the <1 case must not rely on assert, which `python
+    # -O` strips)
+    for bad_conc in ("zero", "0", "-3"):
+        client.post("/system/infrastructure/add-runtime", data={
+            "framework": "katalon", "runner_id": rid, "name": "k",
+            "cfg_exec_path": "/usr/local/bin/katalonc",
+            "cfg_concurrency": bad_conc})
     with app.app_context():
         assert RuntimeConnection.query.count() == 0
     # valid → kre runtime with the mapped columns

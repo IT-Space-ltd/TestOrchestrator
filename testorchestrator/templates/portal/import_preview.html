@@ -27,9 +27,9 @@ with their matched execution.</p>
       {% if c.status == "imported" %}<span class="badge imported">imported</span>
       {% elif c.status == "skipped" %}<span class="badge">skipped</span>
       {% elif c.decision in ("new", "supplement") %}
-        <input type="checkbox" name="cand" value="{{ c.id }}" checked>
+        <input type="checkbox" name="cand" value="{{ c.id }}" aria-label="Import candidate {{ c.id }}" checked>
       {% elif c.decision == "ambiguous" %}
-        <input type="checkbox" name="force_new" value="{{ c.id }}">
+        <input type="checkbox" name="force_new" value="{{ c.id }}" aria-label="Force new for candidate {{ c.id }}">
       {% else %}—{% endif %}
     </td>
     <td><code>{{ c.run_dir }}</code></td>

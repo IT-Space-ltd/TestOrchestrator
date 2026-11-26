@@ -373,11 +373,14 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 - **Quality-gate pass** (dead-code, duplication, security,
   memory-leak, and SonarLint sweeps):
   - "Run now" on a plan-type schedule always raised "scheduled
-    plan no longer exists" — `plan` was hardcoded `None`; it now
-    loads via `db.session.get` like the cron path.
+    plan no longer exists" — `plan` was hardcoded `None` (ISS-019);
+    it now loads via `db.session.get` like the cron path
+    (`dispatch.fire_due_schedules`), with a regression test
+    (`test_run_now_plan_target_dispatches`).
   - Concurrency validation in the KRE runtime wizard used `assert`
     inside `try`/`except` — silently skipped under `python -O`;
-    replaced with an explicit `ValueError` check.
+    replaced with an explicit `ValueError` check; `0`/negative
+    submissions covered by test.
   - Removed dead code surfaced by vulture + SonarLint:
     unreferenced `after_this_request` import,
     `behavefw.collect_args`, `gtestfw.list_args`,

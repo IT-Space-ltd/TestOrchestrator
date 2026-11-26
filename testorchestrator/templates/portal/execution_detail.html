@@ -144,8 +144,8 @@
   <form method="post" action="{{ url_for('portal.resolve_unknown', execution_id=ex.id) }}">
     {{ plain_form.csrf_token }}
     <input type="hidden" name="confirm_stopped" value="yes">
-    <div class="field"><label>Confirmation note (required)</label>
-      <input type="text" name="reason" required maxlength="400"
+    <div class="field"><label for="reason">Confirmation note (required)</label>
+      <input type="text" id="reason" name="reason" required maxlength="400"
              placeholder="how the original process was confirmed stopped"></div>
     <button type="submit" class="button secondary">Resolve UNKNOWN
       (administrative — does NOT stop a process)</button>
