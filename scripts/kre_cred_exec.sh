@@ -106,6 +106,25 @@ esac
 
 [ -f "$exe" ] || fail "KRE executable not found at the configured path"
 
+# Per-run delivered credentials are removed by THIS wrapper at the end
+# of every run — normal exit, validation failure, TERM/INT/HUP kill
+# (timeout/cancel), and controller death alike (the detached wrapper
+# outlives the controller and still exits). The controller-side
+# collect/kill removal and the prepare-sweep scrub are backstops only.
+# NEVER removed: operator-placed files — only the per-run delivered
+# forms qualify: the ../ drop-dir relative form, or a basename of
+# .to_kre_cred (the per-run ssh delivery name).
+case "$cred" in
+    ../*|.to_kre_cred|*/.to_kre_cred) _to_delivered=1;;
+    *) _to_delivered=0;;
+esac
+on_exit() {
+    [ "$_to_delivered" = 1 ] && rm -f "$cred" 2>/dev/null
+    rm -rf "$d" 2>/dev/null
+}
+d=
+trap on_exit EXIT
+
 # Run KRE in this launcher's process group (NO setsid — see header)
 # and scrub its merged output through awk — the awk program reads
 # the key from the credential file itself, so the value exists in

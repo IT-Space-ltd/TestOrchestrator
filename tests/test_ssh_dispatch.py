@@ -451,3 +451,37 @@ def test_workdir_removed_after_cancel(tmp_path):
     out, _ = proc.communicate(timeout=60)
     assert "cancel-confirmed" in out
     assert not os.path.exists(wd), "workdir must be removed after confirmed kill"
+
+
+def test_count_cap_never_removes_live(tmp_path):
+    """workdir_max_count evicts oldest non-live dirs ONLY — a live-pid
+    workdir must survive even when it is the oldest and over the cap."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-caplive"
+    import subprocess, time
+    live_proc = subprocess.Popen(["sleep", "60"])
+    try:
+        live = root / "aaa-oldest-live"
+        live.mkdir(parents=True)
+        (live / "run.sh").write_text("#!/bin/sh\n")
+        (live / "run.pid").write_text(str(live_proc.pid))
+        import os as _os
+        old = time.time() - 10000
+        _os.utime(live, (old, old))   # make it the oldest by far
+        for i in range(5):
+            d = root / f"z-{i}"
+            d.mkdir(parents=True)
+            (d / "run.sh").write_text("#!/bin/sh\n")
+        wd = root / "e2e-ssh-caplive"
+        exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+        spec_p = _spec(tmp_path, server, exe, wd)
+        spec = json.loads(spec_p.read_text())
+        spec["workdir_retention_s"] = 999999   # age sweep inert
+        spec["workdir_max_count"] = 3
+        spec_p.write_text(json.dumps(spec))
+        proc = _run_dispatcher(spec_p, tmp_path)
+        out, _ = proc.communicate(timeout=60)
+        assert proc.returncode == 0, out[-600:]
+        assert os.path.exists(live), "live workdir must survive the count cap"
+    finally:
+        live_proc.kill()
