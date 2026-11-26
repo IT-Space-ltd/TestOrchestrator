@@ -332,3 +332,18 @@ byte-identical product code to head 32b907549c78bb1eab745762b2a0585eb14864c4
   #2 remain valid evidence for the same code; the cell reports cite
   both. Install of build #3 on the guest is deferred to the final
   clean-install phase (fresh guests) unless a product fix lands.
+
+## Matrix run in flight — resume instructions
+
+/home/ubuntu/matrix_full.py runs autonomously on the guest (nohup,
+unbuffered) writing RESULT lines to /home/ubuntu/matrix_full.log.
+It resubmits postman/bruno collections, polls inventory, then runs
+positive+negative file-level cells for postman, bruno, jest serially.
+Each cell is a full buildbot run incl. npm ci — expect 30-60 min total.
+RESUME: read /home/ubuntu/matrix_full.log; for any MISSING/ERROR cell
+check the execution snapshot + buildbot step stdout. Still open after
+the matrix: test/request-level cells, subdirectory ISS-025 cells, SSH
+cells, remaining-framework subdirectory/ssh, git publication, Windows
+window cells (taskkill /F + PS probe parse), install of rebuild #3
+(tarball sha256 7bbe402e… at dist/, code-identical to installed #2),
+freeze, exposure scan, final build, Phase 6.
