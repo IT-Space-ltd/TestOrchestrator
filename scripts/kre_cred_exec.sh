@@ -134,21 +134,35 @@ d=$(mktemp -d "${TMPDIR:-/tmp}/to_kre.XXXXXX") \
 fifo=$d/out
 mkfifo "$fifo" 2>/dev/null || { rm -rf "$d"; fail "cannot create output fifo"; }
 
-"$exe" "$@" "-apiKey=$key" > "$fifo" 2>&1 &
-pid=$!
-awk -v cred="$cred" '
+# Immediate-delete design: the credential file is opened on spare
+# descriptor 9, then the delivered file is DELETED before KRE launches
+# — the on-disk window shrinks to the wrapper's own startup, and even
+# an untrappable hard kill leaves nothing behind. The scrubber key
+# comes from /dev/fd/9 (the still-open descriptor), never again from
+# disk. awk opens the fifo ITSELF as an input-file argument — spawning
+# with stdin redirected would block the child in open() before BEGIN
+# could run. KRE is launched with fd 9 CLOSED so neither it nor its
+# children can read key material back through /proc/pid/fd.
+exec 9< "$cred" || fail "cannot open credential file"
+case "$cred" in
+    ../*|.to_kre_cred|*/.to_kre_cred) rm -f "$cred" 2>/dev/null;;
+esac
+awk -v kfd="/dev/fd/9" '
     BEGIN {
         k = ""
-        while ((getline line < cred) > 0) {
+        while ((getline line < kfd) > 0) {
             gsub(/[[:space:]]/, "", line); k = k line
         }
-        close(cred)
+        close(kfd)
     }
     {
         if (k != "") gsub(k, "***REDACTED***")
         print; fflush()
-    }' < "$fifo" &
+    }' "$fifo" &
 awkpid=$!
+exec 9<&-
+"$exe" "$@" "-apiKey=$key" > "$fifo" 2>&1 9<&- &
+pid=$!
 
 _kids() {
     # Children of $1 — pgrep when available, else a POSIX ps scan.
