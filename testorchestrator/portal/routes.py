@@ -207,7 +207,7 @@ def project_detail(project_id):
         project_id=project.id)}
 
     # ---- Test tab: read-only Git-discovered cases + suites/collections
-    test_subtab = request.args.get("subtab") or "case"
+    test_subtab = request.args.get("subtab") or "tree"
     test_repo = request.args.get("repo") or ""
     test_q = (request.args.get("q") or "").strip().lower()
     bindings_nav = GitBinding.query.filter_by(
@@ -247,6 +247,11 @@ def project_detail(project_id):
     def _in_q(i):
         return (not test_q) or test_q in (i.name or "").lower() \
             or test_q in (i.path or "").lower()
+    from .testtree import build_tree, rollup_last_results
+    _all_items = DiscoveredItem.query.join(GitBinding).filter(
+        GitBinding.project_id == project.id).all()
+    test_tree = build_tree(_all_items,
+                           rollup_last_results(db, Execution, project.id))
     test_cases = [{"item": i, "stats": _cstats(i.name),
                    "repo": bind_names.get(i.binding_id, "?")}
                   for i in case_defs if _in_repo(i) and _in_q(i)]
@@ -430,6 +435,7 @@ def project_detail(project_id):
                         for p in project.plans},
         state_labels=results_mod.STATE_LABELS,
         test_subtab=test_subtab, test_repo=test_repo, test_q=test_q,
+        test_tree=test_tree,
         bindings_nav=bindings_nav, test_cases=test_cases,
         test_suites=test_suites, test_colls=test_colls,
         suite_exec=suite_exec,

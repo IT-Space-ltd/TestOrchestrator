@@ -126,7 +126,7 @@
 </section>
 <section class="tab-panel card" id="panel-test">
   <nav class="test-subtabs">
-    {% for key,lab in [("case","Test Cases"),("suites","Test Suites"),("collections","Test Collections")] %}
+    {% for key,lab in [("tree","Tree"),("case","Test Cases"),("suites","Test Suites"),("collections","Test Collections")] %}
     <a class="tsub {% if test_subtab == key %}on{% endif %}"
        href="?tab=test&subtab={{ key }}{% if test_repo %}&repo={{ test_repo }}{% endif %}{% if test_q %}&q={{ test_q }}{% endif %}">{{ lab }}</a>
     {% endfor %}
@@ -167,7 +167,87 @@
         <button type="submit" class="button ghost sm">Apply</button>
       </form>
 
-      {% if test_subtab == "case" %}
+      {% if test_subtab == "tree" %}
+      <div class="test-tree" role="tree" aria-label="Test inventory tree"
+           data-test-tree>
+        {% macro caserow(c) -%}
+          <li role="treeitem" aria-level="3">
+            <span class="tree-leaf" tabindex="-1">
+              <span class="tree-name">{{ c.name }}</span>
+              <code class="muted">{{ c.path }}</code>
+              {% if c.last %}
+              <span class="badge {{ 'ok' if c.last.outcome == 'passed' else 'warn' }}"
+                    title="Last result {{ c.last.outcome }} · {{ c.last.finished_at }}">{{ c.last.outcome or c.last.state }}</span>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </span>
+          </li>
+        {%- endmacro %}
+        {% macro suiterow(s, level) -%}
+          <li role="treeitem" aria-level="{{ level }}"
+              aria-expanded="{% if s.cases %}false{% endif %}"
+              class="tree-node">
+            <button type="button" class="tree-toggle" tabindex="-1"
+                    aria-label="Toggle suite {{ s.name }}"
+                    {% if not s.cases %}disabled aria-hidden="true"{% endif %}>▸</button>
+            <span class="tree-name">{{ s.name }}</span>
+            <span class="badge">repo</span>
+            <span class="badge muted">{{ s.framework }}</span>
+            <span class="muted">{{ s.case_count }} {{ s.granularity }}{{ 's' if s.case_count != 1 }}</span>
+            {% if s.stale_count %}<span class="badge warn"
+              title="{{ s.stale_count }} member(s) no longer resolve in the current inventory">stale {{ s.stale_count }}</span>{% endif %}
+            {% if not s.selectable %}<span class="badge warn" title="not selectable">not selectable</span>{% endif %}
+            {% if s.last %}
+            <span class="badge {{ 'ok' if s.last.outcome == 'passed' else 'warn' }}"
+                  title="Last result {{ s.last.outcome }} · {{ s.last.finished_at }}">{{ s.last.outcome or s.last.state }}</span>
+            {% endif %}
+            <code class="muted">{{ s.path }}</code>
+            {% if s.cases %}
+            <ul role="group" hidden>
+              {% for c in s.cases %}{{ caserow(c) }}{% endfor %}
+            </ul>
+            {% endif %}
+          </li>
+        {%- endmacro %}
+        <ul role="presentation" class="tree-root">
+          {% for coll in test_tree.collections %}
+          <li role="treeitem" aria-level="1" aria-expanded="false" class="tree-node">
+            <button type="button" class="tree-toggle" tabindex="-1"
+                    aria-label="Toggle collection {{ coll.name }}">▸</button>
+            <span class="tree-name">{{ coll.name }}</span>
+            <span class="badge">repo</span>
+            <span class="badge accent">collection · {{ coll.runmode }}</span>
+            <span class="muted">{{ coll.suite_count }} suites · {{ coll.case_count }} cases</span>
+            {% if coll.stale_count %}<span class="badge warn"
+              title="{{ coll.stale_count }} member(s) no longer resolve in the current inventory">stale {{ coll.stale_count }}</span>{% endif %}
+            {% if coll.last %}
+            <span class="badge {{ 'ok' if coll.last.outcome == 'passed' else 'warn' }}"
+                  title="Last result {{ coll.last.outcome }} · {{ coll.last.finished_at }}">{{ coll.last.outcome or coll.last.state }}</span>
+            {% endif %}
+            <code class="muted">{{ coll.path }}</code>
+            <ul role="group" hidden>
+              {% for s in coll.suites %}{{ suiterow(s, 2) }}{% endfor %}
+            </ul>
+          </li>
+          {% endfor %}
+          {% for s in test_tree.suites %}
+          {{ suiterow(s, 1) }}
+          {% endfor %}
+          {% if not test_tree.collections and not test_tree.suites %}
+          <li role="treeitem" aria-level="1" class="muted">No suites or
+            collections discovered — connect a source repository and sync
+            inventory.</li>
+          {% endif %}
+        </ul>
+        <p class="muted"><small>Read-only repository inventory. Entries
+          marked <span class="badge">repo</span> are repository-defined and
+          refreshed on sync. <span class="badge warn">stale</span> members
+          no longer resolve in the current inventory — they are kept, not
+          dropped. Granularity labels are per-framework (Cypress is
+          file-level only).</small></p>
+      </div>
+      <script src="{{ url_for('static', filename='js/test-tree.js') }}" defer></script>
+
+      {% elif test_subtab == "case" %}
       <table class="data-table test-tbl">
         <thead><tr><th>Name</th><th>Maintainer</th><th>Last execution</th>
           <th>Last update</th><th># exec</th><th>Avg dur</th>
