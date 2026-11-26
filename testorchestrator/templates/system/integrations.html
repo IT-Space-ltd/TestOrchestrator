@@ -66,13 +66,21 @@ git_export_ref: main</pre></details>
   {% if api_tokens %}
   <table>
     <tr><th>Name</th><th>Scope</th><th>Projects</th><th>Created</th>
-        <th>Last used</th><th></th></tr>
+        <th>Expires</th><th>Last used</th><th></th></tr>
     {% for t in api_tokens %}
     <tr>
       <td>{{ t.name }}</td>
       <td>{{ t.scope }}</td>
       <td>{{ t.allowed_projects if t.allowed_projects != '[]' else 'all' }}</td>
       <td>{{ t.created_at|localtime_short }}</td>
+      <td>{% if t.expires_at %}
+        {% set days_left = token_days_left.get(t.id, 0) %}
+        {% if t.revoked_at %}—
+        {% elif days_left < 0 %}<span class="badge warn">expired</span>
+        {% elif days_left <= 14 %}<span class="badge warn"
+          title="token expires soon — rotate or re-mint">{{ t.expires_at|localtime_short }} ({{ days_left }}d left)</span>
+        {% else %}{{ t.expires_at|localtime_short }}{% endif %}
+      {% else %}<span class="muted">never</span>{% endif %}</td>
       <td>{{ t.last_used_at|localtime_short }}</td>
       <td>{% if not t.revoked_at %}
         <form method="post" style="display:inline"
@@ -95,6 +103,13 @@ git_export_ref: main</pre></details>
         <option value="read">read — poll status/results</option>
         <option value="run">run — also trigger/cancel/retry</option>
       </select></label></div>
+    <div class="field"><label for="token-expires-days">Expiry (days)</label><br>
+      <input type="number" id="token-expires-days" name="expires_days"
+             value="90" min="1" max="3650" size="6">
+      <span class="muted">default 90 days — tokens are denied after expiry and the denial is audited</span></div>
+    <div class="field"><label class="inline" for="token-never-expires">
+      <input type="checkbox" id="token-never-expires" name="never_expires" value="1">
+      Never expires <span class="muted">(explicit choice — prefer expiry for automation credentials)</span></label></div>
     <div class="field"><label>Project scope <span class="muted">(none selected = all)</span><br>
       {% for p in projects %}
       <label class="inline"><input type="checkbox" name="project_ids"

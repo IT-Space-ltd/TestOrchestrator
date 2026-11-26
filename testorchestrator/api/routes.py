@@ -52,6 +52,16 @@ def api_token_required(write: bool = False):
                 record_audit("api", "api.auth.denied",
                              request.path[:128])
                 return _error(401, "auth", "invalid or revoked token")
+            exp = row.expires_at
+            if exp is not None and exp.tzinfo is None:
+                from datetime import timezone as _tz
+                exp = exp.replace(tzinfo=_tz.utc)   # sqlite drops tz
+            if exp is not None and exp <= utcnow():
+                record_audit("api", "api.auth.denied",
+                             f"{request.path[:96]} "
+                             f"(token {row.name!r} expired "
+                             f"{row.expires_at.isoformat()})")
+                return _error(401, "auth", "token expired")
             from ..models import Role, User
             owner = User.query.filter_by(
                 username=row.created_by).first()

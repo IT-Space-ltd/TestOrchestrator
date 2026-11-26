@@ -544,3 +544,83 @@ def test_api_deactivated_owner_denied(app):
     c = app.test_client()
     r = c.get("/api/v1/executions", headers=_auth(tok))
     assert r.status_code == 401
+
+
+def test_api_token_expired_denied_and_audited(app):
+    """P3.13: an expired token is denied exactly like a revoked one —
+    and the denial is audited with the expiry detail."""
+    from testorchestrator.models import AuditEvent
+    from datetime import timedelta
+    _env(app)
+    tok = _token(app)
+    with app.app_context():
+        row = ApiToken.query.first()
+        row.expires_at = utcnow() - timedelta(seconds=1)
+        db.session.commit()
+    c = app.test_client()
+    r = c.get("/api/v1/executions", headers=_auth(tok))
+    assert r.status_code == 401
+    assert "expired" in r.get_json()["error"]["message"]
+    with app.app_context():
+        ev = AuditEvent.query.filter_by(
+            event="api.auth.denied").order_by(
+            AuditEvent.id.desc()).first()
+        assert ev is not None and "expired" in (ev.detail or "")
+
+
+def test_api_token_unexpired_and_never_expire_accepted(app):
+    """Tokens inside their validity window work; NULL expiry (the
+    explicit never-expires choice) never denies."""
+    from datetime import timedelta
+    _env(app)
+    tok = _token(app)
+    c = app.test_client()
+    # future expiry — valid
+    with app.app_context():
+        row = ApiToken.query.first()
+        row.expires_at = utcnow() + timedelta(days=30)
+        db.session.commit()
+    assert c.get("/api/v1/executions",
+                 headers=_auth(tok)).status_code == 200
+    # NULL expiry — never expires, stays valid
+    with app.app_context():
+        row.expires_at = None; db.session.commit()
+    assert c.get("/api/v1/executions",
+                 headers=_auth(tok)).status_code == 200
+
+
+def test_api_token_expiry_does_not_leak_into_last_used(app):
+    """An expired token's denial must NOT count as successful use —
+    last_used_at stays untouched."""
+    from datetime import timedelta
+    _env(app)
+    tok = _token(app)
+    with app.app_context():
+        row = ApiToken.query.first()
+        row.expires_at = utcnow() - timedelta(seconds=1)
+        db.session.commit()
+    c = app.test_client()
+    c.get("/api/v1/executions", headers=_auth(tok))
+    with app.app_context():
+        assert ApiToken.query.first().last_used_at is None
+
+
+def test_integrations_page_renders_expiry_states(app, client):
+    """The integrations page surfaces expired / expiring-soon / never
+    distinctly — operators see rotation pressure before denial."""
+    from datetime import timedelta
+    from tests.conftest import login
+    with app.app_context():
+        for name, exp in (("expired-t", utcnow() - timedelta(days=2)),
+                          ("soon-t", utcnow() + timedelta(days=5)),
+                          ("far-t", utcnow() + timedelta(days=80)),
+                          ("never-t", None)):
+            db.session.add(ApiToken(name=name, scope="read",
+                                    token_hash=name.ljust(64, "0"),
+                                    expires_at=exp, created_by="x"))
+        db.session.commit()
+    login(client, "admin")
+    r = client.get("/system/integrations")
+    body = r.get_data(as_text=True)
+    assert r.status_code == 200
+    assert "expired" in body and "4d left" in body and "never" in body

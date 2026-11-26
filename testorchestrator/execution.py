@@ -824,6 +824,9 @@ class ApiToken(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     last_used_at = db.Column(db.DateTime(timezone=True), nullable=True)
     revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # NULL = never expires (explicit admin choice at creation).
+    # Pre-feature rows migrate to NULL and stay valid indefinitely.
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     def project_allowed(self, project_id: str) -> bool:
         allowed = json.loads(self.allowed_projects or "[]")

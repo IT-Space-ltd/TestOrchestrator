@@ -365,11 +365,22 @@ def integrations_page():
     """Subsystem-separated integration config (Git evidence export,
     CI API tokens, webhook endpoints). Each section is its own
     labelled card; secrets are referenced by name only."""
-    from ..execution import ApiToken, Project, WebhookEndpoint
+    from ..execution import ApiToken, Project, WebhookEndpoint, utcnow
+    from datetime import timezone as _tz
+    tokens = ApiToken.query.order_by(ApiToken.created_at).all()
+    now = utcnow()
+    days_left = {}
+    for t in tokens:
+        exp = t.expires_at
+        if exp is not None:
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=_tz.utc)   # sqlite drops tz
+            days_left[t.id] = (exp - now).days
     return render_template(
         "system/integrations.html",
+        token_days_left=days_left,
         settings=settings_mod.all_settings(),
-        api_tokens=ApiToken.query.order_by(ApiToken.created_at).all(),
+        api_tokens=tokens,
         webhooks=WebhookEndpoint.query.order_by(
             WebhookEndpoint.created_at).all(),
         projects=Project.query.order_by(Project.name).all())
@@ -392,15 +403,33 @@ def create_api_token():
         return redirect(url_for("system.integrations_page"))
     projects = _json.dumps(request.form.getlist("project_ids"))
     token = "to_" + _secrets.token_hex(24)
+    # Expiry: default 90 days (decision §A) — the admin may shorten/
+    # extend it, or explicitly opt out with never_expires. An expiry
+    # in the past is rejected as a form error.
+    from datetime import timedelta as _td
+    expires_at = None
+    expiry_note = "never expires (explicit admin choice)"
+    if request.form.get("never_expires"):
+        expires_at = None
+    else:
+        try:
+            days = int(request.form.get("expires_days") or "90")
+        except ValueError:
+            days = 90
+        days = max(1, min(days, 3650))
+        from ..execution import utcnow as _utcnow
+        expires_at = _utcnow() + _td(days=days)
+        expiry_note = f"expires {expires_at.date().isoformat()}"
     row = ApiToken(name=name, scope=scope, allowed_projects=projects,
                    token_hash=hashlib.sha256(token.encode()).hexdigest(),
-                   created_by=current_user.username)
+                   created_by=current_user.username,
+                   expires_at=expires_at)
     db.session.add(row)
     db.session.commit()
     record_audit(current_user.username, "api.token.created",
-                 f"{name} scope={scope}")
-    flash(f"API token for {name!r} — store it now, it will not be "
-          f"shown again: {token}", "info")
+                 f"{name} scope={scope} {expiry_note}")
+    flash(f"API token for {name!r} ({expiry_note}) — store it now, "
+          f"it will not be shown again: {token}", "info")
     return redirect(url_for("system.integrations_page"))
 
 
