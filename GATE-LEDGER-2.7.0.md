@@ -681,3 +681,18 @@ incl. tutorial executions (manuals) → screenshot capture on frozen
 build (Manuals-Doc/capture/capture.py) → e2e-ui (Phase 6) → release
 notes final numbers → owner sign-off. Nothing merged/tagged/published
 without approval.
+
+## A.1 / A.3 honest status
+
+- A.1 (Windows guest scan record + limits): NOT DONE — no Windows
+  guest exists under the one-VM rule this cycle. The Windows window
+  cells (taskkill /F, PowerShell probe parse) share this blocker.
+  Recorded as owed, needs the Windows window opened by the owner.
+- A.3 (reproduce suite-level no-result-data on clean fixture): the
+  failure mode was already root-caused in the dispatch layer —
+  DiscoveredItem paths are repo-root-relative but a subdirectory
+  binding stages the subdir as source root, so the verbatim path
+  misses and the runner exits 'file or directory not found' before
+  writing results. The rebase fix is in dispatch.create_execution
+  (see the code comment). The clean-fixture reproduction cell is owed
+  and rides on the matrix infrastructure now landing.
