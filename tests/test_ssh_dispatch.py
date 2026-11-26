@@ -361,6 +361,83 @@ def test_active_workdir_never_swept(tmp_path):
         live_proc.kill()
 
 
+def test_unclear_pid_workdir_never_swept(tmp_path):
+    """ISS-024 sweep: a stale-aged workdir whose run.pid exists but is
+    EMPTY/unreadable is an unclear case — the sweep must KEEP it (never
+    delete what it cannot prove dead)."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-unclear"
+    import time
+    unclear = root / "unclear-exec"
+    unclear.mkdir(parents=True)
+    (unclear / "run.sh").write_text("#!/bin/sh\n")
+    (unclear / "run.pid").write_text("")   # empty — cannot prove dead
+    wd = root / "e2e-ssh-sweep-unclear"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec_p = _spec(tmp_path, server, exe, wd)
+    spec = json.loads(spec_p.read_text())
+    spec["workdir_retention_s"] = 2
+    spec_p.write_text(json.dumps(spec))
+    time.sleep(3)
+    proc = _run_dispatcher(spec_p, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    assert os.path.exists(unclear), "unclear-pid workdir must never be swept"
+
+
+def test_cred_scrubbed_from_nonlive_retained_workdir(tmp_path):
+    """ISS-024: credential material is scrubbed from any NON-LIVE marked
+    workdir at every prepare sweep — even inside the retention window —
+    because a controller death can skip both collect and kill scrubbing."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-credscrub"
+    retained = root / "retained-exec"
+    retained.mkdir(parents=True)
+    (retained / "run.sh").write_text("#!/bin/sh\n")
+    (retained / "run.pid").write_text("999999")   # dead pid — non-live
+    (retained / ".to_kre_cred").write_text("synthetic-secret-material")
+    wd = root / "e2e-ssh-credscrub"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec_p = _spec(tmp_path, server, exe, wd)
+    spec = json.loads(spec_p.read_text())
+    spec["workdir_retention_s"] = 86400   # inside retention — dir kept
+    spec_p.write_text(json.dumps(spec))
+    proc = _run_dispatcher(spec_p, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    assert os.path.exists(retained), "retention-window dir kept"
+    assert not os.path.exists(retained / ".to_kre_cred"), \
+        "credential file must be scrubbed from the non-live retained dir"
+
+
+def test_count_cap_removes_oldest_nonlive(tmp_path):
+    """ISS-024 count cap: marked sibling dirs beyond the cap are removed
+    oldest-first — but never live/unclear ones."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-cap"
+    import time
+    olds = []
+    for i in range(5):
+        d = root / f"old-{i}"
+        d.mkdir(parents=True)
+        (d / "run.sh").write_text("#!/bin/sh\n")
+        # no run.pid at all: pidless marked dir — treated as sweepable
+        # (nothing to prove live) once over the count cap
+        olds.append(d)
+    wd = root / "e2e-ssh-cap"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec_p = _spec(tmp_path, server, exe, wd)
+    spec = json.loads(spec_p.read_text())
+    spec["workdir_retention_s"] = 86400   # age sweep keeps everything
+    spec["workdir_max_count"] = 4         # cap below the sibling count
+    spec_p.write_text(json.dumps(spec))
+    proc = _run_dispatcher(spec_p, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    remaining = [d for d in olds if os.path.exists(d)]
+    assert len(remaining) < 5, "count cap must remove some oldest non-live dirs"
+
+
 def test_workdir_removed_after_cancel(tmp_path):
     """ISS-024: a confirmed cancel kill also removes the workdir —
     no credential or staging residue survives the cancellation."""

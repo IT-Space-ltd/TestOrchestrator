@@ -156,6 +156,24 @@ def _prepare(client, spec) -> None:
                 f"remote workdir {wd} is not creatable/writable for "
                 f"SSH user {spec.get('username')!r} (rc={rc}"
                 + (f": {detail}" if detail else ")"))
+        # Free-space pre-flight: a full /tmp broke SFTP staging with an
+        # opaque 'OSError: Failure' on the acceptance guest (ISS-024).
+        # Check the workdir filesystem has the archive + extraction
+        # margin BEFORE staging, and fail with a clear, actionable error.
+        try:
+            need = os.path.getsize(spec["source_tar"]) * 3 + 32 * 1024 * 1024
+        except OSError:
+            need = 64 * 1024 * 1024
+        rc, out, err = _exec(
+            client, f"df -k {q(wd)} 2>/dev/null | awk 'NR==2 {{print $4}}'")
+        avail_kb = out.strip()
+        if rc == 0 and avail_kb.isdigit() and int(avail_kb) * 1024 < need:
+            raise RuntimeError(
+                f"insufficient free space on the remote workdir "
+                f"filesystem for {wd}: {int(avail_kb)//1024} MiB "
+                f"available, {need//1024//1024} MiB required (archive "
+                f"+ extraction margin) — free space or reduce retained "
+                f"run workdirs (workdir_retention_s/workdir_max_count)")
         # stage the portal-built source archive
         sftp.put(spec["source_tar"], wd + "/source.tar")
         # Delivered credential (portal-side credential_ref): SFTP'd
@@ -290,17 +308,43 @@ def _sweep_stale_workdirs(client, spec) -> None:
         f"cutoff=$(( $(date +%s) - {retention} )); "
         f"for d in {q(root)}/*/; do "
         f"  if [ -f \"$d\"run.sh ] || [ -f \"$d\"run.pid ]; then "
+        # liveness + unclear-case determination runs for EVERY marked dir,
+        # not only stale ones: credential material is scrubbed from any
+        # non-live dir even inside the retention window (a controller
+        # death can skip both collect and kill scrub paths).
+        f"    live=0; unclear=0; "
+        f"    if [ -f \"$d\"run.pid ]; then "
+        f"      p=$(cat \"$d\"run.pid 2>/dev/null); "
+        f"      if [ -z \"$p\" ]; then unclear=1; "
+        f"      elif kill -0 \"$p\" 2>/dev/null; then live=1; fi; "
+        f"    fi; "
+        f"    if [ \"$live\" = 0 ]; then "
+        f"      rm -f \"$d\".to_kre_cred \"$d\".to_licpack.tar 2>/dev/null; true; "
+        f"    fi; "
         f"    m=$(stat -c %Y \"$d\" 2>/dev/null || echo 0); "
         f"    if [ \"$m\" -gt 0 ] && [ \"$m\" -lt \"$cutoff\" ]; then "
-        f"      live=0; "
-        f"      if [ -f \"$d\"run.pid ]; then "
-        f"        p=$(cat \"$d\"run.pid 2>/dev/null); "
-        f"        if [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null; then live=1; fi; "
-        f"      fi; "
-        f"      if [ \"$live\" = 0 ]; then rm -rf \"$d\"; fi; "
+        f"      if [ \"$live\" = 0 ] && [ \"$unclear\" = 0 ]; then rm -rf \"$d\"; fi; "
         f"    fi; "
         f"  fi; "
-        f"done; true")
+        f"done; "
+        # bounded-count cap: if marked sibling dirs still exceed the cap,
+        # remove the oldest non-live, non-unclear ones first. The cap
+        # bounds /tmp growth even when everything is inside the age window
+        # (rapid-fire short runs). Never touches live/unclear/foreign.
+        f"cap={int(spec.get('workdir_max_count') or 100)}; "
+        f"n=0; for d in {q(root)}/*/; do "
+        f"  if [ -f \"$d\"run.sh ] || [ -f \"$d\"run.pid ]; then n=$((n+1)); fi; "
+        f"done; "
+        f"if [ \"$n\" -gt \"$cap\" ]; then "
+        f"  ls -1dt {q(root)}/*/ 2>/dev/null | tail -n +$((cap/2)) | while read d; do "
+        f"    if [ -f \"$d\"run.sh ] || [ -f \"$d\"run.pid ]; then "
+        f"      p=$(cat \"$d\"run.pid 2>/dev/null); "
+        f"      if [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null; then continue; fi; "
+        f"      if [ -z \"$p\" ] && [ -f \"$d\"run.pid ]; then continue; fi; "
+        f"      rm -rf \"$d\"; "
+        f"    fi; "
+        f"  done; "
+        f"fi; true")
     try:
         _exec(client, script, timeout=30)
     except Exception:

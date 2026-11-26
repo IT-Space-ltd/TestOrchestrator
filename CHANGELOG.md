@@ -488,6 +488,30 @@ this acceptance; no engine-coverage residuals remain.
 
 ### Known limitations (2.7.0 draft)
 
+- **Windows worker installer is unsigned** (owner decision — no signing
+  step, no certificate, output name unchanged). Windows SmartScreen
+  will show a warning on first run ("Windows protected your PC").
+  To install anyway: click **More info** then **Run anyway** — the
+  publisher shows as "Unknown" because the binary is unsigned.
+  Before running, verify the download against the published SHA-256:
+  `bbecac56087449e6b216573cf1aad1b8d4b14039e3c7a7fbfc8f7911f21476e9`
+  (`TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`;
+  `Get-FileHash .\TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`
+  in PowerShell). **Code signing is a future item, owner-blocked,
+  with no work planned for 2.7.0.**
+- **Timeout classification** (owner decision): timeout-killed
+  executions classify failure-kind `execution` with outcome
+  INCOMPLETE — never PASSED. A distinct `timeout` classification is
+  a 2.8 candidate, not 2.7.0 scope.
+- **Secret-scope enforcement for Git-kind secrets is a documented
+  limitation for 2.7.0** (owner decision — enforcement moves to 2.8):
+  grants are enforced for KRE credential delivery only; Git-binding,
+  SSH and Buildbot secret consumers stay outside the grant model.
+  Reason: enforcement for Git bindings needs a migration that derives
+  grants for existing bindings, or every Git sync breaks at upgrade.
+  The exposed-secret pre-flight guard stays in force for ALL kinds —
+  a secret flagged exposed is refused at dispatch regardless of type.
+
 - S3 adapter verified against SeaweedFS (S3 stand-in, not GCS or
   AWS-provider acceptance); Azure verified against Azurite 3.34.0
   emulator over loopback+SSH tunnel, not live Azure. Insecure
