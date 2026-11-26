@@ -19,7 +19,7 @@ sha256 `4903b2e8…` (product rev `c7fe5c71`). Evidence root:
 
 | Requirement | Verification | Status |
 |---|---|---|
-| Unique node IDs, mutually exclusive totals, rerun history | `regression-ledger.json` — 1101 nodes: unit-gate 1009/1/2, e2e-ui 44/1 | accepted |
+| Unique node IDs, mutually exclusive totals, rerun history | `regression-ledger.json` — unit-gate 1009/1/2; e2e-ui 44 passed/1 skipped/0 failed on final payload @3bd9e4b8 (2026-11-26) | accepted |
 | Overlap explained | ledger `overlap_note`: browser cases inside `tests/` (not disjoint); e2e-ui separate harness dir | accepted |
 
 ## 3 — Framework inventory
@@ -126,6 +126,36 @@ README + CHANGELOG updated this milestone (see commit history). Release docs
 One disposable VM (`to-accept`), sequential stages, evidence exported to host
 before teardown, no host packages/mounts/services, no production credentials.
 Single-VM collapses host+worker — recorded limitation.
+
+## Final-payload acceptance (2026-11-26, head `3bd9e4b8`)
+
+Final payload sha256 `312e5408bbdd5020692da2060b7900b6e0211c176dcff92337a2825903ba0fa5`,
+byte-verified vs source. On the acceptance guest:
+
+- **e2e-ui: 44 passed / 1 skipped / 0 failed** (skip = designed
+  bootstrap-rerun skip). All 10 framework cells green on real engines
+  through both transports.
+- **ISS-021 fixed** (`9508bf0d`): pasted ssh keys were CRLF-corrupted
+  by HTML textarea normalization; storage now normalizes for ssh-kind
+  secrets. Regression test in tests/test_secrets_store.py.
+- **CI API tokens verified** vs the authorization model + 3 new
+  regression tests (`4a605e8b`) — forged overrides, owner shrink,
+  deactivated owner. 19/19 pass. No token expiry exists — revoke-only
+  model recorded as design fact.
+- **Fresh-install PASS** (clean /opt + instance dir, 5 units active).
+- **Upgrade PASS on copies of real 2.6.0 data** (`data.bak-260`):
+  secret ciphertexts byte-identical, derived grant correct,
+  migration_pending never bypasses default-deny enforcement,
+  api_tokens survive, idempotent re-upgrade, resume from mid-state,
+  upgraded DB boots the full stack.
+- **Operational finding (candidate issue)**: no remote cleanup of
+  ssh-run workdirs — /tmp tmpfs filled on the guest (1.5G residue),
+  breaking SFTP staging and export downloads. Manual cleanup only.
+- **Candidate issue (unproven)**: probe-poll may stamp verdicts before
+  the trailing DirectoryUpload lands probe markers; all probes settled
+  naturally in the final run once environment causes were removed.
+
+Detail: `~/to-acceptance-evidence/CONSOLIDATED-REPORT-2.7.0.md` §J.
 
 ## Blocked / not-yet-run summary
 
