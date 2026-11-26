@@ -254,3 +254,40 @@ run.
 
 - head adaf5f6e, tarball sha256 566fe705de90de7e52869ce22ff62cabac3e283909841cbe726dd4922cc4c8df
 - in-place upgrade on to-accept-linux; portal 200 after restart.
+
+## Matrix progress on interim build #2 (adaf5f6e, sha256 566fe705…)
+
+Probe state after fixes, on the installed package:
+- bruno: ready-discovery (node v24.22.3, npx 11.19.1, bru 4.4.0) —
+  probe-script syntax fix VERIFIED end-to-end.
+- postman: ready-discovery (newman 6.2.3, engine-present).
+- jest: still "probe finished but produced no markers". Probe script
+  correct when run manually as the service user; buildrequests for
+  jest probes complete with buildbot EXCEPTION (results=3) and zero
+  builds created, while postman/bruno requests in the same batch on
+  the same builder DO create builds. Not root-caused; next step:
+  inspect the jest buildrequest properties vs postman's in
+  state.sqlite (buildrequests table, properties column) and the master
+  twistd.log exception text at submit time.
+- Fixture layout: single project "mx" (monorepo, 6 bindings) with all
+  node-framework items; project "sched-mx" for scheduling cells.
+
+## Matrix blocker found: fixture inventory lacks postman/bruno items
+
+Monorepo project "mx" inventory on the installed package: jest 4 (2
+selectable), pytest 6, pytest-bdd 4, behave 4, robot 4 — ZERO postman
+and ZERO bruno items. The fixture repos were never given postman
+collection .json or .bru files (or discovery never ran for those
+bindings). Postman/bruno matrix cells are therefore blocked on FIXTURE
+content, not on the product: runtimes are ready-discovery. Resume:
+add a postman collection JSON + bruno .bru files to the fixture repos
+(host repo + push, or re-sync), run binding rediscovery, then dispatch
+cells with /home/ubuntu/cells2.py (driver works — proven against the
+real inventory shape). Jest cell additionally blocked on the probe
+root-cause above.
+
+## Session closeout state
+
+Committed head: this commit. Installed package on to-accept-linux:
+interim build #2 (adaf5f6e, sha256 566fe705de90de7e52869ce22ff62cabac3e283909841cbe726dd4922cc4c8df),
+in-place upgrade, all services running, portal 200.
