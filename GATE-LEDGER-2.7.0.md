@@ -630,3 +630,54 @@ All 10 failures triaged:
    Seed was ancient (pre-runners schema). Wrote reproducible
    scripts/seed_preview.py, reseeded, all 5 PASS.
 Sign-off rerun launched on fa89ca8b with the seeded preview up.
+
+## Automation chain state (session checkpoint)
+
+LIVE automation — evidence accumulates unattended:
+1. `chain5.sh` (host, pid in pgrep chain5): waits for the sign-off
+   suite (junitxml at /tmp/unitsuite-final.xml), verifies green +
+   clean tree, builds #5 via scripts/build_bundle.py, records
+   head+sha256 in /home/szefi/build5.env, transfers the tarball to the
+   guest, launches guest5.sh there. Log: /home/szefi/chain5.log.
+2. `guest5.sh` (guest to-accept-linux): in-place upgrade install
+   (default payload /opt/testorchestrator, data /opt/to-interim/data),
+   starts services, starts the fixture stub, runs Option A 7/7
+   (verify_opta.py), then matrix5_pipeline phases:
+   setup→probe-wait→validate→cells→watch→evidence, then the jest
+   collect live cell. Evidence: /home/ubuntu/matrix5_evidence.log.
+
+Key environment facts:
+- Guest access: `multipass exec to-accept-linux --` (ssh key auth
+  broken); multipass is snap — /tmp is NOT shared, transfer from ~.
+- Correct binding pinned: 70d8737b38f64573b3e04b0d5607ae88
+  (file:///home/ubuntu/to-fixture). Its fps were EMPTY — rediscovery
+  in pipeline setup is required and expected. Other bindings carry
+  pytest-bdd/robot/behave/katalon fps — not garbage, do not delete.
+- Fixture head: eee3dbd (stub committed at tools/stub8899.py +
+  start/stop scripts).
+- matrix5_cells.json on the guest maps cell labels to execution ids.
+
+## Suite triage final
+
+First full run: 1190 passed, 10 failed, 2 skipped — all triaged:
+2 product regressions FIXED in fa89ca8b (edit_runtime route decorator
+stray on helper since before 33c95ae3; inline onclick in project_detail
+store form) — verified passing. 5 infra browser tests environmental —
+now skip cleanly when :39995 absent (5dc5cc2f) and PASS when seeded
+(scripts/seed_preview.py — reproducible seed, committed). Sign-off
+rerun on final head in progress — counts land in junitxml.
+NOTE for owner approval: modal/live-tail browser tests need full
+fixture data in the preview seed beyond runners; they pass in the
+acceptance-seeded environment. The unit gate runs them as skips when
+unseeded — documented test-design intent.
+
+## Remaining after matrix (in order)
+
+test-level/subdirectory cells → freeze → exposure scan
+(scripts/exposure_scan.py, key-file outside repo, zero hits required)
+→ final clean build → SHA256SUMS.txt + reproducibility note →
+fresh-guest installs → 2.6.0 upgrade verification → acceptance cells
+incl. tutorial executions (manuals) → screenshot capture on frozen
+build (Manuals-Doc/capture/capture.py) → e2e-ui (Phase 6) → release
+notes final numbers → owner sign-off. Nothing merged/tagged/published
+without approval.
