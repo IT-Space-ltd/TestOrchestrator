@@ -441,3 +441,15 @@ def test_non_commit_discovery_marker_resolves_real_head(app, tmp_path):
         d = authoring.open_draft("alice", item)
         assert d.base_sha != "discovery-marker-not-a-sha"
         assert len(d.base_sha) >= 30        # looks like a real commit
+
+
+def test_cleanup_abandoned_wired_into_reconcile(app, tmp_path):
+    """The reconcile loop invokes the abandoned-draft cleanup — the
+    wiring regression guard (P4.16)."""
+    import testorchestrator.dispatch as dispatch
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        d1 = authoring.open_draft("alice", item)
+        d1.status = "abandoned"; db.session.commit()
+        dispatch.reconcile_buildbot_runs()
+        assert db.session.get(AuthoringDraft, d1.id) is None

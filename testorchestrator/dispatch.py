@@ -4238,6 +4238,11 @@ def reconcile_buildbot_runs() -> int:
         except Exception:
             pass
     _sweep_stale_staging()
+    try:
+        from .authoring import cleanup_abandoned
+        cleanup_abandoned()   # only user-abandoned drafts; audit already recorded
+    except Exception:
+        pass    # janitorial — never blocks reconciliation
     return fixed
 
 
