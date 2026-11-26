@@ -120,7 +120,7 @@ npx --version >/dev/null 2>&1 \\
   && p "npx=$(npx --version)" || p "npx=missing"
 command -v bru >/dev/null 2>&1 \\
   && p "bruno=$(bru --version 2>/dev/null | head -1)" \\
-  || p "bruno=missing — the Bruno CLI (@usebruno/cli) is required, never auto-installed — install with: npm install -g @usebruno/cli")
+  || p "bruno=missing — the Bruno CLI (@usebruno/cli) is required, never auto-installed — install with: npm install -g @usebruno/cli"
 bru run --help 2>/dev/null | grep -q -- '--sandbox' \\
   && p "sandbox_flag=supported" || p "sandbox_flag=unverified"
 bru run --help 2>/dev/null | grep -q -- '--global-env' \\
