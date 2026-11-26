@@ -370,6 +370,28 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
     as a select of `runtime`-kind secrets, mapping onto the KRE
     runtime columns (`executable_path`, `credential_ref`,
     `credential_file`, `concurrency`).
+- **Quality-gate pass** (dead-code, duplication, security,
+  memory-leak, and SonarLint sweeps):
+  - "Run now" on a plan-type schedule always raised "scheduled
+    plan no longer exists" — `plan` was hardcoded `None`; it now
+    loads via `db.session.get` like the cron path.
+  - Concurrency validation in the KRE runtime wizard used `assert`
+    inside `try`/`except` — silently skipped under `python -O`;
+    replaced with an explicit `ValueError` check.
+  - Removed dead code surfaced by vulture + SonarLint:
+    unreferenced `after_this_request` import,
+    `behavefw.collect_args`, `gtestfw.list_args`,
+    `gherkin.scenario_node_id`, and unused locals
+    (`npx_forced`, `known`, `binding` + tuple-unpack renames).
+  - Bandit audit: 1 High flagged on `updater.py` tarfile is a
+    false positive (`tarfile.data_filter` is applied); all 16
+    Mediums audited clean (argv-list subprocesses, shlex-quoted
+    paramiko, no DTD XML path, intentional dual-stack binds).
+  - Duplication (jscpd): 0.39% — three clones, all per-adapter
+    probe-script boilerplate kept deliberately isolated.
+  - Memory: 300-cycle execution + junit-ingest loop showed flat
+    RSS (~93→96 MB plateau), stable object counts and constant
+    fd count — no leaks.
 
 Engine acceptance (all verified live — dev stack + installed
 package): Playwright 1.65.1 and Cypress 16.3.0/Electron 43 real
