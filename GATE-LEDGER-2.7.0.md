@@ -321,3 +321,14 @@ inspection of the installed code at /opt/testorchestrator (verify_opta.py).
 Installed build: adaf5f6e code, sha256 566fe705de90de7e52869ce22ff62cabac3e283909841cbe726dd4922cc4c8df —
 byte-identical product code to head 32b907549c78bb1eab745762b2a0585eb14864c4
 (diff since adaf5f6e is docs/ledger only).
+
+## Rebuild #3 (step 3 rebuild)
+
+- full head SHA: 32b907549c78bb1eab745762b2a0585eb14864c4
+- tarball sha256: 7bbe402ef222d2a3cf854e3ad95cb20c5b64f208b9b36cd4f3a997ecfc3bacce
+- NOTE: sha differs from build #2 (566fe705…) despite zero product-code
+  diff — the build is not byte-reproducible (embedded timestamps).
+  Since product code is identical, matrix cells run on installed build
+  #2 remain valid evidence for the same code; the cell reports cite
+  both. Install of build #3 on the guest is deferred to the final
+  clean-install phase (fresh guests) unless a product fix lands.
