@@ -3935,12 +3935,15 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
     buildbot_cfg.clear_staging(ex.id)
     has_results = bool(TestResult.query.filter_by(
         execution_id=ex.id).first())
-    if results_code == 6 or (cancel_requested
-                             and not (results_code == 0 or has_results)):
-        # CANCELLED — or any non-success result after a cancel request:
-        # buildrequest cancel may surface as RETRY/FAILURE depending on
-        # where the worker was in the step, but the user intent was
-        # recorded and must govern the terminal state.
+    if results_code == 6 or cancel_requested:
+        # CANCELLED — or ANY result after a cancel request: the user
+        # intent was recorded and must govern the terminal state. This
+        # holds even when passing junit arrives anyway (results_code
+        # == 0): those results are post-cancel artifacts — typically a
+        # buildbot auto-retry the cancel did not reach (live cell
+        # 8fa43035, ISS-023) — and reporting them as PASSED would
+        # silently discard the cancel. They stay collected as evidence;
+        # the execution is never COMPLETED/PASSED.
         if cancel_requested:
             if "UNCONFIRMED" in (ex.cancel_reason or ""):
                 ex.state = ExecutionState.FAILED

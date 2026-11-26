@@ -78,10 +78,26 @@ def store_secret(app, name: str, kind: str, value: str,
 
 def read_secret(app, name: str) -> str:
     """Resolve a credential reference. Raises SecretError — callers surface
-    an actionable not-configured status instead of fabricating success."""
+    an actionable not-configured status instead of fabricating success.
+
+    Pre-flight exposure guard: a secret whose metadata carries
+    ``{"exposed": true}`` is refused at every resolution point — dispatch
+    (runtime/ssh/git/buildbot consumers all funnel here), provisioning
+    probes, and checks. The value stays in the store untouched so a
+    post-rotation review can still audit lineage; only the replacement
+    workflow (store a rotated value, then clear the flag) re-enables it."""
     row = SecretRef.query.filter_by(name=name).first()
     if row is None:
         raise SecretError(f"credential {name!r} is not configured")
+    try:
+        meta = json.loads(row.meta_json or "{}")
+    except (TypeError, ValueError):
+        meta = {}
+    if isinstance(meta, dict) and meta.get("exposed"):
+        raise SecretError(
+            f"credential {name!r} is disabled — flagged as exposed; "
+            "rotate the external secret and store the replacement "
+            "before further use")
     try:
         return _load_fernet(app).decrypt(row.encrypted).decode("utf-8")
     except (InvalidToken, OSError) as exc:

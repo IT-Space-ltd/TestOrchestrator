@@ -937,3 +937,72 @@ def test_gtest_windows_pb_uses_python_driver(app, monkeypatch, tmp_path):
         assert manifest["runs"] == [["gtest/build/to_gtest.exe",
                                      "Smoke.*", "to_gtest.exe"]]
         assert manifest["posix"] is False
+
+
+def test_cancel_request_governs_over_late_passing_results(
+        app, monkeypatch, tmp_path):
+    """ISS-023 (lost cancel, live cell 8fa43035): a cancel requested
+    while running must NEVER surface as COMPLETED/PASSED, even when
+    the run — typically a buildbot auto-retry the cancel didn't reach
+    — produced clean passing junit afterwards. The user intent governs
+    the terminal state; the results remain collected as evidence but
+    the execution is CANCELED/INCOMPLETE."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 0, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.CANCEL_REQUESTED
+        ex.cancel_reason = "user cancel"
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        # passing junit lands despite the cancel (retry ran to completion)
+        src = buildbot_cfg.artifacts_dir() / ex.id
+        src.mkdir(parents=True)
+        (src / "junit.xml").write_text(
+            '<testsuite tests="1" failures="0"><testcase '
+            'classname="T" name="c" time="0.1"/></testsuite>')
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state != ExecutionState.COMPLETED, \
+            "a cancelled execution must never report completed"
+        assert ex.outcome != Outcome.PASSED, \
+            "a cancelled execution must never report passed"
+        assert ex.state == ExecutionState.CANCELED
+        assert ex.outcome == Outcome.INCOMPLETE
+
+
+def test_cancel_unconfirmed_with_results_stays_failed_infra(
+        app, monkeypatch, tmp_path):
+    """Cancel with UNCONFIRMED remote kill + results arriving anyway:
+    the process tree may have run unsupervised — FAILED/infrastructure,
+    never canceled-and-certainly never passed."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 0, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.CANCEL_REQUESTED
+        ex.cancel_reason = "user cancel [ssh remote kill UNCONFIRMED]"
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        src = buildbot_cfg.artifacts_dir() / ex.id
+        src.mkdir(parents=True)
+        (src / "junit.xml").write_text(
+            '<testsuite tests="1" failures="0"><testcase '
+            'classname="T" name="c" time="0.1"/></testsuite>')
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "infrastructure"
+        assert ex.outcome == Outcome.INCOMPLETE
