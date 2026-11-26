@@ -4,6 +4,19 @@ Requires the running preview (127.0.0.1:39995) with fixture data.
 Each test asserts a specific interaction behavior — not markup presence."""
 import pytest
 
+def _preview_reachable():
+    import socket
+    try:
+        s = socket.create_connection(("127.0.0.1", 39995), timeout=2)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(not _preview_reachable(),
+                                reason="disposable preview :39995 not running")
+
 playwright = pytest.importorskip("playwright.sync_api",
                                  reason="playwright not installed")
 from playwright.sync_api import sync_playwright
