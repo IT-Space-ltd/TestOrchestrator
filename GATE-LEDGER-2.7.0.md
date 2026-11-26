@@ -407,3 +407,14 @@ Owner-directed analysis results:
 All 16 deferral items + auth epic 17-31 verified present; CHANGELOG
 carries only a pointer. Duplicate add-requests confirmed as already
 present — no double entries.
+
+## Execution-readiness gate cleared (matrix batch 3)
+
+- validate_project stamped per-pair evidence: bruno+jest ready
+  immediately; postman needed engine=newman in fp settings (validation
+  correctly refused engine 'unset' — gate working as designed).
+- Cells relaunched: matrix3.log on guest — positive+negative file-level
+  for postman, bruno, jest. READ matrix3.log FIRST next session.
+- Learning for docs: the dispatch chain for a new framework project is
+  probe -> static discovery (sync_framework_project) -> validate_project
+  -> dispatch. Native collection only where a collector exists.
