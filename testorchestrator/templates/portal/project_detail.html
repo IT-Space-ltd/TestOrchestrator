@@ -807,7 +807,8 @@
     </tbody></table>
 
   {% if can_edit %}
-  <h3>Add storage</h3>
+  <details class="add-block" id="add-store-details">
+    <summary class="button">Add storage</summary>
   <p class="muted">A storage destination tells TestOrchestrator where
   to keep result files after runs finish. Adding a destination does
   not install software, mount shares, create buckets, or change host
@@ -1014,9 +1015,13 @@
                                        project_id=project.id) }}">
           Test connection</button>
         <button class="button primary" type="submit">
-          Save destination</button></div>
+          Save destination</button>
+        <button class="button danger" type="button"
+                onclick="document.getElementById('add-store-details').open=false">
+          Cancel</button></div>
     </fieldset>
   </form>
+  </details>
   <script src="{{ url_for('static', filename='js/storage-form.js') }}?v={{ js_v }}" defer></script>
   {% endif %}
 
