@@ -224,3 +224,15 @@ still open in THIS release, not deferred).
 - Jest "no artifacts": the probe builds ran but jest was never probed
   to completion state because nodefw verdict logic — now prepare-aware
   (bd2507ac). Fresh probes on the rebuilt package will confirm.
+
+## 2.8.0 backlog — external-auth epic added (items 17–31)
+
+Owner-specified epic added to the CHANGELOG backlog: external
+authentication and user administration (OIDC+presets, LDAP/AD, SAML;
+hd/email_verified checks; Entra tenant restriction + app-role mapping;
+role/project mapping with preview; subject-ID linking + JIT
+provisioning + later SCIM; break-glass admin; MFA; sessions/tokens;
+local-account policy; audit; admin UI; SecretRef-only secrets;
+security requirements as provider acceptance gates; stand-in-only
+testing in the one VM; migration invariant + rollback). Documentation
+only — no code or schema change in 2.7.0.
