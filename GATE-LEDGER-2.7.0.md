@@ -458,3 +458,20 @@ need junit detail to distinguish test failure vs assertion content
 
 Open matrix items unchanged: test/request-level, subdirectory, SSH,
 remaining frameworks, git publication, Windows cells.
+
+## Redispatch with environment wiring (running, check first next session)
+
+httpbin.org verified reachable from guest (curl 200) — the 61ms bruno
+failures were unresolved {{host}}: neither engine was passed its
+environment. Fixed in fp settings: postman environment_file=
+postman/local.postman_environment.json; bruno environment=local.
+REDISPATCHED positive cells, RUNNING at closeout:
+- postman-positive2: 5da3b866b20340d0adc22449395cacc3
+- bruno-positive2: 9cf05a9674504ade8b75eec4e221167e
+Check their state+outcome FIRST next session. If positive passes and
+negative fails, the file-level cells are proven; then test/request-
+level, subdirectory, SSH. NOTE: item granularity question observed —
+bruno negative cell ran 2 requests (whole collection): file-level
+selection scope needs verification against the item model.
+Jest INCOMPLETE still unexplained — read build step stdout for
+96a6ab03 (same adapter.run_log method).
