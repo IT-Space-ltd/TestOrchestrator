@@ -24,3 +24,12 @@
   form.addEventListener("change", sync);
   sync();
 })();
+
+/* Cancel buttons inside <details> disclosure forms: data-close-details
+ * carries the target details id — no inline handlers (CSP). */
+document.addEventListener("click", function (ev) {
+  var btn = ev.target.closest("[data-close-details]");
+  if (!btn) return;
+  var d = document.getElementById(btn.getAttribute("data-close-details"));
+  if (d) d.open = false;
+});

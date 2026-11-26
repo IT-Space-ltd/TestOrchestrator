@@ -2242,9 +2242,6 @@ def edit_runner(runner_id):
     return redirect(url_for("system.infrastructure"))
 
 
-@system_bp.route("/runtimes/<runtime_id>/edit", methods=["POST"])
-@role_required(Role.ADMIN)
-
 def _python_family_exec_error(kind: str, executable_path: str) -> str:
     """pytest/behave/robot runtimes invoke the framework as a module of
     the configured interpreter (`python -m pytest` / `-m behave` /
@@ -2263,6 +2260,9 @@ def _python_family_exec_error(kind: str, executable_path: str) -> str:
                 "binary")
     return ""
 
+
+@system_bp.route("/runtimes/<runtime_id>/edit", methods=["POST"])
+@role_required(Role.ADMIN)
 def edit_runtime(runtime_id):
     """Edit mutable runtime fields; executable/workspace changes
     clear the last probe result (old check no longer validates the
