@@ -2426,3 +2426,70 @@ must be HTTPS in production. The readiness probe validates against
 your server; a self-signed private server certificate must be trusted
 by the runner host's certificate store — the product does not probe
 around certificate validation.
+
+---
+
+## 25. System operations pages — control reference
+
+### 25.1 Backup
+
+The backup page offers two actions. **Create & download** builds a
+verified backup archive (database plus instance content) and
+downloads it in one step — the archive carries its SHA256. **Upload
+& validate** accepts a backup archive and validates it without
+restoring: structure, checksums, version compatibility. Always
+validate an archive before trusting it as your restore source. The
+backup report page shows the last backup's content manifest and
+verification result.
+
+### 25.2 Restore
+
+The restore page lists what an uploaded archive would restore —
+**Apply restore** executes it. Restore replaces the current data;
+the pre-restore state is itself backed up automatically first.
+*Common mistake:* restoring onto a running system — stop the
+services first (§8), restore, then start.
+
+### 25.3 Operational logs and log export
+
+The operational logs page filters the service logs by `severity`
+(info / warning / error) and `category` (web, dispatch, buildbot,
+storage, auth). The log export page downloads a diagnostics bundle —
+logs, configuration with secrets redacted, versions — for support.
+The bundle never contains secret values.
+
+### 25.4 Reporting and retention settings
+
+The reporting settings page carries the system-wide retention
+defaults: `retention_artifact_days` (how long run artifacts are
+kept) and `retention_metadata_days` (how long execution records are
+kept — always ≥ artifact days, since metadata is the index to the
+evidence). **Save settings** applies them; projects can override
+per-project (§B.1). Empty means the system default.
+
+### 25.5 Secrets administration
+
+The secrets page lists secret names — never values. **Store
+encrypted** saves a new secret: name, kind, value (write-only).
+**Save scope** records where the secret may be used (§8.2) — secrets
+created before 2.7.0 show `migration_pending` until their scope is
+reviewed and saved here.
+
+### 25.6 Runtime wizard
+
+The runtime wizard walks runtime creation step by step: kind,
+transport, executable, framework selection. **Save runtime** creates
+the connection; the readiness probe starts automatically after.
+*Common mistake:* pointing the executable at the framework
+entry-point (`/usr/bin/pytest`) instead of the interpreter for
+Python-family runtimes — the edit form validates this and explains
+the correct value.
+
+### 25.7 Initial setup
+
+The setup steps run on first boot: admin creation, network,
+verification. **Run verification** re-checks the step's requirements
+and reports exactly what is missing — a green verification per step
+is required before the system serves traffic.
+
+

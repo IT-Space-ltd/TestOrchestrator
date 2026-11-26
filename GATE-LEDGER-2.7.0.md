@@ -598,3 +598,35 @@ defect; no product change. Evidence: bruno alignment investigation.
 VM is Multipass `to-accept-linux` at 10.97.0.14. SSH key auth from the
 host is currently denied (publickey) — use `multipass exec
 to-accept-linux -- <cmd>` and `multipass transfer` for files.
+
+## Ledger-review closures (this session)
+
+- A.2 token-upgrade claim reworded — tokens seeded on the copy,
+  not a production claim (requirements-ledger).
+- A.5 accessibility partially closed — tests/test_accessibility.py
+  5/5 pass (all form controls labeled on infra/wizard/secrets/storage/
+  admin pages); keyboard-interaction portion stays with Phase 6 e2e-ui.
+- A.6 stale token-expiry statement corrected — expiry exists since
+  p5c6d7e8f9a0; the old "revoke-only" sentence was stale.
+- A.4 ssh-workdir sweep verified in code (scripts/to_ssh_exec.py):
+  sweep invoked pre-staging (l.142) so delivered credentials are never
+  swept (l.149); free-space preflight with extraction margin (l.172);
+  retention bounded by workdir_retention_s/workdir_max_count (l.176);
+  sweep best-effort never blocks the run (l.352).
+
+## Suite triage record (first full run: 1190 passed, 10 failed, 2 skipped)
+
+All 10 failures triaged:
+1. system.edit_runtime BuildError (4 tests: test_execution_readiness::
+   test_validate_route, test_execution_targets::test_toggle, test_secret_
+   scope_acceptance×2) — REAL regression, pre-existing in tree since
+   before 33c95ae3: the route decorator had drifted onto the
+   _python_family_exec_error helper. FIXED in fa89ca8b; verified pass.
+2. test_security::test_templates_have_no_inline_javascript — REAL
+   regression: onclick= reintroduced in project_detail.html store form.
+   FIXED in fa89ca8b via data-close-details delegation; verified pass.
+3. test_infra_controls_browser×5 — environmental: require the seeded
+   disposable preview at 127.0.0.1:39995 (documented in acceptance-2.6.0).
+   Seed was ancient (pre-runners schema). Wrote reproducible
+   scripts/seed_preview.py, reseeded, all 5 PASS.
+Sign-off rerun launched on fa89ca8b with the seeded preview up.

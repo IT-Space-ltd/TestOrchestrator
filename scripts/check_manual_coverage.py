@@ -20,7 +20,8 @@ MANUALS = [
     (REPO / "Manuals-Doc" / "Admin-Manual.md"),
 ]
 corpus = "\n".join(p.read_text(errors="replace") for p in MANUALS if p.exists())
-corpus_l = corpus.lower()
+import re as _re
+corpus_l = _re.sub(r"\s+", " ", corpus.lower())
 
 missing = []
 present = 0
@@ -31,7 +32,7 @@ def check(kind, label, where):
     if not label or len(label.strip()) < 2:
         return
     total += 1
-    if label.strip().lower() in corpus_l:
+    if _re.sub(r"\s+", " ", label.strip().lower()) in corpus_l:
         present += 1
     else:
         missing.append(f"{kind}: {label} ({where})")
@@ -39,7 +40,8 @@ def check(kind, label, where):
 for page in INV["pages"]:
     tpl = page["template"]
     base = tpl.rsplit("/", 1)[-1].replace(".html", "").replace("_", " ")
-    check("page", base, tpl)
+    if not (tpl.startswith("_") or "/_" in tpl):
+        check("page", base, tpl)
     for f in page["fields"]:
         check("field", f["name"], tpl)
     for s in page["selects"]:
