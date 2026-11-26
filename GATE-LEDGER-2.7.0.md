@@ -347,3 +347,29 @@ cells, remaining-framework subdirectory/ssh, git publication, Windows
 window cells (taskkill /F + PS probe parse), install of rebuild #3
 (tarball sha256 7bbe402e… at dist/, code-identical to installed #2),
 freeze, exposure scan, final build, Phase 6.
+
+## Session closeout — matrix state at handoff
+
+- matrix_full.py running autonomously on guest (unbuffered, log:
+  /home/ubuntu/matrix_full.log). Inventory poll for postman/bruno
+  times out after 900s, then positive+negative file-level cells run
+  for whatever exists — jest cells WILL dispatch (4 items, 2
+  selectable, runtime ready-discovery). Check the log first.
+- Postman/bruno native collections consistently FAIL pre-artifact
+  (no artifacts written at all) while pytest/robot/behave/jest
+  collections COMPLETE in the same batch on the same worker.
+  NOT the restart window — failures predate it. Discovery for these
+  frameworks is Python-side (testorchestrator/discovery/postman.py,
+  bruno.py), not shell-script — the probe syntax defect class is
+  excluded. NEXT STEP: read the buildbot step stdout for collect
+  execution 650e7fbe/85b2fb64 via adapter.run_log (same method as the
+  bruno probe debug) — the failure happens before artifact upload, so
+  only the step stdout has the cause. Alternatively reproduce locally:
+  run discovery.postman.scan over /home/ubuntu/to-fixture-monorepo
+  services/beta in a shell on the guest.
+- Inventory anomaly: 10 items with empty framework attribute in
+  project mx — predate the new fixtures; unexamined.
+- Installed package: interim build #2 (sha 566fe705…, code == head
+  32b90754). Rebuild #3 sha 7bbe402e… byte-differs (non-reproducible
+  build, embedded timestamps) but is code-identical; not installed —
+  deferred to the final clean-install phase.
