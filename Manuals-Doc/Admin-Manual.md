@@ -1312,6 +1312,15 @@ hide audit records, and never affect test dispatch. Raw framework
 stdout/stderr is not forwarded — execution output stays in the run
 evidence download.
 
+
+### 7.5 User administration actions
+
+**Reset password** on the users page issues a new initial password
+for the account — communicate it out of band; the user must replace
+it at first sign-in. **Save project access** on the user-access page
+applies the per-project grants for the selected user — project
+visibility updates immediately.
+
 ## 8. Backup, restore, and upgrades
 
 ### 8.1 What to back up

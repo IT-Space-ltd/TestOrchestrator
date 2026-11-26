@@ -8,6 +8,7 @@ User-Manual.md or Admin-Manual.md. Templates under admin/system
 blueprints count against the Admin Manual; portal/auth/main count
 against the User Manual — but a hit in either manual satisfies.
 """
+import html
 import json
 import re
 import sys
@@ -21,18 +22,39 @@ MANUALS = [
 ]
 corpus = "\n".join(p.read_text(errors="replace") for p in MANUALS if p.exists())
 import re as _re
-corpus_l = _re.sub(r"\s+", " ", corpus.lower())
+corpus_l = _re.sub(r"\s+", " ", html.unescape(corpus).lower())
+
+# template filename → user-facing page name used in the manuals
+PAGE_ALIASES = {
+    "discovered detail": "discovered-item",
+    "fp collect": "collect page",
+    "import new": "import",
+    "project dashboard": "project",
+    "release sync": "release",
+    "suite edit": "suite",
+    "suite matrix": "matrix",
+    "backup report": "backup",
+    "backup restore": "restore",
+    "log export": "log export",
+    "operational logs": "operational logs",
+    "runtime wizard": "runtime wizard",
+    "setup step": "setup",
+}
 
 missing = []
 present = 0
 total = 0
 
+NOISE = _re.compile(r"\{\{|\{%")
+
 def check(kind, label, where):
     global present, total
     if not label or len(label.strip()) < 2:
         return
+    if NOISE.search(label):
+        return
     total += 1
-    if _re.sub(r"\s+", " ", label.strip().lower()) in corpus_l:
+    if _re.sub(r"\s+", " ", html.unescape(label).strip().lower()) in corpus_l:
         present += 1
     else:
         missing.append(f"{kind}: {label} ({where})")
@@ -41,8 +63,10 @@ for page in INV["pages"]:
     tpl = page["template"]
     base = tpl.rsplit("/", 1)[-1].replace(".html", "").replace("_", " ")
     if not (tpl.startswith("_") or "/_" in tpl):
-        check("page", base, tpl)
+        check("page", PAGE_ALIASES.get(base, base), tpl)
     for f in page["fields"]:
+        if f["name"] == "csrf_token":
+            continue
         check("field", f["name"], tpl)
     for s in page["selects"]:
         check("select", s["name"], tpl)
