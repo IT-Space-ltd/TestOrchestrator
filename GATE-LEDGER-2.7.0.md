@@ -35,3 +35,21 @@ collection two-suite live cell; git publication; taskkill /F wrapper
 test; subdirectory/ssh cells for remaining frameworks; storage stays
 "not run, owner decision"; Phase 6 entirely. 2.8.0 backlog recorded in
 CHANGELOG (product collections, suite generalization, plan polymorphism).
+
+## 2026-11-26 night — schedule cells + .tsc discovery defect
+
+- **New defect found + fixed** (`70272675`): `.tsc` collection files were
+  never discovered — scan filters matched `.ts` only in both
+  discovery/katalon.py and legacy gitsync. Fixed both; regression test
+  passes. Rides the final build.
+- **Live schedule cells on the installed package** (fake-kre, synthetic
+  credential file only):
+  - `5c2448469a07` scheduled-collection-2suites — completed/passed, ONE
+    execution, units=0 — confirms one-KRE-invocation semantics (one
+    capacity slot; timeout/overlap treat it as one run).
+  - `ce6fbe710289` scheduled-suite — completed/passed.
+  - `efed9fedf042` scheduled-plan — completed/passed.
+  - Discovery verified two members [TS1, TS2] on the collection.
+  - Limitation: legacy gitsync discovery does not extract collection
+    runmode (the new framework adapter does — shown in tree once the
+    final build lands).
