@@ -11,7 +11,54 @@ provenance columns, `artifact_stores`, and discovery fingerprints.
 New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 `migration_pending`; `o4b5c6d7e8f9` adds
 `runtime_connections.licensing_mode` / `license_refs` /
-`license_server_url`.
+`license_server_url`; `p5c6d7e8f9a0` adds `api_tokens.expires_at`.
+
+### Fixed
+
+- **ISS-023 — cancel intent now governs the terminal state across
+  Buildbot retries.** A cancel racing a retry could be lost: the retry
+  completed with passing results and the execution reported
+  `completed`/passed despite the operator's cancel. The classification
+  captures cancel intent before the collection pipeline, clears
+  contradictory unrequested-abort text, and refreshes the row before
+  reading intent (a heartbeats-stale row could misclassify a requested
+  cancel). Verified live on Linux ssh transport: queued, dispatched,
+  running and mid-retry cancels all end `canceled` — the mid-retry
+  cell (`7aaaf9e5849e`) killed the dispatcher mid-run, the cancel won
+  the retry window and no retry ever ran.
+- **ISS-024 — ssh remote workdirs are bounded.** `to_ssh_exec` never
+  removed per-execution remote directories; 1.5G accumulated on the
+  acceptance guest filled /tmp and broke SFTP staging. Workdirs are
+  removed after collection (success, failure, confirmed cancel) and a
+  preparation-time sweep removes stale marker-carrying siblings older
+  than 24h — foreign directories are never touched; `keep_workdir` is
+  an explicit debugging opt-out still bounded by the sweep.
+
+### Added
+
+- **CI API token expiry (P3.13).** Optional `expires_at` — default 90
+  days at creation, adjustable 1–3650 days, explicit never-expires
+  opt-out. Existing tokens migrate to NULL and stay valid. An expired
+  token is denied like a revoked one, the denial is audited, and the
+  integrations page surfaces expired / days-left (warning ≤14 days) /
+  never distinctly. Migration `p5c6d7e8f9a0` (additive, rollback
+  verified).
+
+### Removed
+
+- **`adapters/updater.py` placeholder seam** — unwired
+  `NotConfiguredError` stub; the real updater lives in
+  `testorchestrator/updater.py` with the full verify/drain/apply/
+  activate/health-check flow.
+
+### Changed
+
+- **`authoring.cleanup_abandoned` is wired into the reconcile loop** —
+  f00557d8 added it with tests but never invoked it; abandoned drafts
+  accumulated forever. Only user-abandoned drafts are touched.
+- **`.run` installer build default tracks the current release** — the
+  hardcoded 1.9.0 fallback silently wrapped a stale payload; the
+  default is now derived from `release/release.json`.
 
 ### Fixed
 
