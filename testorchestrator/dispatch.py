@@ -3860,6 +3860,14 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
     # Capture the cancel intent BEFORE the collection pipeline
     # transitions the row through COLLECTING/NORMALIZING/FINALIZING —
     # checking ex.state at the end would never see CANCEL_REQUESTED.
+    # Refresh first: the reconcile query may have loaded this row
+    # heartbeats before a concurrent request_cancel committed — the
+    # identity-map object would otherwise classify a requested cancel
+    # as an unrequested abort (live cell 45566a02).
+    try:
+        db.session.refresh(ex)
+    except Exception:
+        pass    # row gone — the capture below degrades honestly
     cancel_requested = (ex.state == ExecutionState.CANCEL_REQUESTED
                         or bool(ex.cancel_reason))
     rt0 = db.session.get(RuntimeConnection, ex.runtime_id)
@@ -3955,6 +3963,12 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                     "manual verification required")
             else:
                 ex.state = ExecutionState.CANCELED
+                # A prior racing classification pass may already have
+                # written the unrequested-abort text before the cancel
+                # commit landed — never let a contradicting message
+                # survive next to the user-intent terminal state.
+                ex.error_kind = ""
+                ex.error_text = ""
             ex.outcome = Outcome.INCOMPLETE
         else:
             # Unrequested abort — worker loss/external stop are
