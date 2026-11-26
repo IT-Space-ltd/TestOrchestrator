@@ -3966,10 +3966,6 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
             ex.outcome = Outcome.INCOMPLETE
             record_audit("system",
                          "execution.buildbot_aborted_unrequested", ex.id)
-    elif results_code == 0 or has_results:
-        # A failed build with real junit is failed TESTS — the
-        # normalized outcome carries the verdict, not the step status.
-        ex.state = ExecutionState.COMPLETED
     elif (blocked := _retry_blocked_line(adapter, ex)) is not None:
         # The retry prep step REFUSED to launch: the prior attempt's
         # liveness could not be proven stopped, or the configured
@@ -3977,6 +3973,10 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         # still be executing — UNKNOWN is the honest state: open
         # reservations stay held until an operator reconciles, never
         # a silent terminal label and never a freed slot.
+        # Checked BEFORE the results branch: when the latest attempt
+        # was blocked, any junit it carries is stale residue from the
+        # interrupted original attempt — never a verdict of the
+        # blocked retry.
         ex.state = ExecutionState.UNKNOWN
         ex.error_kind = "infrastructure"
         ex.error_text = (blocked + " — automatic relaunch blocked; "
@@ -3985,6 +3985,10 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         ex.outcome = Outcome.INCOMPLETE
         record_audit("system", "execution.retry_blocked",
                      f"{ex.id}: {blocked}")
+    elif results_code == 0 or has_results:
+        # A failed build with real junit is failed TESTS — the
+        # normalized outcome carries the verdict, not the step status.
+        ex.state = ExecutionState.COMPLETED
     else:
         ex.state = ExecutionState.FAILED
         # EXCEPTION (4) = the step never ran the test binary — an
@@ -4113,7 +4117,7 @@ def _retry_blocked_line(adapter: BuildbotAdapter,
         return None
     try:
         log = adapter.run_log(builds[-1]["buildid"],
-                              step_names=("prep",))
+                              step_names=("prep", "prep_1"))
     except Exception:
         return None
     for line in (log or "").splitlines():
@@ -4125,7 +4129,7 @@ def _retry_blocked_line(adapter: BuildbotAdapter,
         # emitted output line.
         body = line[1:] if line[:1] in "oehi" else line
         if body.startswith("TO_RETRY_BLOCKED:"):
-            return line.strip()[:400]
+            return body.strip()[:400]
     return None
 
 
