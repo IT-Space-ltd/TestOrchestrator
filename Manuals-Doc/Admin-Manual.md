@@ -2451,4 +2451,36 @@ verification. **Run verification** re-checks the step's requirements
 and reports exactly what is missing — a green verification per step
 is required before the system serves traffic.
 
+---
+
+## 26. Quick-start — first installation in thirty minutes
+
+For a first evaluation on a single Linux host:
+
+1. **Verify the package.** Download the tarball and its `.sha256`
+   file; run `sha256sum -c` — it must print OK. Never install an
+   unverified package.
+2. **Extract** into a scratch directory and run
+   `sudo sh install.sh --yes` inside it. Defaults: payload
+   `/opt/testorchestrator`, data `/var/lib/testorchestrator`.
+   For custom locations use `--data`/`--config` — existing data is
+   always preserved (in-place upgrade is the same command).
+3. **Check the services.** `systemctl status testorchestrator-web` —
+   all units active. The installer prints the exact unit names.
+4. **Open the portal** at the configured address and complete the
+   setup steps — each needs a green **Run verification** (§25.7).
+5. **Create the first admin**, sign in, and set the network
+   configuration if the portal must be reachable from other machines
+   (§B.23 — validate certificates before applying).
+6. **Register a runtime.** For a first evaluation the local worker
+   is already there; the runtime wizard (§25.6) adds framework
+   runtimes. Readiness probes run automatically.
+7. **Hand over to the users** — the User Manual quick-start takes
+   them from sign-in to their first run in fifteen minutes.
+
+*What if it doesn't work:* the three most common first-install
+problems are port already in use (change ports in network config),
+certificate mismatch (validate before applying — §B.23), and a
+runtime probing failed because the framework tool is missing on the
+host (the probe output names the exact missing executable).
 
