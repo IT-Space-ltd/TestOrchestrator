@@ -91,3 +91,42 @@ provide access. Not blocking: synthetic fixture covers the cells.
 **Still not run:** remaining-framework subdirectory/ssh cells, git
 publication, taskkill /F, nested/monorepo/unicode node layouts,
 Phase 6 entirely.
+
+## 2026-11-27 — probe semantics + Katalon format confirmation (items 1-3)
+
+**Item 3 DONE — collection format confirmed from a genuine Katalon
+project** (janos-szenfner/Katalon-cert, sha f5b6efe): real projects save
+collections as `.ts` files with `TestSuiteCollectionEntity` root —
+'Test Suite Collection v1.ts' etc. Discovery over the real repo on the
+installed package: 94 cases, 14 suites, 3 collections with correct
+membership (e.g. 'Test Suite Collection 3' → All-Search-Engine,
+IT-Space-small, IT-Space). Classification is by XML root tag, never the
+extension — the `.tsc` scan addition CANNOT misclassify `.ts` suites;
+regression test `test_real_ts_suite_not_misclassified` passes (2/2 in
+tests/test_tsc_discovery.py).
+
+**Item 2 — tool locations on the target (documented rule proposal):**
+- Jest: resolved via `npx --no-install jest` FROM THE STAGED PROJECT —
+  project deps must exist in the staged tree. Since staging is git-sync,
+  the documented rule: **the project's lockfile deps are installed by
+  the operator on the target in the project checkout the binding syncs
+  (committed node_modules is a fixture shortcut, NOT the product
+  workflow)** — the probe names `npm ci` as the install step.
+- Newman: pinned target tooling — either executable_path-pinned binary
+  or `npx --no-install newman` resolution. Verified present on the
+  guest: newman 6.2.3 on PATH.
+- Bruno: `bru` pinned binary at executable_path or on PATH. Verified
+  on guest: bru 4.4.0.
+- One documented rule proposal (owner approval needed): **operator-
+  pinned tooling on the target for CLIs (newman/bru); project-local
+  deps for npx-resolved frameworks (jest/playwright/cypress), installed
+  per-runner, never auto-installed, never required to be committed.**
+
+**Item 1 PARTIAL — probe output:** probes execute and produce verdicts
+(readiness gate correctly refuses dispatch with
+`not dispatch-ready (target-unavailable)`); the probe's per-tool
+markers are defined in adapters/nodefw.py PROBE_SH with actionable
+install steps (`npm ci in the project root, or npm install jest`).
+The captured target-unavailable DETAIL from the failed guest probes
+was not extracted before session end — probe output lives in the
+buildbot step logs of the rdy-* builds on the guest.

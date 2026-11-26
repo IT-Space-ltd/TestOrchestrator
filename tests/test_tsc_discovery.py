@@ -43,3 +43,31 @@ def test_tsc_collection_discovered(tmp_path):
     coll = next(c for c in colls if c.path.endswith("smoke.tsc"))
     assert len(coll.members) == 2
     assert "runmode:SEQUENTIAL" in (coll.tags or "")
+
+
+def test_real_ts_suite_not_misclassified(tmp_path):
+    """Genuine Katalon projects save BOTH suites and collections as .ts —
+    the entity tag, never the extension, decides. A TestSuiteEntity in a
+    .ts file must stay a suite even with .tsc scanning enabled, and a
+    TestSuiteCollectionEntity in a .ts file is a collection (the
+    Katalon-cert repo format: 'Test Suite Collection v1.ts')."""
+    suite_ts = """<?xml version="1.0"?>
+<TestSuiteEntity><name>API-TS</name></TestSuiteEntity>"""
+    coll_ts = TSC.replace("<name>smoke</name>",
+                          "<name>Test Suite Collection v1</name>")
+    _write(tmp_path / "fixture.prj", "<Project></Project>")
+    _write(tmp_path / "Test Suites" / "API-TS.ts", suite_ts)
+    _write(tmp_path / "Test Suites" / "Test Suite Collection v1.ts",
+           coll_ts)
+    from types import SimpleNamespace
+    ctx = SimpleNamespace(base=tmp_path,
+                          fp=SimpleNamespace(project_root=""))
+    res = katalon.parse(ctx)
+    by_path = {i.path: i for i in res.items}
+    suite = by_path.get("Test Suites/API-TS.ts")
+    coll = by_path.get("Test Suites/Test Suite Collection v1.ts")
+    assert suite is not None and suite.kind == "suite", \
+        f"suite misclassified: {suite and suite.kind}"
+    assert coll is not None and coll.kind == "collection", \
+        f"collection misclassified: {coll and coll.kind}"
+    assert len(coll.members) == 2
