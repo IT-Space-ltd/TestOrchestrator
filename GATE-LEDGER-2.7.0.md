@@ -236,3 +236,21 @@ local-account policy; audit; admin UI; SecretRef-only secrets;
 security requirements as provider acceptance gates; stand-in-only
 testing in the one VM; migration invariant + rollback). Documentation
 only — no code or schema change in 2.7.0.
+
+## Licensed cells — BLOCKED by owner decision (replaces step 2)
+
+The exposed Katalon key cannot be rotated (floating license). The
+real-key freeze stays. Marked "blocked: key exposed, not rotatable,
+owner decision": true-positive SSH credentialed cell, POSIX PB
+credentialed cell, licensed two-session overlap. Synthetic key +
+fake-KRE everywhere else. New pre-sign-off step: fixed-string exposure
+scan of the exposed key over the final tarball, .run and Windows
+installers, SHA256SUMS.txt, docs, ledger and all evidence — hit count
+must be zero. Release notes must state: key exposed, not rotatable,
+blocked at dispatch by the pre-flight guard, licensed KRE cells not
+run.
+
+## Interim build #2 installed (matrix base)
+
+- head adaf5f6e, tarball sha256 566fe705de90de7e52869ce22ff62cabac3e283909841cbe726dd4922cc4c8df
+- in-place upgrade on to-accept-linux; portal 200 after restart.
