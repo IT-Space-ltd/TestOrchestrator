@@ -601,7 +601,11 @@ the environment is missing or misnamed.
 
 Open the execution from the Executions list. You see:
 
-- the **state** — `queued`, `running`, then terminal,
+- the **state** — the run moves through `queued` → `dispatched`
+  (handed to the orchestrator) → `preparing` → `running` →
+  `collecting` → `normalizing` → `publishing` → `finalizing`, then a
+  terminal state. Collection continues even when tests fail — your
+  evidence is never abandoned because a test failed,
 - live **step output** as steps complete,
 - the **source revision** the run checked out — runs always execute
   a recorded, immutable revision, never a moving branch.
@@ -612,13 +616,18 @@ never `passed`.
 
 ### 5.6 When it finishes — outcomes
 
-| Terminal state | Meaning |
-|---|---|
-| `completed` / PASSED | every test passed |
-| `completed` / FAILED | tests ran; at least one failed — this is a *test result*, not a system error |
-| `failed` / INCOMPLETE | the pipeline itself broke — artifacts missing, target unreachable, preparation failed. INCOMPLETE is never a test result |
-| `canceled` | canceled by a user |
-| `blocked` | stopped by a pre-flight guard before anything ran (for example the licensed-key guard) |
+| Terminal state | Outcome | Meaning |
+|---|---|---|
+| `completed` | PASSED | every test passed |
+| `completed` | FAILED | tests ran; at least one failed — this is a *test result*, not a system error |
+| `failed` | INCOMPLETE | the pipeline itself broke — artifacts missing, target unreachable, preparation failed. INCOMPLETE is never a test result |
+| `canceled` | INCOMPLETE | canceled by a user — cancel intent governs even across retries |
+| `unknown` | — | the outcome is ambiguous after a timeout or service restart — investigate before resolving |
+
+A run that violates a pre-flight guard (for example the licensed-key
+guard) is **refused at dispatch** — no execution is created at all,
+and the refusal message says exactly why. Guards never produce a
+half-run.
 
 Artifacts — reports, logs, screenshots the framework produces — are
 collected into the execution's artifact store automatically. An
