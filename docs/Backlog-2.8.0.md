@@ -76,3 +76,71 @@ Moved from CHANGELOG.md (owner decision). Owner-approved deferrals from
 16. **Production-key licence test** (`test_production_key_autoloaded`)
     — needs a production-shaped key fixture; cannot run with synthetic
     keys. Effort small once a fixture key exists. Risk: low.
+
+### Epic: external authentication and user administration (Admin → Users)
+
+Owner-specified epic; stand-in testing only in the single allowed VM
+(Keycloak for OIDC/SAML, OpenLDAP or Samba AD for LDAP), results
+labelled "stand-in, not live-provider accepted". Migration invariant:
+existing local users and tokens keep working unchanged, with a rollback
+path.
+
+17. **Providers — generic OIDC** with presets for Microsoft Entra ID and
+    Google Workspace; **LDAP/AD over LDAPS or StartTLS** with a
+    least-privilege bind account; **SAML 2.0** after those. Effort:
+    OIDC ~1 wk, LDAP ~1 wk, SAML ~1 wk. Risk: high — auth-critical
+    surface; needs the security requirements (item 27) proven per
+    provider with negative tests.
+18. **Google Workspace checks** — validate the `hd` claim against the
+    allowed domain, reject accounts without it, require
+    `email_verified`. Effort ~1 d. Risk: low; negative tests per rule.
+19. **Entra ID** — tenant restriction; role mapping through app roles
+    first with group claims as fallback; document the group-count
+    limits for SAML and OIDC (overage claims). Effort ~2 d. Risk:
+    medium — overage-claim behaviour differs per flow.
+20. **Role and project mapping** — IdP groups/app roles → product roles
+    and project scopes, with a mapping preview before saving. Effort
+    ~3–4 d. Risk: medium — wrong mapping grants excess privilege;
+    preview is the mitigation, needs UI tests.
+21. **Account linking and provisioning** — link by stable subject ID,
+    never by email alone; create users on first sign-in; SCIM
+    create/update/deactivate later. Effort ~3 d (+SCIM ~1 wk later).
+    Risk: high — email-only linking enables account takeover when an
+    IdP reassigns an address; test impact: takeover-negative tests.
+22. **Break-glass local admin** + optional enforce-SSO-for-everyone-
+    else setting. Effort ~1 d. Risk: medium — misconfiguration can
+    lock out all admins; needs a recovery path test.
+23. **MFA** — rely on the IdP for SSO users; TOTP for local accounts.
+    Effort ~3–4 d. Risk: medium.
+24. **Sessions and tokens** — idle and absolute timeouts, forced
+    logout, deactivated users lose sessions and API tokens. Effort
+    ~2–3 d. Risk: medium — token invalidation must not break worker
+    authentication; regression tests over the API surface.
+25. **Local accounts** — password policy, lockout, login rate limiting.
+    Effort ~2–3 d. Risk: low.
+26. **Audit** — sign-ins, failures, role changes, provider
+    configuration changes. Effort ~1–2 d. Risk: low; extends the
+    existing audit machinery.
+27. **Security requirements** — OIDC: `state`, `nonce`, PKCE, issuer/
+    audience/signature validation. SAML: signed assertions, audience
+    check, clock-skew handling. LDAP: certificate validation, filter-
+    input escaping. HTTPS only; all claims and directory attributes
+    treated as untrusted. Effort: embedded in 17–19. Risk: high if
+    skipped — these are the acceptance gates for each provider.
+28. **Admin UI** — source badge per user (local/LDAP/OIDC), last login,
+    disable, "test connection" button, claims diagnostic; same
+    accessibility standard as other admin forms. Effort ~3–4 d. Risk:
+    low; accessibility tests required.
+29. **Secrets** — client secrets and bind passwords as `SecretRef`
+    names only, never plain values, never in logs. Effort ~1 d.
+    Risk: low; reuse the secrets-store machinery.
+30. **Testing plan** — Keycloak + OpenLDAP/Samba AD stand-ins in the
+    one allowed VM, labelled "stand-in, not live-provider accepted";
+    optional single real Entra/Google check if a test tenant is
+    supplied. Effort ~2–3 d harness. Risk: low.
+31. **Migration** — existing local users/tokens unchanged, rollback
+    path required. Effort ~1–2 d. Risk: high if wrong — customer
+    lockout; migration and rollback tests mandatory.
+
+2.7.0 ships the read-only side only: tree view over existing inventory,
+stale badges, last-result column, and the schedule-form target picker.
