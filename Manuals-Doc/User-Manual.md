@@ -200,12 +200,12 @@ keeps the last good inventory marked stale rather than emptying it.
 
 Typical diagnostics:
 
-| Symptom | Meaning |
-|---|---|
-| `no Katalon .prj file found under the bound path` | The binding root or subdirectory does not point at a Katalon project. Fix the subdirectory. |
-| `multiple .prj files` | The bound scope contains several projects — narrow the subdirectory. |
-| `symlink escape skipped` | A link inside the repo pointed outside the checkout; it was ignored. |
-| `bound worktree/subdirectory missing` | The binding was never synced, or the worktree was cleaned. Sync again. |
+| What you see | Why it happened | What you do — example |
+|---|---|---|
+| `no Katalon .prj file found under the bound path` | The binding does not point at a Katalon project folder. | Change the subdirectory. Example: use `tests/katalon` if the `.prj` file is there. |
+| `multiple .prj files` | The binding can see more than one Katalon project, so it does not know which one you mean. | Narrow the subdirectory to one project, for example `tests/katalon/regression`. |
+| `symlink escape skipped` | A link inside the repository pointed outside the checkout. TestOrchestrator ignored it for safety. | Put the real file inside the repository instead of linking outside it. |
+| `bound worktree/subdirectory missing` | The repository was never synced, or the local worktree was cleaned. | Press **Sync** again, then check that the subdirectory still exists. |
 
 ![Discovered suite with run configuration](Screenshot-Doc/user/discovered-suite-run.png)
 
@@ -318,17 +318,17 @@ you only set what you need.
 
 #### Postman (Newman / Postman CLI)
 
-| Setting | What it does | Allowed values | Default |
+| Setting | What it does, in plain words | Allowed values / default | Example |
 |---|---|---|---|
-| `engine` | which CLI runs the collection | `newman`, `postman-cli` | `newman` |
-| `environment_file` | Postman environment JSON — fills `{{variables}}` | path in repo | empty |
-| `globals_file` | Postman globals JSON | path in repo | empty |
-| `data_file` | iteration data file (CSV/JSON) | path in repo | empty |
-| `iterations` | how many times the collection runs | positive integer | 1 |
-| `delay_ms` | delay between requests | milliseconds | 0 |
-| `timeout_ms` | request timeout | milliseconds | engine default |
-| `insecure` | disables TLS certificate verification | `true`/`false` | `false` — verification ON |
-| `capture_bodies` | include raw request/response bodies in artifacts | `true`/`false` | `false` — bodies stay out |
+| `engine` | chooses which command runs the collection | `newman` or `postman-cli`; default `newman` | leave it on `newman` unless your runner only has Postman CLI |
+| `environment_file` | fills `{{variables}}` from a Postman environment JSON file | a path in the repository; default empty | `postman/local.postman_environment.json` |
+| `globals_file` | fills Postman global variables | a path in the repository; default empty | `postman/globals.json` |
+| `data_file` | feeds rows of data into repeated requests | a CSV or JSON path in the repository; default empty | `postman/users.csv` |
+| `iterations` | repeats the whole collection | a positive whole number; default `1` | `3` means three full passes |
+| `delay_ms` | waits between requests | milliseconds; default `0` | `500` waits half a second |
+| `timeout_ms` | stops a request that takes too long | milliseconds; default uses the engine's own timeout | `10000` allows ten seconds |
+| `insecure` | turns off TLS certificate checking | `true`/`false`; default `false`, so checking stays on | use `true` only for a test server with a self-signed certificate |
+| `capture_bodies` | saves raw request and response bodies in artifacts | `true`/`false`; default `false`, so bodies stay out | turn on only when the responses contain no secrets |
 
 *Worked example:* your collection uses `{{host}}` everywhere. Put
 `postman/local.postman_environment.json` in **environment file** and
@@ -342,14 +342,14 @@ self-signed certificates. Never for production endpoints.
 
 #### Bruno
 
-| Setting | What it does | Allowed values | Default |
+| Setting | What it does, in plain words | Allowed values / default | Example |
 |---|---|---|---|
-| `environment` | environment name (`--env`) | a name defined in the collection's `environments/` folder | empty |
-| `environment_file` | environment file (`--env-file`) | path in repo | empty |
-| `collection_roots` | folders that are collection roots (contain `bruno.json`) | list of paths | scan automatically |
-| `iterations` | run count | positive integer | 1 |
-| `include_tags` / `exclude_tags` | tag filters | tag names | empty |
-| `delay_ms` | delay between requests | milliseconds | 0 |
+| `environment` | picks a Bruno environment by name | a name defined in the collection's `environments/` folder; default empty | `local` |
+| `environment_file` | picks a Bruno environment file directly | a path in the repository; default empty | `environments/local.bru` |
+| `collection_roots` | tells discovery which folders are collection roots | a list of paths; default scans automatically | `api` when `api/bruno.json` exists |
+| `iterations` | repeats the collection | a positive whole number; default `1` | `2` |
+| `include_tags` / `exclude_tags` | runs only matching tags, or leaves matching tags out | tag names; default empty | include `smoke`, exclude `slow` |
+| `delay_ms` | waits between requests | milliseconds; default `0` | `250` |
 
 *Worked example:* your collection defines an environment `local` in
 `environments/local.bru` — set **environment** to `local`.
@@ -360,10 +360,10 @@ collection root folder, not above or below it.
 
 #### Jest
 
-| Setting | What it does | Allowed values | Default |
+| Setting | What it does, in plain words | Allowed values / default | Example |
 |---|---|---|---|
-| `test_path_pattern` | which test files run | jest path regex | all |
-| `test_name_pattern` | which tests inside files run (`-t`) | jest name regex | all |
+| `test_path_pattern` | chooses which test files run | a Jest path regex; default is all files | `src/.*\.spec\.ts` |
+| `test_name_pattern` | chooses tests inside those files (`-t`) | a Jest name regex; default is all test names | `login` |
 
 Jest configuration is read literally from `jest.config.*` and the
 `package.json` `jest` object — JavaScript config files are never
@@ -642,11 +642,14 @@ themselves passed: evidence you cannot download is not evidence.
 
 This section walks each authoring flow end to end. Who may do what:
 
-| Action | Admin | Test Manager | Tester | PO |
+| You want to… | Admin | Test Manager | Tester | PO |
 |---|---|---|---|---|
-| Create / edit suites, releases, schedules | yes | yes | no | no |
-| Run suites / releases / run-now schedules | yes | yes | yes | no |
-| View everything | yes | yes | yes | yes |
+| create or change suites, releases, and schedules | yes | yes | no | no |
+| run suites or releases now, or use **Run now** on a schedule | yes | yes | yes | no |
+| open and read everything | yes | yes | yes | yes |
+
+Example: a tester may start the nightly regression manually, but only
+a test manager or admin may change what that regression contains.
 
 ### 6.1 Create and edit a test suite
 
@@ -1091,12 +1094,12 @@ against project history *before* anything is written.
 
 Decisions you will see:
 
-| Decision | Meaning | On confirm |
+| Decision | What it means, in plain words | What happens when you confirm — example |
 |---|---|---|
-| `new` | No matching run in history | Imported as a new execution |
-| `duplicate` | Same run identity already imported (by `execution.uuid`, or by identical content) | Skipped — re-check at confirm time keeps it safe |
-| `ambiguous` | Conflicting evidence (e.g. same identity, different content) | Only imported if you explicitly tick it; it is imported as a **new** run — never merged |
-| `supplement` | Same run, with data the stored execution lacks (e.g. a collection suite that arrived later) | The missing pieces are merged into the existing execution |
+| `new` | This run is not in history yet. | It is imported as a new execution. Example: yesterday's Katalon run appears as a new row. |
+| `duplicate` | The same run was already imported, either by `execution.uuid` or by identical content. | It is skipped. Example: importing the same zip twice does not make two rows. |
+| `ambiguous` | The evidence conflicts — for example the identity matches but the content differs. | It is imported only if you explicitly tick it, and then as a **new** run — never merged into the old one. |
+| `supplement` | This is the same run, but it has missing pieces, such as a collection suite that arrived later. | Only the missing pieces are merged into the existing execution. |
 
 Group behaviour:
 
@@ -2356,12 +2359,12 @@ appear for other frameworks, and the server re-validates on save.
 artifacts go. **Save destination** adds or updates one. The provider
 selector offers:
 
-| Provider | What it is |
-|---|---|
-| Amazon S3 | S3 bucket storage — needs bucket, region, credentials |
-| Microsoft Azure Blob Storage | Azure containers — account key or SAS |
-| Google Cloud Storage | GCS buckets — service-account credentials |
-| local | the built-in local evidence store (default) |
+| Provider | What it is, in plain words | Example |
+|---|---|---|
+| Amazon S3 | Amazon bucket storage. You supply the bucket, region, and credentials. | artifacts go to `s3://example-artifacts/project-a` |
+| Microsoft Azure Blob Storage | Azure container storage. You use an account key or SAS token. | artifacts go to the `test-results` container |
+| Google Cloud Storage | Google bucket storage. You use service-account credentials. | artifacts go to `gs://example-test-artifacts` |
+| local | the built-in evidence store on the server — the default. | files stay under the instance evidence directory |
 
 Provider-specific fields: `bucket` (the container/bucket name),
 `region` (the cloud region), `endpoint_url` (for S3-compatible
