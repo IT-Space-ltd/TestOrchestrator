@@ -2164,10 +2164,10 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             from .gitsync import apply_native_inventory
             out = apply_native_inventory(ex, cj)
             if out.get("error"):
-                ex.error_message = (
+                ex.error_text = (
                     "collection ingest failed: " + out["error"])[:512]
         else:
-            ex.error_message = (
+            ex.error_text = (
                 "native collection produced no collect.json")[:512]
     junit_files = set(kre_adapter.discover_reports(report_dir))
     manifest = results_mod.build_evidence_manifest(report_dir, junit_files)
@@ -2380,9 +2380,18 @@ def _normalize(ex: Execution) -> None:
             message=case.message[:4000],
             unresolved=parsed.discrepant,
         ))
-    ex.outcome = Outcome(
-        aggregate_outcome([c[0] for c in cases], completed=completed)
-    )
+    if (ex.snapshot().get("run_config") or {}).get("native_collect"):
+        # A collection op carries no test results — junit aggregation
+        # over zero cases would always read INCOMPLETE, even when the
+        # collection itself succeeded. The outcome reflects the
+        # operation: ingestion success = PASSED, ingest failure or a
+        # missing collect.json (error_message set above) = INCOMPLETE.
+        ex.outcome = (Outcome.INCOMPLETE if ex.error_text
+                      else Outcome.PASSED)
+    else:
+        ex.outcome = Outcome(
+            aggregate_outcome([c[0] for c in cases], completed=completed)
+        )
     if (ex.outcome == Outcome.INCOMPLETE
             and ex.exit_status not in (None, 0) and cases):
         record_audit(

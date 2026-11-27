@@ -313,6 +313,70 @@ def test_success_collects_and_completes(app, monkeypatch, tmp_path):
         assert ex.outcome == Outcome.PASSED
 
 
+def test_native_collect_outcome_reflects_operation(app, monkeypatch,
+                                                   tmp_path):
+    """A successful native collection ends PASSED (the operation
+    succeeded), never INCOMPLETE from junit aggregation over zero
+    cases. Ingest failure reads INCOMPLETE with the reason in
+    error_text (regression: error_message was never a model column —
+    ingest errors were silently dropped)."""
+    import json as _json
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 0, "claimed": True}
+    stub.br_state["8"] = {"complete": True, "results": 0, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        from testorchestrator.execution import (FrameworkProject,
+                                                GitBinding)
+        di = db.session.get(DiscoveredItem, diid)
+        fp = FrameworkProject(project_id=di.project_id,
+                              binding_id=di.binding_id,
+                              framework="jest", name="jest",
+                              discovery_status="ok")
+        fp.test_roots_json = "[\".\"]"
+        db.session.add(fp)
+        db.session.flush()
+        bnd = db.session.get(GitBinding, di.binding_id)
+
+        def _mkex(brid):
+            ex = d.create_execution(
+                "u", None, binding=bnd,
+                run_config={"runtime_id": rtid, "native_collect": True,
+                            "fp_id": fp.id, "collect_roots": ["."]})
+            ex.state = ExecutionState.DISPATCHED
+            ex.dispatch_id = f"bb:{brid}"
+            ex.runner_id = rid
+            ex.runtime_id = rtid
+            db.session.commit()
+            return ex
+
+        # success: valid collect.json -> COMPLETED/PASSED, no error
+        ex = _mkex("7")
+        src = buildbot_cfg.artifacts_dir() / ex.id
+        src.mkdir(parents=True)
+        (src / "collect.json").write_text(_json.dumps({
+            "framework": fp.framework, "items": [
+                {"kind": "test", "path": di.path, "name": "t1",
+                 "node_id": di.path + "::t1", "granularity": "test",
+                 "tags": []}], "warnings": []}))
+        # failure: unreadable collect.json -> INCOMPLETE + reason
+        ex2 = _mkex("8")
+        src2 = buildbot_cfg.artifacts_dir() / ex2.id
+        src2.mkdir(parents=True)
+        (src2 / "collect.json").write_text("{not json")
+
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        db.session.refresh(ex2)
+        assert ex.state == ExecutionState.COMPLETED, ex.error_text
+        assert ex.outcome == Outcome.PASSED, \
+            f"collect outcome: {ex.outcome} err={ex.error_text}"
+        assert not ex.error_text
+        assert ex2.outcome == Outcome.INCOMPLETE
+        assert "ingest failed" in (ex2.error_text or "").lower()
+
+
 def test_kre_buildbot_failure_classifies_license(
         app, monkeypatch, tmp_path):
     """A KRE run ending results=2 with a license error in the run log
