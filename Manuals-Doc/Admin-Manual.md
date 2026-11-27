@@ -278,14 +278,14 @@ them. Evidence that never reached the repository cannot be recreated
 
 Download from the GitHub release `2.5`:
 
-| Asset | Use |
+| Asset | What you use it for — example |
 |---|---|
-| `testorchestrator-2.6.0-linux-x86_64.tar.gz` | Linux payload + installer |
-| `testorchestrator-2.6.0-linux-x86_64.run` | Self-extracting variant of the same payload |
-| `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` | Windows controller installer (§5.1) |
-| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | Corresponding sources for the bundled GPL components |
-| `SHA256SUMS.txt` | Checksums — also covers the bundled worker `.exe` |
-| `build-manifest.json` | Provenance: source commit, `dirty` flag, tool versions |
+| `testorchestrator-2.6.0-linux-x86_64.tar.gz` | The normal Linux installer package. Example: extract it, then run `install.sh`. |
+| `testorchestrator-2.6.0-linux-x86_64.run` | The same Linux payload in one self-extracting file. Example: use it when you want one executable download. |
+| `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` | The Windows controller installer (§5.1). Example: run it on a Windows Server that hosts the portal. |
+| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | The corresponding source code for the bundled GPL components. Keep it with the release for license compliance. |
+| `SHA256SUMS.txt` | The checksum list. Example: `sha256sum -c SHA256SUMS.txt --ignore-missing` proves the download was not corrupted or swapped. It also covers the bundled worker `.exe`. |
+| `build-manifest.json` | The build receipt: source commit, dirty flag, tool versions. Example: use it to prove exactly which commit produced the package. |
 
 The Windows Buildbot worker installer
 (`TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`) is
@@ -461,12 +461,12 @@ available, and the Health & services page.
 
 ### 4.5 Directory layout **[verified]**
 
-| Path (default / this doc install) | Contents |
+| Path (default / this doc install) | What lives there — example |
 |---|---|
-| `--payload` `/opt/testorchestrator` | Code, bundled runtime/wheels, `release/` (version, pubkey), `venv/`. Replaceable wholesale on upgrade. |
-| `--data` `/var/lib/testorchestrator` | Instance dir: `testorchestrator.db`, `certs/`, `licence.json`, `bindings/` (worktrees), `imported-evidence/`, `import-staging/`, `remote-runs/`, `buildbot/` (master+worker state). **This is the state — back it up.** |
-| `--config` `/etc/testorchestrator` | `web.env`, `buildbot/` (master.cfg, secrets.json, units), staged systemd units. |
-| `data/buildbot` vs `config/buildbot` | Runtime state vs provisioned config+credentials. |
+| `--payload` `/opt/testorchestrator` | The replaceable program: code, bundled runtime/wheels, `release/` (version, pubkey), and `venv/`. Example: an upgrade can replace this tree without touching your history. |
+| `--data` `/var/lib/testorchestrator` | The state you must not lose: `testorchestrator.db`, `certs/`, `licence.json`, `bindings/` worktrees, `imported-evidence/`, `import-staging/`, `remote-runs/`, and Buildbot runtime state. **Back this up.** |
+| `--config` `/etc/testorchestrator` | The service wiring: `web.env`, Buildbot `master.cfg` and `secrets.json`, plus staged systemd units. Example: change a port in `web.env`, then restart the service. |
+| `data/buildbot` vs `config/buildbot` | `data/buildbot` is what happened at runtime; `config/buildbot` is how the workers are meant to start, including credentials. |
 
 `TO_INSTANCE_DIR` points the app at the data dir; `TO_DATABASE_URI`,
 `TO_CERT_DIR` overrides
@@ -643,11 +643,11 @@ All execution targets are managed in **System → Infrastructure →
 Execution targets** — add, edit, test, enable, disable, drain, and
 remove without controller files, commands, or restarts. Three types:
 
-| Type | What it is | Where the job runs |
+| Type | What it is, in plain words | Where the job runs — example |
 |---|---|---|
-| `local` | The controller's own `to-local` Buildbot worker | This portal host |
-| `buildbot-worker` | Remote Windows or Linux Buildbot worker | The remote host, outbound PB |
-| `ssh` | Agentless SSH target | Remote host over SSH/SFTP — nothing TO-side installed there |
+| `local` | The worker built into the controller itself (`to-local`). | On the portal host — useful for small or trusted jobs. |
+| `buildbot-worker` | A Windows or Linux machine with the worker installer on it. It connects outward to the controller over PB. | On that remote machine — for example the Windows QA PC in the test lab. |
+| `ssh` | A host the controller reaches over SSH/SFTP. No TestOrchestrator worker is installed there. | On the SSH host — for example a Linux machine that already has KRE installed. |
 
 Remote workers dial **outbound** to the controller's Buildbot PB
 listener — nothing needs to be reachable *inbound* on the worker
@@ -1173,12 +1173,12 @@ needed) for them.
 
 ### 7.1a Roles in detail (2.7.0)
 
-| Role | Label in the UI | What they can do |
+| Role | Label in the UI | What they can do — example |
 |---|---|---|
-| `admin` | Admin | everything, including user administration, secrets, runtimes, system settings |
-| `test_manager` | Test Manager | manage projects, plans, suites, schedules; run tests; set `deps_prepare`; no user/secret/system administration |
-| `tester` | Tester | run tests, view results, manage own assignments |
-| `po` | PO (product owner) | read-only oriented project visibility, reports and evidence |
+| `admin` | Admin | Everything, including users, secrets, runtimes, and system settings. Example: add a worker or reset a password. |
+| `test_manager` | Test Manager | Manage projects, plans, suites, and schedules; run tests; set `deps_prepare`. They cannot administer users, secrets, or system settings. Example: create a nightly regression schedule. |
+| `tester` | Tester | Run tests, view results, and manage their own assignments. Example: start a suite and read its report. |
+| `po` | PO (product owner) | Mostly read-only project visibility, reports, and evidence. Example: check whether release coverage is green. |
 
 All four roles may open the About page. Role checks are enforced
 server-side on every request — hiding a button in the UI is never
@@ -1275,11 +1275,11 @@ visibility updates immediately.
 
 ### 8.1 What to back up
 
-| Path | Why |
+| Path | Why you need it — example |
 |---|---|
-| `data/testorchestrator.db` | Executions, results, users, settings, import bookkeeping |
-| `data/` (rest) | Evidence (`imported-evidence/`, `remote-runs/`), `licence.json`, `certs/`, `secret.key`, bindings worktrees |
-| `config/` | `web.env`, `buildbot/` credentials + master.cfg |
+| `data/testorchestrator.db` | The database: executions, results, users, settings, and import bookkeeping. Without it, history is gone. |
+| `data/` (the rest) | Evidence files (`imported-evidence/`, `remote-runs/`), `licence.json`, `certs/`, `secret.key`, and binding worktrees. Example: without `secret.key`, stored credentials cannot be decrypted. |
+| `config/` | `web.env`, Buildbot credentials, and `master.cfg`. Example: without these, services cannot start with the same wiring after a restore. |
 
 `toctl backup --to <dir>` produces `backup-<timestamp>.tar.gz` of the
 instance dir + cert dir (atomic: `.part` renamed on success; newest
@@ -1638,12 +1638,12 @@ card):
 
 Role capability summary (enforced server-side on every route):
 
-| Role | Projects/bindings/suites/releases/schedules | Run & cancel | Users, infra, secrets, network, licence |
+| Role | Projects, bindings, suites, releases, schedules | Run & cancel | Users, infrastructure, secrets, network, licence |
 |---|---|---|---|
-| **Admin** | create / edit / delete | yes | yes — full access |
-| **Test Manager** | create / edit | yes | no |
-| **Tester** | view | yes | no |
-| **PO** | view | no | no |
+| **Admin** | create / edit / delete — for example, delete a stale binding | yes | yes — full access |
+| **Test Manager** | create / edit — for example, build a release plan | yes | no |
+| **Tester** | view — for example, open a suite before running it | yes | no |
+| **PO** | view — for example, read release status | no | no |
 
 ### 12.4 Licence status (informational)
 
