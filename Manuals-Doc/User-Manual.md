@@ -242,20 +242,20 @@ A **framework** is the test tool your tests are written for —
 pytest, Robot Framework, Jest, and so on. TestOrchestrator supports
 twelve frameworks:
 
-| Framework choice in the UI | What it is |
-|---|---|
-| Katalon Studio | Katalon Runtime Engine (licensed commercial tool) |
-| pytest | the Python pytest test runner |
-| pytest-bdd | pytest with behaviour-driven feature files |
-| Behave | Python behaviour-driven framework |
-| Robot Framework | keyword-driven test framework |
-| Cypress | Cypress browser tests (JavaScript) |
-| Playwright Test (JS/TS) | Playwright's own test runner |
-| Playwright via pytest | Playwright driven through pytest |
-| GoogleTest (C/C++) | compiled C++ test binaries |
-| Jest (Node.js) | the Jest JavaScript test runner |
-| Postman collections (Newman / Postman CLI) | API test collections |
-| Bruno collections (bru CLI) | API test collections in Bruno format |
+| Framework choice in the UI | What it is, in plain words | Pick this when… (example) |
+|---|---|---|
+| Katalon Studio | the Katalon Runtime Engine — a commercial tool that needs its own licence | your team records tests in Katalon Studio |
+| pytest | the standard Python test runner | your tests are Python files with `test_` functions |
+| pytest-bdd | pytest plus feature files written in plain sentences | your Python tests follow the given/when/then style |
+| Behave | a Python framework that runs plain-sentence feature files | your team writes behaviour specs in Gherkin |
+| Robot Framework | a keyword-driven framework — tests read like spreadsheets of steps | your tests use Robot's keyword libraries |
+| Cypress | browser tests written in JavaScript with the Cypress tool | your team writes Cypress specs for the web UI |
+| Playwright Test (JS/TS) | Playwright's own JavaScript test runner | your browser tests use `@playwright/test` |
+| Playwright via pytest | Playwright browser tests driven through Python pytest | your team writes browser tests in Python |
+| GoogleTest (C/C++) | compiled C++ test programs | your tests are built into a binary with CMake |
+| Jest (Node.js) | the Jest JavaScript test runner | your project has `*.test.js` files |
+| Postman collections (Newman / Postman CLI) | API test collections exported from Postman | you test REST APIs with Postman |
+| Bruno collections (bru CLI) | API test collections in Bruno's file format | you test REST APIs with Bruno |
 
 You always pick the framework yourself. TestOrchestrator may
 *suggest* a framework after looking at your repository, but the
@@ -428,13 +428,13 @@ executing anything.
 
 Each framework project shows one of these statuses:
 
-| Status | Meaning | What to do |
-|---|---|---|
-| `ok` | discovery completed; items are in the inventory | nothing — you can select and run tests |
-| `checking` | discovery is running right now | wait |
-| `draft` | the framework project was created but not yet discovered | save triggers discovery automatically; use Rediscover if needed |
-| `failed` | discovery itself failed | read the error on the framework project page, fix the cause, rediscover |
-| `not-checked` | no discovery has run yet | use Rediscover |
+| Status | What it means, in plain words | Example of what you see | What to do |
+|---|---|---|---|
+| `ok` | the scan finished and your tests are listed | "12 tests found" in the inventory | nothing — you can select and run tests |
+| `checking` | the scan is running right now | a spinner on the framework project | wait a minute and refresh |
+| `draft` | the project was saved but not scanned yet | you just created the project | saving triggers a scan automatically; use Rediscover if needed |
+| `failed` | the scan itself went wrong (not your tests — the scan) | an error like "repository unreachable" | read the error on the framework project page, fix the cause, then Rediscover |
+| `not-checked` | no scan has run yet | a freshly imported project | use Rediscover |
 
 A refused native collection (§4.2) is not a failure — it never
 changes the discovery status.
@@ -616,13 +616,13 @@ never `passed`.
 
 ### 5.6 When it finishes — outcomes
 
-| Terminal state | Outcome | Meaning |
-|---|---|---|
-| `completed` | PASSED | every test passed |
-| `completed` | FAILED | tests ran; at least one failed — this is a *test result*, not a system error |
-| `failed` | INCOMPLETE | the pipeline itself broke — artifacts missing, target unreachable, preparation failed. INCOMPLETE is never a test result |
-| `canceled` | INCOMPLETE | canceled by a user — cancel intent governs even across retries |
-| `unknown` | — | the outcome is ambiguous after a timeout or service restart — investigate before resolving |
+| Terminal state | Outcome | What it means, in plain words | Example |
+|---|---|---|---|
+| `completed` | PASSED | everything ran and every test passed | 12 of 12 tests green |
+| `completed` | FAILED | the tests ran normally and at least one test failed — this is a genuine *test result*, not a system problem | 11 of 12 green, one assertion red |
+| `failed` | INCOMPLETE | the machinery broke, not the tests — artifacts missing, target unreachable, preparation failed. INCOMPLETE is never a test result | the worker lost its network mid-run |
+| `canceled` | INCOMPLETE | a user pressed cancel — that decision stands even across retries | you cancel a mistaken run |
+| `unknown` | — | nobody can tell what happened — a timeout or a service restart cut the evidence | investigate before resolving |
 
 A run that violates a pre-flight guard (for example the licensed-key
 guard) is **refused at dispatch** — no execution is created at all,
