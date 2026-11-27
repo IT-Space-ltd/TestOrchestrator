@@ -574,27 +574,27 @@ foreign fields are rejected by name.
 
 **Jest**
 
-| Field | What it does | Example |
+| Field | What it does, in plain words | Example |
 |---|---|---|
-| Test path pattern | jest regex selecting test files | `src/.*\.spec\.ts` |
-| Test name pattern | jest `-t` regex over full test names | `login` |
+| Test path pattern | chooses test files by a Jest regex | `src/.*\.spec\.ts` runs TypeScript spec files under `src` |
+| Test name pattern | chooses tests by their full Jest names (`-t`) | `login` runs tests whose names contain “login” |
 
 **Postman/Newman**
 
-| Field | What it does | Example |
+| Field | What it does, in plain words | Example |
 |---|---|---|
-| Collection | which collection runs | `smoke` |
-| Environment | environment file for `{{variables}}` | `postman/local.postman_environment.json` |
-| Folder | run one folder only (must be unique in the collection) | `auth` |
-| Iterations | how many times the collection runs | `3` |
+| Collection | chooses which Postman collection runs | `smoke` |
+| Environment | supplies values for `{{variables}}` | `postman/local.postman_environment.json` |
+| Folder | runs one folder only; the folder name must be unique in the collection | `auth` |
+| Iterations | repeats the whole collection | `3` means three passes |
 
 **Bruno**
 
-| Field | What it does | Example |
+| Field | What it does, in plain words | Example |
 |---|---|---|
-| Collection folder | folder inside the collection | `api/auth` |
-| Environment | environment name from `environments/` | `local` |
-| Tags | include/exclude tag filters | `smoke` |
+| Collection folder | chooses a folder inside the Bruno collection | `api/auth` |
+| Environment | chooses an environment defined in `environments/` | `local` |
+| Tags | includes or excludes requests by tag | `smoke` |
 
 *Common mistake (both API frameworks):* variable placeholders like
 `{{host}}` stay literal when no environment is configured — every
@@ -1785,12 +1785,12 @@ candidate did not regress — the same bytes every time.
 
 **Step 2.** Click **Artifacts**. Expected files for a Jest run:
 
-| File | What it is |
-|---|---|
-| `jest.json` | The framework's own result data |
-| `junit/*.xml` | The machine-readable report TestOrchestrator read |
-| `manifest.json` | The sealed list of everything the run produced, with hashes |
-| `logs/` | The run's own log files |
+| File | What it is, in plain words | Why you open it — example |
+|---|---|---|
+| `jest.json` | Jest's own result data. | Use it when you need the exact framework output. |
+| `junit/*.xml` | The machine-readable report TestOrchestrator read. | Use it to compare what the runner reported with what the portal shows. |
+| `manifest.json` | The sealed list of everything the run produced, with hashes. | Use it to prove a file was not changed after the run. |
+| `logs/` | The run's own log files. | Open these first when a run fails before tests start. |
 
 **Step 3.** Click `jest.json`. Expected: the browser shows the file.
 The `sha256` in `manifest.json` proves the file you read is exactly
@@ -2330,11 +2330,11 @@ subdirectory inside the repo (if your tests live in a subfolder),
 the credentials reference for private repositories, and the
 `auth_mode` selector — how the binding authenticates:
 
-| `auth_mode` value | When to use it |
+| `auth_mode` value | When to use it — example |
 |---|---|
-| Account key (Shared Key) | Azure DevOps/repos shared-key style access |
-| SAS token | token-in-URL access |
-| Other (Manual) | SSH keys, username/password, or anonymous |
+| Account key (Shared Key) | Use this for Azure DevOps/shared-key style access, where the account key itself is the secret. |
+| SAS token | Use this when the repository service gives you a token-in-URL or shared-access-signature token. |
+| Other (Manual) | Use this for SSH keys, username/password, or anonymous access — the common choice for ordinary Git hosting. |
 
 *Common mistake:* picking SAS token when the URL already embeds the
 credentials — the server rejects double authentication. When in

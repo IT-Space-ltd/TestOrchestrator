@@ -4,11 +4,11 @@ Applies to **TestOrchestrator 2.6.0** (release 2.7.0).
 
 **How to read the validation markers** — every procedure carries one:
 
-| Marker | Means |
+| Marker | What it means — example |
 |---|---|
-| **[verified]** | Executed against the release install package — details in `docs/acceptance-2.5.0.md` / `docs/acceptance-2.6.0.md` |
-| **[code/CI]** | Documented from installer source and CI evidence; not interactively validated here |
-| **[doc-env]** | Demonstrated on the isolated documentation environment (fixture data) — procedure is real, values are not |
+| **[verified]** | Someone really executed this against the release install package. Example: the evidence is in `docs/acceptance-2.5.0.md` or `docs/acceptance-2.6.0.md`. |
+| **[code/CI]** | This is documented from installer source and CI evidence, but not interactively validated in this manual. Treat it as checked logic, not a click-by-click witness. |
+| **[doc-env]** | This was demonstrated on the isolated documentation environment with fixture data. The procedure is real; the names and values are examples. |
 
 Screenshots were captured from the 2.6.0 codebase — the
 index lists each frame's provenance.
@@ -1638,7 +1638,7 @@ card):
 
 Role capability summary (enforced server-side on every route):
 
-| Role | Projects, bindings, suites, releases, schedules | Run & cancel | Users, infrastructure, secrets, network, licence |
+| Role | What they can author | Can they run and cancel? | Can they administer the system? |
 |---|---|---|---|
 | **Admin** | create / edit / delete — for example, delete a stale binding | yes | yes — full access |
 | **Test Manager** | create / edit — for example, build a release plan | yes | no |
