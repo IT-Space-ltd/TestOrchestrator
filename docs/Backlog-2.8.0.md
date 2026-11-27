@@ -271,3 +271,21 @@ rollback within a time window only — no reverse migration in v1
 
 2.7.0 ships the read-only side only: tree view over existing inventory,
 stale badges, last-result column, and the schedule-form target picker.
+
+## Epic: Unified Test tab (deferred from 2.7.0 — owner decision)
+
+Documentation only — no 2.7.0 code or schema changes. Release notes list
+it under "Deferred to 2.8.0"; manuals must not describe it as available.
+
+48. **Read-only inventory tree** — unified tree over discovered content
+    across frameworks. Requirements (approved scope): escape all
+    discovered content; accessible keyboard tree with aria-expanded;
+    one rollup query, no N+1; repo badge; tests; one installed-package
+    live UI cell. Effort ~1-2 wks. Risk: medium — cross-framework shape.
+49. **Stale badges** — warn-only staleness indication, never auto-drop.
+50. **Last-result column** — latest outcome per node from the rollup.
+51. **Schedule picker fed from the same inventory** — scheduling UI
+    selects from the unified tree.
+
+Related deferred ideas (same epic family): product-defined collections,
+cross-framework suite generalization, plan polymorphism.

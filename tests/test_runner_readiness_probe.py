@@ -60,3 +60,16 @@ def test_probe_spec_posix_windows(app, monkeypatch, tmp_path):
     spec = _submit(app, monkeypatch, tmp_path, "windows-x86_64")
     assert spec["posix"] is False
     assert spec["executable"] == "cmd"
+
+
+def test_worker_loop_processes_probe_completions(app, monkeypatch):
+    """Unattended installs must not depend on a UI render to advance
+    probe completion — the worker maintenance loop calls
+    poll_all_pending itself (D-PROBE-UI-RENDER)."""
+    from testorchestrator import dispatch
+    calls = []
+    monkeypatch.setattr(runner_readiness, "poll_all_pending",
+                        lambda: calls.append(1) or 0)
+    with app.app_context():
+        dispatch.worker_once()
+    assert calls, "worker_once never polled probe completions"

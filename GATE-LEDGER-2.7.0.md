@@ -789,3 +789,57 @@ final clean build; SHA256SUMS; fresh-guest install + 2.6.0 upgrade verification;
 acceptance; release-notes final (3 statements drafted in
 docs/release-notes-2.7.0-draft.md). Manuals: text 500/500 done; screenshots pending
 frozen build (capture.py ready). NOTHING merged/tagged/published.
+
+## Session 3 evidence block
+
+### CELL-STALL ROOT CAUSE (environmental, NOT worker-claim product defect)
+- Worker crashed with `sqlite3.OperationalError: database or disk is full` —
+  guest root fs was 19G/19G 100%. All queue stalls since ~01:00 are disk-full
+  cascade effects. Freed 3.2G (regenerable caches + superseded test unpacks;
+  evidence and to260 kept). Worker+web active, builds flowing after cleanup.
+- IMPLICATION FOR COUNTING: postman/bruno cell builds ran DURING the disk-full
+  window (brid 106/107 first attempts results=5/RETRY) — their evidence is
+  tainted; retried builds 90/91 are running on the healthy system. jest probe
+  artifacts missing `done=1` are explained by disk-full write failures —
+  probe script verified completion-clean locally (rc=0, done=1 printed).
+- D-ARTIFACT-SUBDIR REGRESSION QUESTION (Priority 2): RESOLVED — no regression.
+  Probe spec hardcodes exec_workdir build/src + report_src src/Reports
+  (runner_readiness.py:131-134), untouched by 0aed0da2 which affects only
+  framework subdirectory execution specs. postman/bruno probes pass on build #5
+  proving the probe path intact. jest=missing is informational per script text
+  ("not fatal when the npm ci prepare step is on") — confirmed in probe.txt.
+- jest probe resubmitted post-cleanup: brid 108 queued behind cell builds.
+
+### D-PROBE-UI-RENDER (Priority 3.2) — CONFIRMED + FIXED
+- Evidence: `poll_all_pending` had exactly ONE caller (system/routes.py:1588,
+  infra page render). Dispatch depends on probe state (ready-execution gate);
+  nothing else advanced probes — unattended installs could never leave
+  'checking'. Fixed per owner prescription: worker_once now calls
+  runner_readiness.poll_all_pending() every tick (cheap no-op when idle).
+  Regression test test_worker_loop_processes_probe_completions — 3/3 pass.
+  Committed in working tree (pending batch commit).
+
+### Stray processes (Priority 3.1) — partial analysis, upgrade cell pending
+- Strays 23472-23475 were systemd-service processes (cgroup membership proved
+  by MEMORY_PRESSURE_WATCH paths) that systemd STOPPED TRACKING — master
+  journal shows crash-loop restart counter at 1088 on Nov26; services then
+  "Deactivated successfully" in 2s while real processes kept running detached.
+  systemctl stop in guest5.sh could not kill untracked processes — they held
+  :9443 and the master dir, causing the new web/master instances to exit.
+- After manual kill + clean restart, MainPID tracking is correct (45809 live).
+- OPEN: whether tracking loss reproduces on a CLEAN install (no crash-loop
+  history) — definitive test happens in the fresh-guest 2.6.0 upgrade cell
+  per owner. If systemd units lose track of buildbot processes under normal
+  operation, that's a 2.7.0 blocker class defect; watch for it.
+
+### Unified Test tab — deferred to 2.8.0 per owner; backlog items 48-51 added
+(read-only inventory tree, stale badges warn-only, last-result column,
+schedule picker; approved reqs incl. escaping, aria-expanded keyboard tree,
+single rollup no-N+1, repo badge, tests, one live UI cell). No 2.7.0 code.
+
+### Manuals revision (owner task F) — report-first table drafted at
+/home/szefi/manuals-revision-report.md: R1-R13 with effort/risk, ~130-200
+screenshots across 8 chapter groups, capture schedule respecting one-VM rule,
+coverage-gate extension design. OPEN QUESTIONS to owner: Windows guest
+approach (no Windows VM exists — multipass can't); approval for induced
+failure states in status library; incremental rewrite acceptance.

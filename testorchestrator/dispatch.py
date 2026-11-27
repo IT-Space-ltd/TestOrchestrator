@@ -3951,6 +3951,15 @@ def worker_once() -> int:
             n += reconcile_buildbot_runs()
         except Exception:
             pass  # orchestrator unreachable — retry next cycle
+    # Probe completion processing must not depend on someone rendering
+    # the infrastructure page: unattended/headless installs would never
+    # leave "checking" and the dispatch gate would stay closed forever.
+    # Cheap no-op when nothing is pending.
+    try:
+        from . import runner_readiness
+        n += runner_readiness.poll_all_pending()
+    except Exception:
+        pass  # retry next cycle
     n += (reconcile_stale() + fire_due_schedules() + process_outbox()
           + enforce_plan_policies() + _resolve_unlaunched_cancels()
           + _redrive_cancels() + aggregate_parent_runs()
