@@ -1205,32 +1205,398 @@ validated in this environment. Imported-execution screens show
 
 ---
 
-## 11. Quick-start — your first run in fifteen minutes
+## 11. Your first run — step by step
 
-This walkthrough takes you from sign-in to a finished run. It assumes
-an administrator has installed TestOrchestrator and given you an
-account, and a runtime with your framework's tools is registered.
+This chapter takes you from sign-in to reading your first result.
+Every step is one action. After each step you see exactly what should
+be on the screen, and what to do when it is not.
 
-1. **Sign in.** Open the TestOrchestrator address your administrator
-   gave you, enter your username and password.
-2. **Create a project.** Projects → New project. Give it a name —
-   anything meaningful to your team.
-3. **Connect the repository.** In the project, add a repository
-   binding: the git URL of your test repository and the branch.
-   TestOrchestrator syncs the repository — wait for the sync to
-   finish.
-4. **Add a framework project.** Pick your framework from the dropdown
-   (§3.1). If your tests live in a subfolder, enter it as the project
-   root — relative to the repository, like `tests` or `api`.
-5. **Check discovery.** Static discovery runs automatically. Status
-   `ok` with a nonzero item count means you are ready. Zero items?
-   Check the project root — see §4.6.
-6. **Run.** Choose Run, pick the framework project and runtime,
-   select items, start the run.
-7. **Watch and read.** Open the execution. When it finishes, PASSED
-   means every test passed; FAILED means test failures — open the
-   artifacts for the framework's own report; INCOMPLETE means the
-   pipeline broke — see §5.6 and troubleshooting.
+You need three things before you start — ask your administrator if you
+do not have them:
+
+- The **address** of TestOrchestrator (it looks like
+  `https://tests.example.org`).
+- A **username and password**.
+- A test repository you can read (a git URL).
+
+Words in *italics* are explained in the Glossary (§14) the first time
+they appear.
+
+### 11.1 Sign in
+
+**Step 1.** Open your browser. Type the TestOrchestrator address into
+the address bar. Press Enter.
+
+![The browser address bar with the TestOrchestrator address typed in](shots/um-first-run-01.png)
+
+You should see the sign-in page: a box with two empty lines,
+*Username* and *Password*, and a **Sign in** button.
+
+![The sign-in page with the username field, password field and sign-in button numbered](shots/um-first-run-02.png)
+
+*If you do not see this:* if the browser says the site cannot be
+reached, check the address with your administrator. If you see a
+warning about the address, you may be using the wrong host name — use
+exactly the address you were given, not the server's IP number.
+
+**Step 2.** Click the *Username* line. Type your username. Click the
+*Password* line. Type your password. Click **Sign in**.
+
+![The sign-in form filled in with an example username](shots/um-first-run-03.png)
+
+You should see the home page with a menu on the left.
+
+*If you do not see this:* if the page says the sign-in failed, check
+for typing mistakes — passwords are case-sensitive, so `Pass1` and
+`pass1` are different words. If it still fails, ask your administrator
+to reset your password.
+
+### 11.2 Create a project
+
+A *project* is a box that holds everything about one test effort: its
+repository, its tests, its runs and its results.
+
+**Step 3.** In the left menu, click **Projects**.
+
+![The left menu with the Projects entry highlighted](shots/um-first-run-04.png)
+
+You should see the project list. On a new install it is empty, and the
+page says so. That is normal.
+
+![The empty project list with the empty-state message](shots/um-first-run-05.png)
+
+**Step 4.** Click **New project** (top right of the page).
+
+**Step 5.** Click the *Name* line. Type a name, for example
+`My first project`. Click **Create**.
+
+![The new-project form with the example name filled in](shots/um-first-run-06.png)
+
+You should see the project page. The name you typed is at the top.
+
+> **Common mistake:** pressing Enter instead of clicking **Create**.
+> On some pages Enter sends the form early. If nothing happens, click
+> the button with the mouse.
+
+### 11.3 Connect your test repository
+
+A *repository binding* tells TestOrchestrator where your tests live.
+It copies (syncs) the repository so it can find your tests.
+
+**Step 6.** On the project page, find the **Repositories** area.
+Click **Add binding**.
+
+**Step 7.** Click the *URL* line. Type the git address of your test
+repository, for example `https://git.example.org/team/tests.git`.
+
+**Step 8.** Click the *Branch* line. Type the branch name, for
+example `main`. Click **Save**.
+
+![The binding form with example URL and branch filled in](shots/um-first-run-07.png)
+
+You should see the new binding in the list. Its sync state starts as
+*pending* and changes to *synced* when the copy finishes. A small
+repository takes a few seconds; a big one can take minutes.
+
+*If you do not see this:* if the state changes to *failed*, click it
+to read the message. The most common cause is a typing mistake in the
+URL. Fix it and save again.
+
+### 11.4 Add a framework project
+
+A *framework project* tells TestOrchestrator which test framework
+your tests use (for example Jest or Postman) and where they sit inside
+the repository.
+
+**Step 9.** On the project page, find the **Framework projects**
+area. Click **Add framework project**.
+
+**Step 10.** Open the *Framework* dropdown. Click your framework's
+name — for this walkthrough we use **Jest**.
+
+![The framework dropdown open with Jest highlighted](shots/um-first-run-08.png)
+
+**Step 11.** Click the *Project root* line. Type the folder inside the
+repository where the tests live, for example `jest`. If the tests are
+at the top level of the repository, leave it empty. Click **Save**.
+
+You should see the framework project in the list with a discovery
+status. Wait until the status shows `ok` and the item count is not
+zero. *Discovery* means TestOrchestrator read your test files and made
+a list of what it found.
+
+*If you do not see this:* zero items almost always means the project
+root is wrong. Open the repository in your git host, look at the real
+folder names, and compare. Folder names are case-sensitive.
+
+### 11.5 Check the runtime
+
+A *runtime* is the machine that actually runs the tests, with the
+tools installed. Your administrator connects runtimes. Before the
+first run, look at it once.
+
+**Step 12.** In the left menu, click **Infrastructure**. Click
+**Runtimes**.
+
+![The runtime list showing a runtime in the ready-execution state](shots/um-first-run-09.png)
+
+You should see at least one runtime with the state **ready-execution**.
+That means: the machine answered its health check (a *probe*), and a
+small proof run for your project succeeded.
+
+*If you do not see this:* if the state is **checking**, wait a minute
+and reload the page — the probe is still running. If it is **failed**
+or **missing-dependency**, show the page to your administrator; the
+message on the page says exactly what is missing.
+
+### 11.6 Run one test
+
+**Step 13.** Go back to your project. Click **Run**.
+
+**Step 14.** In the run form: open the framework-project dropdown,
+click your framework project. Open the runtime dropdown, click the
+ready runtime.
+
+**Step 15.** In the item list, tick exactly one test — pick the
+smallest one. Click **Start run**.
+
+![The run form with one item ticked and the start button](shots/um-first-run-10.png)
+
+You should see the execution page. The state line starts as *queued*,
+then *running*.
+
+### 11.7 Read the result
+
+**Step 16.** Wait for the state to change to *completed*. Reload the
+page if it does not update by itself.
+
+![The finished execution page showing the PASSED outcome](shots/um-first-run-11.png)
+
+Read the outcome:
+
+- **PASSED** — every test in the run passed. You are done — your
+  first run worked.
+- **FAILED** — a test failed. This is a test result, not a machine
+  problem. Scroll to the results table: the failed line has the test
+  name and the error message.
+- **INCOMPLETE** — the machine could not finish the run. Read the
+  error line on the page, then see §5.6.
+
+**Step 17.** Click **Artifacts**. You should see the report files the
+framework wrote — for Jest a `jest.json` and a `manifest.json`, plus
+the run logs. Click one to open it.
+
+![The artifacts list for the finished run](shots/um-first-run-12.png)
+
+> **Common mistakes — first run**
+>
+> - Running before discovery shows items: the run form list is empty.
+>   Go back to §11.4 and check the project root.
+> - Picking a runtime whose state is not *ready-execution*: the run
+>   is refused with a message. That is correct behaviour — wait or fix
+>   the runtime first.
+> - Reading FAILED as a machine problem: FAILED means the tests ran
+>   and a test lost. Only INCOMPLETE is a pipeline problem.
+
+### 11.8 What just happened — in one paragraph
+
+TestOrchestrator copied your repository, found your tests in the
+folder you named, sent the one test you ticked to the runtime machine,
+ran it there with the real framework, collected the report files, and
+showed you the outcome. Every next run works the same way — only the
+selection gets bigger.
+
+## 11A. Framework walkthrough — Jest
+
+A complete Jest run from a fresh project to reading results, with the
+exact values to type. The examples use a repository whose tests live in
+a folder called `jest` — the most common layout, and the one that
+surprises people.
+
+You need: a finished first run (§11) or an existing project, and a Jest
+runtime in the **ready-execution** state (§11.5).
+
+### What is different about Jest
+
+Jest is a *node* framework. The runtime machine runs your tests with a
+tool called `npx`. Your repository must contain a file called
+`package-lock.json` in the Jest project folder — it is the exact list
+of tool versions your project uses. Without it TestOrchestrator
+**refuses to run**. This is on purpose: it stops the run machine from
+downloading unknown code. The refusal message names the missing file
+and the folder it looked in.
+
+### Step by step
+
+**Step 1.** Open your project. In **Repositories**, check the binding
+state is *synced*. Write down the long identifier next to it — the
+*commit sha*. Every result you read later is tied to that exact
+version.
+
+**Step 2.** In **Framework projects**, click **Add framework project**.
+Type these values:
+
+| Field | Value to type |
+|---|---|
+| Framework | `jest` |
+| Name | `jest-tests` |
+| Project root | `jest` |
+
+Click **Save**.
+
+![The framework project form filled in for Jest with the project root set](shots/um-jest-01.png)
+
+**Step 3.** Wait for the discovery status to show `ok`. Click the
+framework project. You should see the discovered items — your
+`*.test.js` files, one line each.
+
+![The discovered Jest items list with two test files](shots/um-jest-02.png)
+
+*If you see zero items:* open your repository in the browser and check
+that inside the `jest` folder there really are files ending in
+`.test.js`. If your files end differently, discovery will not find
+them — rename or adjust.
+
+**Step 4.** Click **Run**. Fill in the form:
+
+| Field | Value to pick |
+|---|---|
+| Framework project | `jest-tests` |
+| Runtime | your Jest runtime |
+| Items | tick one `smoke` or small test file |
+
+Click **Start run**.
+
+**Step 5.** On the execution page, wait for *completed*. Expected
+result for a passing test: outcome **PASSED**, one line in the results
+table per test file, artifacts `jest.json` and `manifest.json` under
+**Artifacts**.
+
+![The completed Jest execution with PASSED outcome and artifacts](shots/um-jest-03.png)
+
+### Reading a Jest failure
+
+When a test fails, the outcome is **FAILED** and the results table
+shows the test name with Jest's own message — for example
+`expect(received).toBe(expected)`. Open `jest.json` in the artifacts
+for the full detail. FAILED is a test result: fix the test or the
+application, not TestOrchestrator.
+
+### When the run is INCOMPLETE
+
+INCOMPLETE means the machine did not finish. The error line names the
+cause. The three usual ones for Jest:
+
+| Error line says | What it means | What to do |
+|---|---|---|
+| lockfile missing / required | No `package-lock.json` in the project folder | Add it in the repository (`npm install` writes it), commit, re-sync |
+| `no result data` | Jest never wrote its report — usually the project root is wrong or the tools are missing | Check the project root; check the runtime state |
+| `bad option: --no-install` in the step log | The runtime executable is `node`, not `npx` | Administrator fixes the runtime executable path — see Admin Manual §10 |
+
+> **Common mistakes — Jest**
+>
+> - Project root typed with a leading slash (`/jest`) — roots are
+>   relative to the repository, never absolute.
+> - `package-lock.json` at the repository top while tests are in a
+>   subfolder — the lockfile must sit in the same folder as the
+>   project's `package.json`.
+> - Re-running after editing the repository without re-syncing — runs
+>   use the synced copy, not your latest push.
+
+## 11B. Framework walkthrough — Postman
+
+Postman tests live in *collections* — files ending in `.json` exported
+from the Postman application. The runtime runs them with a tool called
+*newman*.
+
+You need: a project with a synced repository that contains at least one
+exported Postman collection, and a Postman runtime in the
+**ready-execution** state.
+
+### Step by step
+
+**Step 1.** In **Framework projects**, click **Add framework project**.
+Type these values:
+
+| Field | Value to type |
+|---|---|
+| Framework | `postman` |
+| Name | `api-collections` |
+| Project root | `postman` (the folder with your collections — empty if they are at the top) |
+
+Click **Save**.
+
+**Step 2.** Wait for discovery status `ok`. Click the framework
+project. You should see one line per collection file.
+
+![The discovered Postman collections list](shots/um-postman-01.png)
+
+**Step 3.** Click **Run**. Pick the framework project and the Postman
+runtime, tick one collection, click **Start run**.
+
+**Step 4.** Wait for *completed*. Expected for a passing collection:
+outcome **PASSED**; artifacts include `postman.json` (newman's own
+report), `junit/newman.xml` and `manifest.json`.
+
+![The completed Postman execution with artifacts](shots/um-postman-02.png)
+
+### Reading results
+
+Each line in the results table is one request in the collection, with
+its test assertions. A FAILED outcome means a request or assertion
+failed — the message column carries newman's own text, for example
+`expected 200 to equal 500`. Open `postman.json` in the artifacts for
+the full request and response detail.
+
+> **Common mistakes — Postman**
+>
+> - Exporting the wrong file: discovery finds *collections*, not
+>   Postman *environments*. Environment files are inputs, not tests.
+> - Collections that call a real server: the server must be reachable
+>   from the runtime machine, not from your own computer. A request
+>   that works on your desk can fail on the runtime with a connection
+>   error — that is the network, not a bug in the run.
+
+## 11C. Framework walkthrough — Bruno
+
+Bruno tests live in `.bru` files — one file per request. The runtime
+runs them with the `bru` command-line tool.
+
+You need: a project with a synced repository containing `.bru` files,
+and a Bruno runtime in the **ready-execution** state.
+
+### Step by step
+
+**Step 1.** In **Framework projects**, click **Add framework project**.
+Type these values:
+
+| Field | Value to type |
+|---|---|
+| Framework | `bruno` |
+| Name | `api-bruno` |
+| Project root | `bruno` (the folder with your `.bru` files — empty if at the top) |
+
+Click **Save**.
+
+**Step 2.** Wait for discovery status `ok`. Open the framework project:
+one line per `.bru` file.
+
+**Step 3.** Click **Run**. Pick the framework project and runtime,
+tick one file, click **Start run**.
+
+**Step 4.** Wait for *completed*. Expected for a passing file: outcome
+**PASSED**; artifacts include `bruno.json`, `bruno.html` (a report you
+can open in a browser), `junit/bruno.xml` and `manifest.json`.
+
+![The completed Bruno execution with PASSED outcome](shots/um-bruno-01.png)
+
+> **Common mistakes — Bruno**
+>
+> - `.bru` files that depend on each other (shared login tokens, for
+>   example) must run together — tick all of them in one run, in the
+>   order they need.
+> - A FAILED line reading `expected 200 to equal …` is Bruno's own
+>   assertion text — open `bruno.html` for the full request/response.
 
 ## 12. Troubleshooting
 
