@@ -474,14 +474,14 @@ individual locations.
 
 ### 4.6 Ports and network flows
 
-| Flow | Default | Configure |
-|---|---|---|
-| Browser → Cheroot | 443 / http 8080 | `--https-port`/`--http-port`; **Admin → Network & certificates** manages listeners + TLS (staged apply + `previous_good` rollback) |
-| Cheroot → Waitress | `127.0.0.1:18080` | same process; `waitress-serve` loopback |
-| Portal → Buildbot REST | `http://127.0.0.1:8010` | setting `buildbot_endpoint` — **loopback only** |
-| Worker → master PB | `<host>:9989` | setting `buildbot_pb_port`; per-worker password |
-| Portal/worker → SSH host | `22` (per target) | `ssh_port` on the target record |
-| Worker health | `:8092` | `--worker.health-port` (`0` disables) |
+| Who talks to whom | Default port, in plain words | Example | How to change it |
+|---|---|---|---|
+| Browser → front end (Cheroot) | the public HTTPS port people type in their browser | `https://portal.example.com` uses `443` | `--https-port`/`--http-port` at install; **Admin → Network & certificates** afterwards |
+| Front end → application (Waitress) | an internal, machine-local port — users never see it | `127.0.0.1:18080` | same process; rarely changed |
+| Portal → job runner REST | internal channel the portal uses to submit jobs | `http://127.0.0.1:8010` | setting `buildbot_endpoint` — **loopback only** |
+| Worker → job runner | the port a worker collects jobs from | `9989` on the master host | setting `buildbot_pb_port`; per-worker password |
+| Portal/worker → SSH target | the SSH port of each remote execution host | `22` | `ssh_port` on the target record |
+| Worker health | a small status port on each worker | `8092` | `--worker.health-port` (`0` disables) |
 
 Access gates (bootstrap.py): every request must arrive under a
 configured host alias (403 otherwise); until setup is complete **and**
