@@ -1,0 +1,359 @@
+{
+  "base_url": "https://localhost:8443",
+  "capture_phase": "linux-final-portal",
+  "entries": [
+    {
+      "file": "shots/um-first-run-01.png",
+      "status": "captured",
+      "note": "sign-in page reached at the portal address",
+      "url": "https://localhost:8443/login",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:58:35Z"
+    },
+    {
+      "file": "shots/um-first-run-02.png",
+      "status": "captured",
+      "note": "empty sign-in form",
+      "url": "https://localhost:8443/login",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:58:36Z"
+    },
+    {
+      "file": "shots/um-first-run-03.png",
+      "status": "captured",
+      "note": "filled sign-in form; password is masked by the browser",
+      "url": "https://localhost:8443/login",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:58:37Z"
+    },
+    {
+      "file": "shots/um-first-run-04.png",
+      "status": "captured",
+      "note": "Projects page from the left menu",
+      "url": "https://localhost:8443/projects",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:58:39Z"
+    },
+    {
+      "file": "shots/um-first-run-05.png",
+      "status": "captured",
+      "note": "empty project list state",
+      "url": "https://localhost:8443/projects",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:58:40Z"
+    },
+    {
+      "file": "shots/um-first-run-06.png",
+      "status": "captured",
+      "note": "new-project form filled with synthetic example",
+      "url": "https://localhost:8443/projects",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:58:40Z"
+    },
+    {
+      "file": "shots/um-first-run-07.png",
+      "status": "captured",
+      "note": "binding form filled with invalid-example repository data",
+      "url": "https://localhost:8443/projects/0deabc46199245fc8605e45ca0e885a0?tab=bindings",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T15:01:55Z"
+    },
+    {
+      "file": "shots/um-first-run-08.png",
+      "status": "captured",
+      "note": "framework selector on the framework-project form",
+      "url": "https://localhost:8443/bindings/2b08c79b434d4546b2b81a1ba510f5a6/framework-projects/new",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:14Z"
+    },
+    {
+      "file": "shots/um-jest-01.png",
+      "status": "captured",
+      "note": "framework project form filled for Jest",
+      "url": "https://localhost:8443/bindings/2b08c79b434d4546b2b81a1ba510f5a6/framework-projects/new",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:15Z"
+    },
+    {
+      "file": "shots/um-first-run-09.png",
+      "status": "captured",
+      "note": "runtime list with ready-execution states",
+      "url": "https://localhost:8443/system/infrastructure",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:16Z"
+    },
+    {
+      "file": "shots/ad-status-infra-ok.png",
+      "status": "captured",
+      "note": "healthy target and runtimes",
+      "url": "https://localhost:8443/system/infrastructure",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:16Z"
+    },
+    {
+      "file": "shots/ad-status-runtime-ready.png",
+      "status": "captured",
+      "note": "ready-execution runtime states",
+      "url": "https://localhost:8443/system/infrastructure",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:17Z"
+    },
+    {
+      "file": "shots/ad-status-worker-online.png",
+      "status": "captured",
+      "note": "online Buildbot worker target",
+      "url": "https://localhost:8443/system/infrastructure",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:17Z"
+    },
+    {
+      "file": "shots/um-first-run-10.png",
+      "status": "captured",
+      "note": "run form for one selected Jest item",
+      "url": "https://localhost:8443/discovered/465f35c0985649ad954ebdf238476ad2",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:18Z"
+    },
+    {
+      "file": "shots/um-first-run-11.png",
+      "status": "captured",
+      "note": "completed Jest execution with PASSED outcome",
+      "url": "https://localhost:8443/executions/d2c185978f214e6ba926ba106841e72b",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:19Z"
+    },
+    {
+      "file": "shots/um-first-run-12.png",
+      "status": "captured",
+      "note": "evidence/artifact list for the finished run",
+      "url": "https://localhost:8443/executions/d2c185978f214e6ba926ba106841e72b",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:20Z"
+    },
+    {
+      "file": "shots/um-jest-03.png",
+      "status": "captured",
+      "note": "completed Jest execution with PASSED outcome and artifacts",
+      "url": "https://localhost:8443/executions/d2c185978f214e6ba926ba106841e72b",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:20Z"
+    },
+    {
+      "file": "shots/um-jest-02.png",
+      "status": "captured",
+      "note": "saved Jest discovery inventory",
+      "url": "https://localhost:8443/framework-projects/688d112db56d4c5eb6f96566313dba8f",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:21Z"
+    },
+    {
+      "file": "shots/um-postman-01.png",
+      "status": "captured",
+      "note": "saved Postman discovery inventory",
+      "url": "https://localhost:8443/framework-projects/7611932d556c4c9caaf3ca2ad58316c7",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:22Z"
+    },
+    {
+      "file": "shots/um-postman-02.png",
+      "status": "captured",
+      "note": "completed Postman execution with artifacts",
+      "url": "https://localhost:8443/executions/b1eb45532346409497d75199c22cf78c",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:23Z"
+    },
+    {
+      "file": "shots/um-bruno-01.png",
+      "status": "captured",
+      "note": "completed Bruno execution with PASSED outcome",
+      "url": "https://localhost:8443/executions/aa1fa362511c4569bfd26da3df755837",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:24Z"
+    },
+    {
+      "file": "shots/ad-upgrade-03-portal.png",
+      "status": "captured",
+      "note": "portal dashboard after upgrade with existing project visible",
+      "url": "https://localhost:8443/",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T14:59:27Z"
+    },
+    {
+      "file": "shots/ad-status-infra-offline.png",
+      "status": "captured",
+      "note": "infrastructure page with local worker target offline",
+      "url": "https://localhost:8443/system/infrastructure",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T15:02:18Z"
+    },
+    {
+      "file": "shots/ad-status-worker-offline.png",
+      "status": "captured",
+      "note": "worker target offline",
+      "url": "https://localhost:8443/system/infrastructure",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T15:02:18Z"
+    },
+    {
+      "file": "shots/ad-status-runtime-missing.png",
+      "status": "captured",
+      "note": "runtime in missing-dependency state after genuine failed readiness probe",
+      "url": "https://localhost:8443/system/infrastructure",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "captured_at": "2026-11-27T15:04:53Z"
+    },
+    {
+      "file": "shots/ad-status-systemd-ok.png",
+      "status": "captured-rendered-terminal",
+      "note": "rendered headlessly from live systemctl output on the final-build guest; no visible terminal used",
+      "url": "ssh://10.97.0.14",
+      "viewport": [
+        900,
+        600
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "repo_head_at_capture": "99029ef4c0c965b977a1d2bd19860489418e0b59",
+      "captured_at": "2026-11-27T15:28:30Z"
+    },
+    {
+      "file": "shots/ad-upgrade-01-backup.png",
+      "status": "captured-rendered-terminal",
+      "note": "rendered headlessly from the successful final-build backup output; no visible terminal used",
+      "url": "ssh://10.97.0.14",
+      "viewport": [
+        900,
+        600
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "repo_head_at_capture": "99029ef4c0c965b977a1d2bd19860489418e0b59",
+      "captured_at": "2026-11-27T15:28:30Z"
+    }
+  ]
+}
