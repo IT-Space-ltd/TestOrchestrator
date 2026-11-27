@@ -843,3 +843,42 @@ screenshots across 8 chapter groups, capture schedule respecting one-VM rule,
 coverage-gate extension design. OPEN QUESTIONS to owner: Windows guest
 approach (no Windows VM exists — multipass can't); approval for induced
 failure states in status library; incremental rewrite acceptance.
+
+## Session 4 evidence block — matrix wave results + two product fixes
+
+### Wave-2 cell evidence (build #5, head 6056e7d1, sha256 3d1c0abf…, post-disk-cleanup)
+- postman-positive `15f5888b6d59`: COMPLETED/PASSED, results 2/2 passed
+  (status 200, body ok), artifacts on disk (junit/newman.xml, postman.json,
+  manifest.json, logs in remote-runs/<exid>). COUNTED-PENDING-STEP-STDOUT.
+- postman-negative `fdf48645c8a4`: COMPLETED/FAILED expected — newman
+  assertion failure by design, artifacts present.
+- bruno-positive `91926ad8ffbd`: COMPLETED/FAILED — positive selection picked
+  the collection-root folder item; bru ran smoke AND fail (granularity
+  semantics evidence). Results: status 200 pass, body ok pass, fails fail.
+- bruno-negative `e5ce7f2bc314`: COMPLETED/FAILED expected — expected 200 to
+  equal 500 by design.
+- Fixture defect found+fixed: stub8899 returned {"ok":true} but fixtures
+  assert body .status=="ok" — aligned in fixture commit e70ea9e.
+- jest cells + jest-collect: FAILED/INCOMPLETE pre-artifact — lockfile refusal
+  fired though jest/package-lock.json is committed. ROOT-CAUSED to product
+  defect below.
+
+### D-NODE-SUBDIR-WORKDIR (new defect, fixed, committed 50529d49)
+- dispatch never used fp.test_roots for node frameworks: npm ci + CLI ran at
+  repo root — jest in monorepo layout could never work. Lockfile check also
+  resolved repo root → false refusal. Fix: exec workdir follows fp root,
+  spec paths rebased, lockfile+vendored checks extended. Root-layout repos
+  unaffected. Regression test with full dispatch harness: workdir
+  build/src/jest, report_src src/jest/Reports, spec smoke.test.js, deps_argv
+  present — passing. Owner instruction satisfied: product CAN now express
+  subdirectory execution for node frameworks.
+- BONUS pre-existing bug found by the new test: buildbot_cfg.node_exec_spec
+  called ex.run_config() — a Schedule method absent on Execution — every
+  deps_argv-bearing node dispatch would fail. Never covered because no test
+  exercised the deps path end-to-end. Fixed (snapshot access).
+
+### D-PROBE-UI-RENDER — fixed earlier this session (b38a534b), in build #6.
+### Suite sign-off run on head 50529d49 IN PROGRESS — chain6.sh fires on green:
+build #6 -> guest install -> wave3: sync+discover+probes+validate+6 cells
+(positive selection now file-level: .js/.json/.bru only)+jest collect
+-> watch with artifact-file evidence. Scripts: m5wave3.py/m5watch3.py on guest.
