@@ -1274,6 +1274,10 @@ page says so. That is normal.
 
 **Step 4.** Click **New project** (top right of the page).
 
+
+
+![The New project button and the new-project form](shots/um-first-run-06.png)
+
 **Step 5.** Click the *Name* line. Type a name, for example
 `My first project`. Click **Create**.
 
@@ -1293,8 +1297,16 @@ It copies (syncs) the repository so it can find your tests.
 **Step 6.** On the project page, find the **Repositories** area.
 Click **Add binding**.
 
+
+
+![The repository binding area with the binding form](shots/um-first-run-07.png)
+
 **Step 7.** Click the *URL* line. Type the git address of your test
 repository, for example `https://git.example.org/team/tests.git`.
+
+
+
+![The repository URL field filled with the example address](shots/um-first-run-07.png)
 
 **Step 8.** Click the *Branch* line. Type the branch name, for
 example `main`. Click **Save**.
@@ -1318,6 +1330,10 @@ the repository.
 **Step 9.** On the project page, find the **Framework projects**
 area. Click **Add framework project**.
 
+
+
+![The framework picker in the add-framework-project form](shots/um-first-run-08.png)
+
 **Step 10.** Open the *Framework* dropdown. Click your framework's
 name — for this walkthrough we use **Jest**.
 
@@ -1335,6 +1351,10 @@ a list of what it found.
 *If you do not see this:* zero items almost always means the project
 root is wrong. Open the repository in your git host, look at the real
 folder names, and compare. Folder names are case-sensitive.
+
+
+
+![The project-root field in the framework-project form](shots/um-first-run-08.png)
 
 ### 11.5 Check the runtime
 
@@ -1360,9 +1380,17 @@ message on the page says exactly what is missing.
 
 **Step 13.** Go back to your project. Click **Run**.
 
+
+
+![The run form with runtime and item selection](shots/um-first-run-10.png)
+
 **Step 14.** In the run form: open the framework-project dropdown,
 click your framework project. Open the runtime dropdown, click the
 ready runtime.
+
+
+
+![The runtime dropdown and selected run configuration](shots/um-first-run-10.png)
 
 **Step 15.** In the item list, tick exactly one test — pick the
 smallest one. Click **Start run**.
@@ -1440,6 +1468,10 @@ state is *synced*. Write down the long identifier next to it — the
 *commit sha*. Every result you read later is tied to that exact
 version.
 
+
+
+![The repository binding list showing sync state](shots/um-first-run-07.png)
+
 **Step 2.** In **Framework projects**, click **Add framework project**.
 Type these values:
 
@@ -1473,6 +1505,10 @@ them — rename or adjust.
 | Items | tick one `smoke` or small test file |
 
 Click **Start run**.
+
+
+
+![The filled run form for one small test](shots/um-first-run-10.png)
 
 **Step 5.** On the execution page, wait for *completed*. Expected
 result for a passing test: outcome **PASSED**, one line in the results
@@ -1533,6 +1569,10 @@ Type these values:
 
 Click **Save**.
 
+
+
+![The add-framework-project form](shots/um-first-run-08.png)
+
 **Step 2.** Wait for discovery status `ok`. Click the framework
 project. You should see one line per collection file.
 
@@ -1540,6 +1580,10 @@ project. You should see one line per collection file.
 
 **Step 3.** Click **Run**. Pick the framework project and the Postman
 runtime, tick one collection, click **Start run**.
+
+
+
+![The run form with a collection selected](shots/um-first-run-10.png)
 
 **Step 4.** Wait for *completed*. Expected for a passing collection:
 outcome **PASSED**; artifacts include `postman.json` (newman's own
@@ -1585,11 +1629,23 @@ Type these values:
 
 Click **Save**.
 
+
+
+![The add-framework-project form](shots/um-first-run-08.png)
+
 **Step 2.** Wait for discovery status `ok`. Open the framework project:
 one line per `.bru` file.
 
+
+
+![The discovered Bruno collection items](shots/um-bruno-01.png)
+
 **Step 3.** Click **Run**. Pick the framework project and runtime,
 tick one file, click **Start run**.
+
+
+
+![The run form with a Bruno item selected](shots/um-first-run-10.png)
 
 **Step 4.** Wait for *completed*. Expected for a passing file: outcome
 **PASSED**; artifacts include `bruno.json`, `bruno.html` (a report you
@@ -1627,14 +1683,30 @@ Type these values:
 
 Click **Save**.
 
+
+
+![The add-framework-project form](shots/um-first-run-08.png)
+
 **Step 2.** Wait for discovery status `ok`. Open the framework project:
 one line per test file, with the test functions inside.
+
+
+
+![The discovered pytest items](shots/um-pytest-01.png)
 
 **Step 3.** Click **Run**. Pick the framework project and runtime,
 tick one file, click **Start run**.
 
+
+
+![The run form with a pytest item selected](shots/um-first-run-10.png)
+
 **Step 4.** Wait for *completed*. Expected for passing tests: outcome
 **PASSED**; artifacts include the xunit report and `manifest.json`.
+
+
+
+![The completed passing execution](shots/um-first-run-11.png)
 
 ### Reading results
 
@@ -1674,11 +1746,23 @@ Type these values:
 
 Click **Save**.
 
+
+
+![The add-framework-project form](shots/um-first-run-08.png)
+
 **Step 2.** Wait for discovery status `ok`. Open the framework project:
 one line per `.robot` file, with the test cases inside.
 
+
+
+![The discovered Robot Framework items](shots/um-robot-01.png)
+
 **Step 3.** Click **Run**. Pick the framework project and runtime,
 tick one file or one test case, click **Start run**.
+
+
+
+![The run form with a Robot item selected](shots/um-first-run-10.png)
 
 **Step 4.** Wait for *completed*. Expected for passing tests: outcome
 **PASSED**; artifacts include Robot's own `output.xml`, `log.html` and
@@ -1691,6 +1775,10 @@ tick one file or one test case, click **Start run**.
 > - Browser tests (SeleniumLibrary, Browser library) need the browser
 >   and its driver on the runtime machine, not on your computer.
 
+
+
+![The completed passing execution](shots/um-first-run-11.png)
+
 ## 11F. Framework walkthrough — Behave
 
 Behave tests live in `.feature` files — plain-language scenarios. The
@@ -1700,16 +1788,32 @@ runtime runs them with the `behave` command.
 `bdd-tests`, Project root `features` (the folder with your `.feature`
 files). Click **Save**.
 
+
+
+![The add-framework-project form](shots/um-first-run-08.png)
+
 **Step 2.** Wait for discovery status `ok` — one line per feature file,
 scenarios inside.
 
+
+
+![The discovered Behave feature items](shots/um-behave-01.png)
+
 **Step 3.** Click **Run**, pick project and runtime, tick one feature,
 click **Start run**.
+
+
+
+![The run form with a Behave feature selected](shots/um-first-run-10.png)
 
 **Step 4.** Wait for *completed*. PASSED means every scenario passed.
 FAILED lines carry the scenario name and the failing step. Behave also
 needs its *step implementation* Python files next to the features —
 missing steps fail the run the same way they fail on your computer.
+
+
+
+![The completed passing execution](shots/um-first-run-11.png)
 
 ## 11G. Katalon — static discovery only
 
@@ -1734,6 +1838,10 @@ which settings. A *schedule* runs the plan by the clock.
 
 **Step 1.** Open your project. Click **Test plans** → **New plan**.
 
+
+
+![The project page with test-plan controls](Screenshot-Doc/user/project-detail.png)
+
 **Step 2.** Type these values:
 
 | Field | Value |
@@ -1745,6 +1853,10 @@ which settings. A *schedule* runs the plan by the clock.
 
 Click **Save**. The plan appears in the list. From now on you never
 re-pick the selections — the plan remembers them.
+
+
+
+![The test-plan form and item selection](Screenshot-Doc/user/project-detail.png)
 
 **Step 3.** On the plan, click **Add schedule**. Type these values:
 
@@ -1762,6 +1874,10 @@ history — you did not click anything.
 > while people are still working. The schedule shows the next fire
 > time converted into your timezone; read it once after saving.
 
+
+
+![The schedule form with timing fields](Screenshot-Doc/user/schedule-new.png)
+
 ### Example 2 — a suite as a fixed snapshot
 
 A *suite* is a frozen list of test items — a snapshot you can run
@@ -1769,8 +1885,16 @@ again and again, even when the repository changes.
 
 **Step 1.** In the project, open **Suites** → **New suite**.
 
+
+
+![The new-suite form](Screenshot-Doc/user/suite-new.png)
+
 **Step 2.** Type the name `release-candidates`. In the item picker,
 tick the items that must pass before a release. Click **Save**.
+
+
+
+![The suite item picker](Screenshot-Doc/user/suite-new.png)
 
 **Step 3.** Run the suite: **Run** → pick the suite, pick the runtime,
 **Start run**.
@@ -1779,9 +1903,17 @@ Expected: the execution uses exactly the frozen item versions, even
 if newer commits changed those files. This is how you prove a release
 candidate did not regress — the same bytes every time.
 
+
+
+![The suite run form](Screenshot-Doc/user/discovered-suite-run.png)
+
 ### Example 3 — reading artifacts after a run
 
 **Step 1.** Open **Executions**. Click any finished run.
+
+
+
+![A finished execution detail page](shots/um-first-run-11.png)
 
 **Step 2.** Click **Artifacts**. Expected files for a Jest run:
 
@@ -1792,23 +1924,43 @@ candidate did not regress — the same bytes every time.
 | `manifest.json` | The sealed list of everything the run produced, with hashes. | Use it to prove a file was not changed after the run. |
 | `logs/` | The run's own log files. | Open these first when a run fails before tests start. |
 
+
+
+![The artifacts list for a finished run](shots/um-first-run-12.png)
+
 **Step 3.** Click `jest.json`. Expected: the browser shows the file.
 The `sha256` in `manifest.json` proves the file you read is exactly
 the file the run machine wrote — nobody changed it afterwards.
+
+
+
+![The artifact list with framework result files](shots/um-first-run-12.png)
 
 ### Example 4 — reading history
 
 **Step 1.** Open **Executions**. This is the run history — every run
 your project ever did, newest first.
 
+
+
+![The execution history table](Screenshot-Doc/user/execution-history.png)
+
 **Step 2.** Use the filters: pick outcome **failed**. Expected: only
 failed runs remain. Click one and read its results table — the failed
 lines and their messages are kept forever, with the exact repository
 version (`sha`) the run used.
 
+
+
+![A failed execution detail with failure rows](Screenshot-Doc/user/execution-detail-failed.png)
+
 **Step 3.** Compare two runs of the same test: when the same test
 passes in one and fails in the other, look at the sha lines first —
 different repository versions are the most common explanation.
+
+
+
+![Multiple executions of the same test in history](Screenshot-Doc/user/execution-history.png)
 
 ## 12. Troubleshooting
 
