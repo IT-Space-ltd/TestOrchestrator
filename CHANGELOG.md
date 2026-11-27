@@ -180,6 +180,51 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 
 ### Fixed
 
+- **D-NODE-SUBDIR-WORKDIR — node framework execution in monorepo
+  subdirectories.** The execution workdir, the `package-lock.json`
+  check and spec paths now follow the framework project root
+  (`fp.test_roots`) instead of the repository root — jest in a
+  monorepo subfolder runs `npm ci` and the CLI in the correct
+  directory, with spec paths rebased. Also fixes a pre-existing latent
+  crash in the deps-step builder (`run_config` read as a method).
+
+- **Native collection in monorepo subdirectories.** The collector
+  script (`.to_collect.js`) is referenced relative to the actual
+  execution workdir — previously it was staged at the source root and
+  missed with MODULE_NOT_FOUND whenever the project sat in a
+  subdirectory.
+
+- **Native collection inventory paths.** Node collectors emitted
+  absolute worker-local paths which ingestion stored verbatim,
+  polluting inventory with unusable rows. Collectors now emit
+  framework-root-relative paths, and ingestion re-prefixes the project
+  root for monorepo layouts so native rows merge with static rows.
+
+- **Native collection outcome reflects the operation.** A successful
+  collection ended INCOMPLETE because junit aggregation over zero
+  cases cannot pass; the outcome now reflects ingestion success.
+  Ingest errors were additionally written to a nonexistent attribute
+  and silently dropped — they are persisted in `error_text`.
+
+- **Execution snapshots always pin the source sha.** A headless or
+  API caller that omitted `source_sha` produced executions with no
+  reproducibility pin; the binding's synced sha is now pinned by
+  default.
+
+- **Readiness probes advance without UI interaction.** Probe
+  completion was processed only when someone opened the
+  infrastructure page — an unattended install could never become
+  ready. The worker maintenance loop now polls pending probes every
+  tick.
+
+- **Probes detect npx-incompatible runtime executables.** A
+  node-framework runtime pointed at `node` instead of `npx` passed
+  the PATH probes but died at dispatch (`bad option: --no-install`).
+  The probe now tests the configured executable with the exact
+  invocation shape dispatch uses and fails readiness with a clear
+  message.
+
+
 - **D-ARTIFACT-SUBDIR — artifact collection now follows the execution
   workdir.** The node-framework exec spec hardcoded
   `report_src="src/Reports"`, but subdirectory frameworks (Bruno at
