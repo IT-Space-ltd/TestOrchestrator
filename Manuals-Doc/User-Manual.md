@@ -526,12 +526,12 @@ A **runtime** is a registered execution environment — a worker
 machine with the test tools installed. Each runtime shows a readiness
 verdict per framework:
 
-| Verdict | Meaning |
-|---|---|
-| `ready-execution` | the runtime proved it can execute this framework (evidence from a probe and a real per-project execution) |
-| `ready-discovery` | the runtime can discover but has not yet proven per-project execution |
-| `not-checked` | no probe has run |
-| failed probe | the probe ran and failed — read the probe output on the runtime page |
+| Verdict | What it means, in plain words | Example of what you see |
+|---|---|---|
+| `ready-execution` | this machine proved it can really run this kind of test — a small proof test ran successfully | a green runtime you can pick for runs |
+| `ready-discovery` | the machine can list your tests but has not yet proven it can run them in your project | a freshly added runtime before its first real run |
+| `not-checked` | the machine has not been tested yet | you just registered the runtime |
+| failed probe | the check ran and failed — the details are on the runtime page | "newman not found" in the probe output |
 
 The readiness probe checks the toolchain only (is `newman` installed?
 which version?). Execution readiness additionally needs one real
@@ -943,12 +943,12 @@ outcome (the machinery broke).
 ### 7.5 Reading outcomes: test failure vs. infrastructure failure
 
 
-| Symptom | Classification | What it means |
-|---|---|---|
-| `completed` + outcome `failed`, cases listed with `<failure>` messages | **Test failure** | KRE ran; assertions failed. This is a real test result. |
-| `failed`, no cases, run log shows `No Offline License … Activation failed` | **Licence/activation failure** | KRE launched but could not activate — missing licence/API key on the target host. Not a test verdict. |
-| `failed`, no cases, dispatch/checkout/workspace errors | **Infrastructure failure** | The job never reached test execution. |
-| `incompleted`/partial results, `framework=unknown` artifacts | **Incomplete** | Output was cut short or produced by an unrecognized tool; treat with care. |
+| What you see | What kind of problem it is | What it means, in plain words | Example |
+|---|---|---|---|
+| `completed` + outcome `failed`, cases listed with `<failure>` messages | **Test failure** | the tests ran and some failed — a real, honest test result | a login test asserting the wrong welcome text |
+| `failed`, no cases, run log shows `No Offline License … Activation failed` | **Licence/activation failure** | the test engine started but could not activate its licence — nothing was really tested | a Katalon run on a machine with no licence key |
+| `failed`, no cases, dispatch/checkout/workspace errors | **Infrastructure failure** | the job never even reached the tests — the machinery broke first | the worker could not download the repository |
+| `incompleted`/partial results, `framework=unknown` artifacts | **Incomplete** | the output was cut short or came from a tool the server does not recognise — treat with care | a power cut mid-run |
 
 ![Failed execution — one case failed, one passed](Screenshot-Doc/user/execution-detail-failed.png)
 
