@@ -32,6 +32,22 @@ def test_secret_roundtrip_and_no_plaintext(app, tmp_path, monkeypatch):
         assert b"s3cr3t" not in raw
 
 
+def test_ssh_key_crlf_normalized_on_store(app):
+    """ISS-021: HTML forms submit textarea newlines as CRLF — a pasted
+    OpenSSH/PEM private key must be LF-normalized at storage or both
+    OpenSSH and paramiko reject it ('error in libcrypto')."""
+    key_body = ("-----BEGIN OPENSSH PRIVATE KEY-----\n"
+                "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAAB\n"
+                "-----END OPENSSH PRIVATE KEY-----\n")
+    with app.app_context():
+        store_secret(app, "ssh-crlf", "ssh",
+                     key_body.replace("\n", "\r\n"))
+        assert read_secret(app, "ssh-crlf") == key_body
+        # non-ssh kinds are stored verbatim — no hidden mangling
+        store_secret(app, "git-crlf", "git", "line1\r\nline2")
+        assert read_secret(app, "git-crlf") == "line1\r\nline2"
+
+
 def test_missing_secret_is_actionable(app, monkeypatch, tmp_path):
     with app.app_context():
         with pytest.raises(SecretError, match="not configured"):

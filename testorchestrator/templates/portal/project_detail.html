@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}{{ project.name }} · TestOrchestrator<script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>{% endblock %}
+{% block title %}{{ project.name }} · TestOrchestrator{% endblock %}
 {% block content_class %}content-wide{% endblock %}
 {% block content %}
 <h1>{{ project.name }}</h1>
@@ -17,8 +17,11 @@
   <input type="radio" name="ptabs" id="tab-schedexec" class="tab-input" {% if request.args.get("tab") in ("schedexec","schedules","executions") %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-inventory" class="tab-input" {% if request.args.get("tab")=="inventory" %}checked{% endif %}>
   <input type="radio" name="ptabs" id="tab-bindings" class="tab-input" {% if request.args.get("tab")=="bindings" %}checked{% endif %}>
-  <input type="radio" name="ptabs" id="tab-access" class="tab-input" {% if request.args.get("tab")=="access" %}checked{% endif %}>
-  <input type="radio" name="ptabs" id="tab-analytics" class="tab-input" {% if request.args.get("tab")=="analytics" %}checked{% endif %}>
+  <input type="radio" name="ptabs" id="tab-storage" class="tab-input" {% if request.args.get("tab")=="storage" %}checked{% endif %}>
+  {% if current_user.role.value == "admin" %}
+  <input type="radio" name="ptabs" id="tab-access" class="tab-input" aria-label="Access tab" {% if request.args.get("tab")=="access" %}checked{% endif %}>
+  {% endif %}
+  <input type="radio" name="ptabs" id="tab-analytics" class="tab-input" aria-label="Analytics tab" {% if request.args.get("tab")=="analytics" %}checked{% endif %}>
   <nav class="tab-bar">
     <label for="tab-dash">Dashboard</label>
     <a class="tsub tsub-analytics"
@@ -29,6 +32,7 @@
     <label for="tab-schedexec">Schedules-Executions</label>
     <label for="tab-inventory">Inventory</label>
     <label for="tab-bindings">Git bindings</label>
+    <label for="tab-storage">Results &amp; Artifacts</label>
     {% if current_user.role.value == "admin" %}
     <label for="tab-access">Access</label>
     {% endif %}
@@ -40,8 +44,8 @@
   <h2>Dashboard</h2>
   <form method="get" class="filter-bar">
     <input type="hidden" name="tab" value="dash">
-    <div class="field"><label>Since (UTC)</label>
-      <input type="date" name="since" value="{{ dash.since }}"></div>
+    <div class="field"><label for="since">Since (UTC)</label>
+      <input type="date" id="since" name="since" value="{{ dash.since }}"></div>
     <button type="submit" class="button secondary">Apply</button>
   </form>
   <div class="stat-cards">
@@ -54,10 +58,11 @@
   </div>
   {% if dash.trend %}
   <div class="dash-chart" id="proj-chart">
+    {% set peak = dash.trend_peak or 1 %}
     {% for d in dash.trend %}
     <div class="bar-col" title="{{ d.day }}: {{ d.passed }} passed, {{ d.failed }} failed">
-      <div class="bar pass" style="height:{{ 2 + d.passed * 14 }}px"></div>
-      <div class="bar fail" style="height:{{ 2 + d.failed * 14 }}px"></div>
+      <div class="bar pass" style="height:{{ 2 + (d.passed * 52) // peak }}px"></div>
+      <div class="bar fail" style="height:{{ 2 + (d.failed * 52) // peak }}px"></div>
       <span class="bar-day">{{ d.day[8:] }}</span></div>
     {% endfor %}
   </div>
@@ -121,7 +126,7 @@
 </section>
 <section class="tab-panel card" id="panel-test">
   <nav class="test-subtabs">
-    {% for key,lab in [("case","Test Cases"),("suites","Test Suites"),("collections","Test Collections")] %}
+    {% for key,lab in [("tree","Tree"),("case","Test Cases"),("suites","Test Suites"),("collections","Test Collections")] %}
     <a class="tsub {% if test_subtab == key %}on{% endif %}"
        href="?tab=test&subtab={{ key }}{% if test_repo %}&repo={{ test_repo }}{% endif %}{% if test_q %}&q={{ test_q }}{% endif %}">{{ lab }}</a>
     {% endfor %}
@@ -162,7 +167,87 @@
         <button type="submit" class="button ghost sm">Apply</button>
       </form>
 
-      {% if test_subtab == "case" %}
+      {% if test_subtab == "tree" %}
+      <div class="test-tree" role="tree" aria-label="Test inventory tree"
+           data-test-tree>
+        {% macro caserow(c) -%}
+          <li role="treeitem" aria-level="3">
+            <span class="tree-leaf" tabindex="-1">
+              <span class="tree-name">{{ c.name }}</span>
+              <code class="muted">{{ c.path }}</code>
+              {% if c.last %}
+              <span class="badge {{ 'ok' if c.last.outcome == 'passed' else 'warn' }}"
+                    title="Last result {{ c.last.outcome }} · {{ c.last.finished_at }}">{{ c.last.outcome or c.last.state }}</span>
+              {% else %}<span class="muted">—</span>{% endif %}
+            </span>
+          </li>
+        {%- endmacro %}
+        {% macro suiterow(s, level) -%}
+          <li role="treeitem" aria-level="{{ level }}"
+              aria-expanded="{% if s.cases %}false{% endif %}"
+              class="tree-node">
+            <button type="button" class="tree-toggle" tabindex="-1"
+                    aria-label="Toggle suite {{ s.name }}"
+                    {% if not s.cases %}disabled aria-hidden="true"{% endif %}>▸</button>
+            <span class="tree-name">{{ s.name }}</span>
+            <span class="badge">repo</span>
+            <span class="badge muted">{{ s.framework }}</span>
+            <span class="muted">{{ s.case_count }} {{ s.granularity }}{{ 's' if s.case_count != 1 }}</span>
+            {% if s.stale_count %}<span class="badge warn"
+              title="{{ s.stale_count }} member(s) no longer resolve in the current inventory">stale {{ s.stale_count }}</span>{% endif %}
+            {% if not s.selectable %}<span class="badge warn" title="not selectable">not selectable</span>{% endif %}
+            {% if s.last %}
+            <span class="badge {{ 'ok' if s.last.outcome == 'passed' else 'warn' }}"
+                  title="Last result {{ s.last.outcome }} · {{ s.last.finished_at }}">{{ s.last.outcome or s.last.state }}</span>
+            {% endif %}
+            <code class="muted">{{ s.path }}</code>
+            {% if s.cases %}
+            <ul role="group" hidden>
+              {% for c in s.cases %}{{ caserow(c) }}{% endfor %}
+            </ul>
+            {% endif %}
+          </li>
+        {%- endmacro %}
+        <ul role="presentation" class="tree-root">
+          {% for coll in test_tree.collections %}
+          <li role="treeitem" aria-level="1" aria-expanded="false" class="tree-node">
+            <button type="button" class="tree-toggle" tabindex="-1"
+                    aria-label="Toggle collection {{ coll.name }}">▸</button>
+            <span class="tree-name">{{ coll.name }}</span>
+            <span class="badge">repo</span>
+            <span class="badge accent">collection · {{ coll.runmode }}</span>
+            <span class="muted">{{ coll.suite_count }} suites · {{ coll.case_count }} cases</span>
+            {% if coll.stale_count %}<span class="badge warn"
+              title="{{ coll.stale_count }} member(s) no longer resolve in the current inventory">stale {{ coll.stale_count }}</span>{% endif %}
+            {% if coll.last %}
+            <span class="badge {{ 'ok' if coll.last.outcome == 'passed' else 'warn' }}"
+                  title="Last result {{ coll.last.outcome }} · {{ coll.last.finished_at }}">{{ coll.last.outcome or coll.last.state }}</span>
+            {% endif %}
+            <code class="muted">{{ coll.path }}</code>
+            <ul role="group" hidden>
+              {% for s in coll.suites %}{{ suiterow(s, 2) }}{% endfor %}
+            </ul>
+          </li>
+          {% endfor %}
+          {% for s in test_tree.suites %}
+          {{ suiterow(s, 1) }}
+          {% endfor %}
+          {% if not test_tree.collections and not test_tree.suites %}
+          <li role="treeitem" aria-level="1" class="muted">No suites or
+            collections discovered — connect a source repository and sync
+            inventory.</li>
+          {% endif %}
+        </ul>
+        <p class="muted"><small>Read-only repository inventory. Entries
+          marked <span class="badge">repo</span> are repository-defined and
+          refreshed on sync. <span class="badge warn">stale</span> members
+          no longer resolve in the current inventory — they are kept, not
+          dropped. Granularity labels are per-framework (Cypress is
+          file-level only).</small></p>
+      </div>
+      <script src="{{ url_for('static', filename='js/test-tree.js') }}" defer></script>
+
+      {% elif test_subtab == "case" %}
       <table class="data-table test-tbl">
         <thead><tr><th>Name</th><th>Maintainer</th><th>Last execution</th>
           <th>Last update</th><th># exec</th><th>Avg dur</th>
@@ -292,9 +377,9 @@
             <summary class="button secondary">Edit</summary>
             <form method="post" action="{{ url_for('portal.edit_schedule', schedule_id=s.id) }}" class="edit-form">
               {{ plain_form.csrf_token }}
-              <div class="field"><label>Name</label>
-                <input name="name" value="{{ s.name }}"></div>
-              <div class="field"><label>Targets</label>
+              <div class="field"><label for="name-{{ s.id }}">Name</label>
+                <input id="name-{{ s.id }}" name="name" value="{{ s.name }}"></div>
+              <div class="field" role="group" aria-labelledby="tg-lbl-{{ s.id }}"><span class="lbl" id="tg-lbl-{{ s.id }}">Targets</span>
                 <div data-case-selector
                      data-cases='{{ repo_targets | tojson }}'
                      data-selected='{{ s.targets() | map(attribute="source_item_id") | map("regex_replace", "^", "repo:") | list | tojson }}'>
@@ -317,29 +402,138 @@
       {{ schedule_form.csrf_token }}
       <div class="field">{{ schedule_form.name.label }} {{ schedule_form.name() }}</div>
       <div class="field">{{ schedule_form.target_type.label }} {{ schedule_form.target_type() }}</div>
-      <div class="field"><label>Targets</label>
+      <div class="field"><label for="sch-target-kind">Target type</label>
+        <select id="sch-target-kind" name="target_kind"
+                aria-describedby="sch-tkind-ex">
+          <option value="suite" data-fws="katalon cypress playwright pytest pytest-bdd behave robot gtest jest postman bruno">Test suite</option>
+          <option value="collection" data-fws="katalon">Test suite collection</option>
+          <option value="selection" data-fws="cypress playwright pytest pytest-bdd behave robot gtest jest postman bruno">Selection from discovery</option>
+          <option value="plan" data-fws="katalon cypress playwright pytest pytest-bdd behave robot gtest jest postman bruno">Plan</option>
+        </select>
+        <small class="muted" id="sch-tkind-ex">Katalon schedules can target a
+          test suite, a test suite collection, or a plan — same as a manual
+          run. Other frameworks target a discovery selection or a plan.</small></div>
+      <div class="field" role="group" aria-labelledby="tg-lbl-new"><span class="lbl" id="tg-lbl-new">Targets</span>
         <div data-case-selector
              data-cases='{{ repo_targets | tojson }}'
              data-selected='{{ sched_targets | tojson }}'>
           <div data-hidden></div></div>
         <small class="muted">Repository suites/collections — each
-          runs through the configured profile/worker/runtime.</small></div>
-      <div class="hidden-field">{{ schedule_form.target_id() }}</div>
+          runs through the configured profile/worker/runtime.</small>
+        <div id="sch-collection-info" class="muted" hidden></div></div>
+      <div class="hidden-field">{{ schedule_form.target_id(**{"aria-label": "Schedule target"}) }}</div>
+      <div class="field"><label for="sch-framework">What to schedule</label>
+        {{ schedule_form.framework(id="sch-framework", aria_describedby="sch-fw-ex") }}
+        <small class="muted" id="sch-fw-ex">Only frameworks this project
+          actually has are listed. Selecting a target below sets the
+          framework from it.</small></div>
       <div class="field">{{ schedule_form.kind.label }} {{ schedule_form.kind() }}</div>
-      <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at() }}
-        <small class="muted">Schedule execution zone is UTC — the
+      <div class="field">{{ schedule_form.run_at.label }} {{ schedule_form.run_at(aria_describedby="sch-runat-ex") }}
+        <small class="muted" id="sch-runat-ex">Schedule execution zone is UTC — the
           schedule fires at the entered UTC instant regardless of your
           display preference ({{ TZ_NAME() }}); upcoming runs on this
           page are shown in {{ TZ_NAME() }}.</small></div>
-      <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes() }}</div>
-      <div class="field">{{ schedule_form.execution_profile.label }} {{ schedule_form.execution_profile() }}</div>
-      <div class="field">{{ schedule_form.browser_type.label }} {{ schedule_form.browser_type() }}</div>
-      <div class="field">{{ schedule_form.remote_webdriver_url.label }} {{ schedule_form.remote_webdriver_url() }}</div>
-      <div class="field">{{ schedule_form.remote_webdriver_type.label }} {{ schedule_form.remote_webdriver_type() }}</div>
-      <div class="field">{{ schedule_form.runner_id.label }} {{ schedule_form.runner_id() }}</div>
-      <div class="field">{{ schedule_form.runtime_id.label }} {{ schedule_form.runtime_id() }}</div>
-      <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds() }}</div>
-      <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy() }}</div>
+      <div class="field">{{ schedule_form.interval_minutes.label }} {{ schedule_form.interval_minutes(aria_describedby="sch-interval-ex") }}
+        <small class="muted" id="sch-interval-ex"><code>60</code> runs every hour,
+          <code>1440</code> runs once a day.</small></div>
+      <div class="field" data-fws="katalon">{{ schedule_form.execution_profile.label }}
+        {{ schedule_form.execution_profile(aria_describedby="sch-profile-ex") }}
+        <small class="muted" id="sch-profile-ex"><code>default</code>, or a profile
+          name such as <code>staging</code>.</small></div>
+      <div class="field" data-fws="katalon cypress playwright">{{ schedule_form.browser_type.label }}
+        {{ schedule_form.browser_type(aria_describedby="sch-browser-ex") }}
+        <small class="muted" id="sch-browser-ex">Katalon runs use the KRE browser
+          list; Cypress/Playwright use the framework values
+          (<code>chromium</code>, <code>firefox</code>, …) or
+          <i>framework default</i>.</small></div>
+      <div class="field" data-fws="katalon">{{ schedule_form.remote_webdriver_url.label }}
+        {{ schedule_form.remote_webdriver_url(aria_describedby="sch-rwdurl-ex") }}
+        <small class="muted" id="sch-rwdurl-ex">e.g.
+          <code>http://selenium-hub:4444/wd/hub</code>.</small></div>
+      <div class="field" data-fws="katalon">{{ schedule_form.remote_webdriver_type.label }}
+        <select name="remote_webdriver_type" id="remote_webdriver_type"
+                aria-describedby="sch-rwdtype-ex">
+          <option value="">—</option>
+          <option value="Selenium">Selenium</option>
+          <option value="Appium">Appium</option>
+        </select>
+        <small class="muted" id="sch-rwdtype-ex">Accepted values for KRE remote
+          execution: <code>Selenium</code> or <code>Appium</code>.</small></div>
+      <div class="field" data-fws="pytest pytest-bdd">{{ schedule_form.pytest_keyword.label }}
+        {{ schedule_form.pytest_keyword(aria_describedby="sch-kw-ex") }}
+        <small class="muted" id="sch-kw-ex">pytest <code>-k</code> expression, e.g.
+          <code>test_login and not slow</code>.</small></div>
+      <div class="field" data-fws="pytest pytest-bdd">{{ schedule_form.pytest_markers.label }}
+        {{ schedule_form.pytest_markers(aria_describedby="sch-markers-ex") }}
+        <small class="muted" id="sch-markers-ex">pytest <code>-m</code> expression, e.g.
+          <code>smoke and not flaky</code>.</small></div>
+      <div class="field" data-fws="robot">{{ schedule_form.robot_test.label }}
+        {{ schedule_form.robot_test(aria_describedby="sch-rtest-ex") }}
+        <small class="muted" id="sch-rtest-ex">Exact test name, e.g.
+          <code>Valid Login</code>.</small></div>
+      <div class="field" data-fws="robot">{{ schedule_form.robot_include.label }}
+        {{ schedule_form.robot_include(aria_describedby="sch-rinc-ex") }}
+        <small class="muted" id="sch-rinc-ex">Comma-separated tags, e.g.
+          <code>smoke,regression</code>.</small></div>
+      <div class="field" data-fws="robot">{{ schedule_form.robot_exclude.label }}
+        {{ schedule_form.robot_exclude(aria_describedby="sch-rexc-ex") }}
+        <small class="muted" id="sch-rexc-ex">Comma-separated tags, e.g.
+          <code>slow,known-failure</code>.</small></div>
+      <div class="field" data-fws="jest">{{ schedule_form.jest_test_path.label }}
+        {{ schedule_form.jest_test_path(aria_describedby="sch-jpath-ex") }}
+        <small class="muted" id="sch-jpath-ex">Run only test files matching this
+          pattern. Example: <code>tests/api/</code>.</small></div>
+      <div class="field" data-fws="jest">{{ schedule_form.jest_test_name.label }}
+        {{ schedule_form.jest_test_name(aria_describedby="sch-jname-ex") }}
+        <small class="muted" id="sch-jname-ex">Run only tests whose name matches.
+          Example: <code>login</code>.</small></div>
+      <div class="field" data-fws="postman">{{ schedule_form.postman_collection.label }}
+        {{ schedule_form.postman_collection(aria_describedby="sch-pmcol-ex") }}
+        <small class="muted" id="sch-pmcol-ex">The collection file to run. Example:
+          <code>collections/api-smoke.postman_collection.json</code>.</small></div>
+      <div class="field" data-fws="postman">{{ schedule_form.postman_environment.label }}
+        {{ schedule_form.postman_environment(aria_describedby="sch-pmenv-ex") }}
+        <small class="muted" id="sch-pmenv-ex">The environment file or name. Example:
+          <code>environments/staging.postman_environment.json</code>.</small></div>
+      <div class="field" data-fws="postman">{{ schedule_form.postman_folder.label }}
+        {{ schedule_form.postman_folder(aria_describedby="sch-pmfld-ex") }}
+        <small class="muted" id="sch-pmfld-ex">Run only one folder of the collection.
+          Example: <code>Login</code>.</small></div>
+      <div class="field" data-fws="postman">{{ schedule_form.postman_iterations.label }}
+        {{ schedule_form.postman_iterations(aria_describedby="sch-pmit-ex") }}
+        <small class="muted" id="sch-pmit-ex">How many times to run the collection.
+          Example: <code>1</code>.</small></div>
+      <div class="field" data-fws="bruno">{{ schedule_form.bruno_collection.label }}
+        {{ schedule_form.bruno_collection(aria_describedby="sch-brcol-ex") }}
+        <small class="muted" id="sch-brcol-ex">The folder to run. Example:
+          <code>api-tests/auth</code>.</small></div>
+      <div class="field" data-fws="bruno">{{ schedule_form.bruno_environment.label }}
+        {{ schedule_form.bruno_environment(aria_describedby="sch-brenv-ex") }}
+        <small class="muted" id="sch-brenv-ex">The environment name. Example:
+          <code>staging</code>.</small></div>
+      <div class="field" data-fws="bruno">{{ schedule_form.bruno_tags.label }}
+        {{ schedule_form.bruno_tags(aria_describedby="sch-brtags-ex") }}
+        <small class="muted" id="sch-brtags-ex">Run only requests with these tags.
+          Example: <code>smoke</code>.</small></div>
+      <div class="field">{{ schedule_form.runner_id.label }} {{ schedule_form.runner_id(aria_describedby="sch-runner-ex") }}
+        <small class="muted" id="sch-runner-ex"><i>Auto</i> picks the first eligible
+          runner. Choose one to pin it.</small></div>
+      <div class="field" data-fws="katalon">{{ schedule_form.runtime_id.label }} {{ schedule_form.runtime_id(aria_describedby="sch-runtime-ex") }}
+        <small class="muted" id="sch-runtime-ex"><i>Auto</i> picks a compatible
+          installation on the runner.</small></div>
+      <div class="field">{{ schedule_form.timeout_seconds.label }} {{ schedule_form.timeout_seconds(aria_describedby="sch-timeout-ex") }}
+        <small class="muted" id="sch-timeout-ex"><code>3600</code> is one hour.
+          For a collection the timeout applies to the whole collection run.</small></div>
+      <div class="field">{{ schedule_form.deps_prepare.label }} {{ schedule_form.deps_prepare(aria_describedby="sch-deps-ex") }}
+        <small class="muted" id="sch-deps-ex">Node.js frameworks only:
+          <code>npm ci</code> installs locked project dependencies before
+          the run (runs install scripts on the target; needs
+          package-lock.json). Choose Off when deps are pre-installed on
+          the runner.</small></div>
+      <div class="field">{{ schedule_form.overlap_policy.label }} {{ schedule_form.overlap_policy(aria_describedby="sch-overlap-ex") }}
+        <small class="muted" id="sch-overlap-ex">“Allow overlap” starts a new run even
+          if the last one is still running. “Skip” does not. A collection
+          counts as one run.</small></div>
       <button type="submit" class="button">Apply</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form>
@@ -442,10 +636,10 @@
     <summary class="button">Create release</summary>
     <form method="post" action="{{ url_for('portal.create_release', project_id=project.id) }}" class="add-form">
       {{ plain_form.csrf_token }}
-      <div class="field"><label>Name</label><input name="name"></div>
-      <div class="field"><label>Description</label><input name="description"></div>
-      <div class="field"><label>Start date</label><input name="start_date" type="date"></div>
-      <div class="field"><label>Target end date</label><input name="end_date" type="date"></div>
+      <div class="field"><label for="rel-name">Name</label><input id="rel-name" name="name"></div>
+      <div class="field"><label for="description">Description</label><input id="description" name="description"></div>
+      <div class="field"><label for="start_date">Start date</label><input id="start_date" name="start_date" type="date"></div>
+      <div class="field"><label for="end_date">Target end date</label><input id="end_date" name="end_date" type="date"></div>
       <button type="submit" class="button">Apply</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>
     </form>
@@ -537,13 +731,26 @@
   {% if project.bindings %}
   <table class="audit-table">
     <thead><tr><th>Name</th><th>URL</th><th>Ref</th><th>Synced SHA</th>
-               <th>Status</th><th></th></tr></thead>
+               <th>Status</th><th>Framework projects</th><th></th></tr></thead>
     <tbody>
       {% for b in project.bindings %}
       <tr>
         <td>{{ b.name }}</td><td><code>{{ b.url }}</code></td>
         <td>{{ b.ref }}</td><td><code>{{ (b.last_synced_sha or "—")[:12] }}</code></td>
         <td>{{ b.status }}{% if b.last_error %} — {{ b.last_error[:80] }}{% endif %}</td>
+        <td>
+          {% for fp in b.framework_projects %}
+            <div><a href="{{ url_for('portal.fp_detail', fp_id=fp.id) }}"
+               >{{ fp.name }}</a>
+              <span class="badge">{{ fp.framework }}</span>
+              <span class="badge">{{ fp.discovery_status }}</span></div>
+          {% else %}<small class="muted">—</small>{% endfor %}
+          {% if can_edit %}
+          <a class="button sm secondary" style="margin-top:4px"
+             href="{{ url_for('portal.fp_new', binding_id=b.id) }}"
+             >Add framework project</a>
+          {% endif %}
+        </td>
         <td>
           {% if can_edit %}
           <div class="cell-actions">
@@ -554,12 +761,12 @@
           <details class="inline-details"><summary class="button secondary">Edit</summary>
             <form method="post" action="{{ url_for('portal.edit_binding', binding_id=b.id) }}" class="edit-form">
               {{ binding_form.csrf_token }}
-              <div class="field"><label>Name</label>
-                <input name="name" value="{{ b.name }}"></div>
-              <div class="field"><label>URL</label>
-                <input name="url" value="{{ b.url }}"></div>
-              <div class="field"><label>Ref / branch</label>
-                <input name="ref" value="{{ b.ref }}"></div>
+              <div class="field"><label for="name-{{ b.id }}">Name</label>
+                <input id="name-{{ b.id }}" name="name" value="{{ b.name }}"></div>
+              <div class="field"><label for="url-{{ b.id }}">URL</label>
+                <input id="url-{{ b.id }}" name="url" value="{{ b.url }}"></div>
+              <div class="field"><label for="ref-{{ b.id }}">Ref / branch</label>
+                <input id="ref-{{ b.id }}" name="ref" value="{{ b.ref }}"></div>
               <div class="field checkbox-field">
                 <label class="check-label">
                   <input type="checkbox" name="authoring_writable" value="1"
@@ -573,12 +780,12 @@
                   <span>Report write-back (publish execution reports)</span></label>
                 <small class="muted">Allows commit+push of reports to
                 {{ b.url }} on ref {{ b.ref }} — disabled by default.</small></div>
-              <div class="field"><label>Subdirectory</label>
-                <input name="subdirectory" value="{{ b.subdirectory }}"></div>
-              <div class="field"><label>Project root (.prj)</label>
-                <input name="prj_path" value="{{ b.prj_path }}"></div>
-              <div class="field"><label>Credential ref</label>
-                <input name="credential_ref" value="{{ b.credential_ref }}"></div>
+              <div class="field"><label for="subdirectory-{{ b.id }}">Subdirectory</label>
+                <input id="subdirectory-{{ b.id }}" name="subdirectory" value="{{ b.subdirectory }}"></div>
+              <div class="field"><label for="prj_path-{{ b.id }}">Project root (.prj)</label>
+                <input id="prj_path-{{ b.id }}" name="prj_path" value="{{ b.prj_path }}"></div>
+              <div class="field"><label for="credential_ref-{{ b.id }}">Credential ref</label>
+                <input id="credential_ref-{{ b.id }}" name="credential_ref" value="{{ b.credential_ref }}"></div>
               <div class="btn-row">
               <button type="submit" class="button primary">Apply</button>
               <button type="button" class="button danger" data-cancel-details>Cancel</button></div>
@@ -634,8 +841,498 @@
 </section>
 {% endif %}
 
+<section class="tab-panel card" id="panel-storage">
+  <h2>Results &amp; Artifacts — durable storage</h2>
+  <p class="muted"><strong>Primary storage</strong> keeps your
+  results and files available after the worker is removed.
+  Execution metadata, parsed results, and artifact references live
+  in the database; file bytes go to the project's <em>active</em>
+  destination. New destinations apply to new executions — historical
+  artifacts keep their original store reference and stay
+  retrievable. Staged workspace copies are cleanup-eligible only
+  after a stored copy verifies.</p>
+  <p class="muted"><strong>Git publication</strong> is optional and
+  does not replace primary storage — a publication failure does not
+  mean the tests failed. Per-execution publication status is shown
+  separately on each execution.</p>
+
+  <h3>Destinations</h3>
+  {% set active_store = artifact_stores | selectattr("active") |
+     selectattr("retired", "equalto", false) | list | first %}
+  <p class="muted">Effective destination for new runs:
+    {% if active_store %}<strong>{{ active_store.name }}</strong>
+    ({{ active_store.kind }})
+    {% else %}<em>none configured</em> — artifacts stay in the
+    execution workspace (historical default).{% endif %}</p>
+  <table class="data-table">
+    <thead><tr><th>Name</th><th>Kind</th><th>Configuration</th>
+      <th>Validated</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {% for s in artifact_stores %}
+    <tr>
+      <td>{{ s.name }}</td>
+      <td><span class="badge">{{ s.kind }}</span></td>
+      <td><code>
+        {%- set c = s.config() -%}
+        {%- if s.kind == "s3" -%}
+          s3://{{ c.bucket }}/{{ c.prefix }}
+          {%- if c.endpoint_url %} @ {{ c.endpoint_url }}{% endif %}
+        {%- elif s.kind == "gcs" -%}
+          gs://{{ c.bucket }}/{{ c.prefix }} @ storage.googleapis.com
+        {%- elif s.kind == "azure" -%}
+          {{ c.account_url }}/{{ c.container }}/{{ c.prefix }}
+        {%- else -%}{{ c.root }}{{ "/" + c.subdir if c.subdir }}
+        {%- endif -%}
+      </code>
+      {%- set provider = c.provider or ('manual' if s.kind == 's3' else s.kind) -%}
+      {%- if s.kind in ('s3','azure','gcs') %}<br><small class="muted">provider:
+        {{ {'amazon':'Amazon S3','azure':'Microsoft Azure Blob Storage','gcs':'Google Cloud Storage','google':'Google Cloud Storage','manual':'Other (Manual)'}[provider] }}</small>{% endif %}
+      {% if s.credential_ref %}<br><small class="muted">credential:
+        <code>••••••</code> (reference
+        <code>{{ s.credential_ref }}</code>)</small>{% endif %}</td>
+      <td>{% if s.validated_at %}{{ s.validated_at }}
+        {% elif s.last_error %}<span class="warn">
+          {{ s.last_error }}</span>{% else %}not checked{% endif %}</td>
+      <td>{% if s.retired %}<span class="badge warn">retired</span>
+        <small class="muted">historical access only</small>
+        {% elif s.active %}<span class="badge success">active</span>
+        {% else %}<span class="badge">inactive</span>{% endif %}</td>
+      <td class="btn-row">
+        <form method="post" class="inline"
+              action="{{ url_for('portal.store_probe', store_id=s.id) }}">
+          {{ plain_form.csrf_token }}
+          <button class="button sm secondary">Test connection</button></form>
+        {% if not s.retired %}
+        <form method="post" class="inline"
+              action="{{ url_for('portal.store_toggle', store_id=s.id) }}">
+          {{ plain_form.csrf_token }}
+          <button class="button sm secondary">
+            {{ "Deactivate" if s.active else "Activate" }}</button></form>
+        {% endif %}
+        {% if can_edit %}
+        <details class="inline-details">
+          <summary class="button sm secondary">Edit</summary>
+          <form method="post" class="edit-form"
+                action="{{ url_for('portal.store_edit', store_id=s.id) }}">
+            {{ plain_form.csrf_token }}
+            {%- set provider = c.provider or ('manual' if s.kind == 's3' else s.kind) -%}
+            <input type="hidden" name="kind"
+                   value="{{ 'object' if s.kind in ('s3','azure','gcs') else s.kind }}">
+            <input type="hidden" name="provider" value="{{ provider }}">
+            <div class="field"><label for="provider-{{ s.id }}">Provider</label>
+              <input id="provider-{{ s.id }}" value="{{ {'amazon':'Amazon S3','azure':'Microsoft Azure Blob Storage','gcs':'Google Cloud Storage','google':'Google Cloud Storage','manual':'Other (Manual)','local':'Local folder','mounted':'Mounted folder'}[provider] }}" disabled>
+              <small class="muted">Provider/API is fixed — create a
+                new destination to change it.</small></div>
+            <div class="field"><label for="name-{{ s.id }}">Display name</label>
+              <input id="name-{{ s.id }}" name="name" maxlength="128" value="{{ s.name }}"></div>
+            {% if s.kind in ("local", "mounted") %}
+            <div class="field"><label for="root-{{ s.id }}">{{ "Mounted folder" if s.kind == "mounted" else "Storage folder" }}</label>
+              <input id="root-{{ s.id }}" name="root" maxlength="512" value="{{ c.root }}"></div>
+            <div class="field"><label for="subdir-{{ s.id }}">Subdirectory (optional)</label>
+              <input id="subdir-{{ s.id }}" name="subdir" maxlength="256" value="{{ c.subdir }}"></div>
+            {% elif provider == "amazon" %}
+            <div class="field"><label for="bucket-{{ s.id }}">Bucket</label>
+              <input id="bucket-{{ s.id }}" name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
+            <div class="field"><label for="region-{{ s.id }}">Region</label>
+              <input id="region-{{ s.id }}" name="region" maxlength="64" value="{{ c.region }}"></div>
+            <div class="field"><label for="prefix-{{ s.id }}">Key prefix (optional)</label>
+              <input id="prefix-{{ s.id }}" name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label for="endpoint_url-{{ s.id }}">Endpoint override (advanced)</label>
+              <input id="endpoint_url-{{ s.id }}" name="endpoint_url" maxlength="256" value="{{ c.endpoint_url }}"></div>
+            <div class="field"><label for="ca_bundle-{{ s.id }}">Custom CA bundle (optional)</label>
+              <input id="ca_bundle-{{ s.id }}" name="ca_bundle" maxlength="256" value="{{ c.ca_bundle }}"></div>
+            {% elif provider == "azure" %}
+            <div class="field"><label for="account_url-{{ s.id }}">Service endpoint</label>
+              <input id="account_url-{{ s.id }}" name="account_url" maxlength="256" value="{{ c.account_url }}"></div>
+            <div class="field"><label for="container-{{ s.id }}">Container</label>
+              <input id="container-{{ s.id }}" name="container" maxlength="128" value="{{ c.container }}"></div>
+            <div class="field"><label for="prefix-{{ s.id }}">Blob prefix (optional)</label>
+              <input id="prefix-{{ s.id }}" name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label for="auth_mode-{{ s.id }}">Authentication</label>
+              <select id="auth_mode-{{ s.id }}" name="auth_mode">
+                <option value="account_key" {% if c.auth_mode == "account_key" %}selected{% endif %}>Account key (Shared Key)</option>
+                <option value="sas" {% if c.auth_mode == "sas" %}selected{% endif %}>SAS token</option>
+              </select></div>
+            {% elif provider == "gcs" or provider == "google" %}
+            <div class="field"><label for="bucket-{{ s.id }}">Bucket</label>
+              <input id="bucket-{{ s.id }}" name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
+            <div class="field"><label for="prefix-{{ s.id }}">Key prefix (optional)</label>
+              <input id="prefix-{{ s.id }}" name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            {% else %}
+            <div class="field"><label for="endpoint_url-{{ s.id }}">Endpoint (compatible services)</label>
+              <input id="endpoint_url-{{ s.id }}" name="endpoint_url" maxlength="256" value="{{ c.endpoint_url }}"></div>
+            <div class="field"><label for="bucket-{{ s.id }}">Bucket</label>
+              <input id="bucket-{{ s.id }}" name="bucket" maxlength="128" value="{{ c.bucket }}"></div>
+            <div class="field"><label for="prefix-{{ s.id }}">Key prefix (optional)</label>
+              <input id="prefix-{{ s.id }}" name="prefix" maxlength="256" value="{{ c.prefix }}"></div>
+            <div class="field"><label for="region-{{ s.id }}">Region (if required)</label>
+              <input id="region-{{ s.id }}" name="region" maxlength="64" value="{{ c.region }}"></div>
+            <div class="field"><label><input type="checkbox" name="path_style"
+                  value="1" {% if c.path_style %}checked{% endif %}> path-style addressing</label></div>
+            <div class="field"><label for="ca_bundle-{{ s.id }}">Custom CA bundle (optional)</label>
+              <input id="ca_bundle-{{ s.id }}" name="ca_bundle" maxlength="256" value="{{ c.ca_bundle }}"></div>
+            {% endif %}
+            {% if s.kind not in ("local", "mounted") %}
+            <div class="field"><label for="credential_ref-{{ s.id }}">Credential reference</label>
+              <input id="credential_ref-{{ s.id }}" name="credential_ref" maxlength="64" value=""
+                     placeholder="{{ s.credential_ref or 'approved secret name' }}">
+              <small class="muted">Leave blank to keep
+                {% if s.credential_ref %}<code>{{ s.credential_ref }}</code>{% else %}unset{% endif %}
+                — secrets are never displayed.</small></div>
+            {% endif %}
+            <button type="submit" class="button">Save</button>
+            <button type="button" class="button danger" data-cancel-details>Cancel</button>
+          </form></details>
+        <form method="post" class="inline"
+              action="{{ url_for('portal.store_delete', store_id=s.id) }}"
+              data-confirm="Remove or retire this destination? If stored artifacts still reference it, the destination is retired — configuration kept for retrieval, no new writes. Otherwise it is removed.">
+          {{ plain_form.csrf_token }}
+          <button class="button sm danger">Remove</button></form>
+        {% endif %}</td>
+    </tr>
+    {% else %}<tr><td colspan="6" class="muted">No store configured —
+      artifacts stay in the execution workspace (historical default).
+      </td></tr>{% endfor %}
+    </tbody></table>
+
+  {% if can_edit %}
+  <details class="add-block" id="add-store-details">
+    <summary class="button">Add storage</summary>
+  <p class="muted">A storage destination tells TestOrchestrator where
+  to keep result files after runs finish. Adding a destination does
+  not install software, mount shares, create buckets, or change host
+  permissions.</p>
+  <form method="post" class="add-form" id="add-store-form"
+        action="{{ url_for('portal.store_new', project_id=project.id) }}">
+    {{ plain_form.csrf_token }}
+
+    <fieldset>
+      <legend><strong>Step 1 — Choose storage type</strong></legend>
+      <div class="store-kind-grid">
+        <label class="fw-tile">
+          <input type="radio" name="kind" value="local" checked>
+          <span class="fw-tile-body">
+            <strong>Local folder</strong>
+            <small class="muted">A folder on the TestOrchestrator
+            storage host — not a path on your laptop or a worker's
+            temporary checkout.</small></span>
+        </label>
+        <label class="fw-tile">
+          <input type="radio" name="kind" value="mounted">
+          <span class="fw-tile-body">
+            <strong>Mounted network folder</strong>
+            <small class="muted">An existing mount on the storage
+            host. This does not mount a share or change host
+            permissions.</small></span>
+        </label>
+        <label class="fw-tile">
+          <input type="radio" name="kind" value="object">
+          <span class="fw-tile-body">
+            <strong>Object storage (cloud)</strong>
+            <small class="muted">A cloud object-storage destination
+            — pick the provider below; each provider uses its real
+            API.</small></span>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend><strong>Step 2 — Configure destination</strong></legend>
+      <div class="field"><label for="store-name">Display name</label>
+        <input id="store-name" name="name" maxlength="128"
+               placeholder="e.g. Local test reports"></div>
+
+      <fieldset class="store-cfg" data-kind="local">
+        <div class="field"><label for="store-root-local">Storage folder</label>
+          <input id="store-root-local" name="root" maxlength="512"
+                 placeholder="/var/lib/testorchestrator/artifacts">
+          <small class="muted">Absolute path on the TestOrchestrator
+          host. The application's storage process must have
+          permission to use it, and it must sit inside the
+          administrator-approved roots list.</small></div>
+        <div class="field"><label for="store-subdir-local">Subdirectory (optional)</label>
+          <input id="store-subdir-local" name="subdir" maxlength="256"
+                 placeholder="e.g. project-a"></div>
+      </fieldset>
+
+      <fieldset class="store-cfg" data-kind="mounted" disabled hidden>
+        <div class="field"><label for="store-root-mounted">Mounted folder</label>
+          <input id="store-root-mounted" name="root" maxlength="512"
+                 placeholder="/mnt/team-reports/testorchestrator">
+          <small class="muted">Enter an existing mounted folder. If
+          the mount is missing or unwritable you will get an
+          actionable error — nothing is mounted or changed
+          automatically.</small></div>
+        <div class="field"><label for="store-subdir-mounted">Subdirectory (optional)</label>
+          <input id="store-subdir-mounted" name="subdir" maxlength="256"
+                 placeholder="e.g. project-a"></div>
+      </fieldset>
+
+      <fieldset class="store-cfg" data-kind="object" disabled hidden>
+        <div class="field"><label for="store-provider">Object Storage Provider</label>
+          <select id="store-provider" name="provider">
+            <option value="amazon">Amazon S3</option>
+            <option value="azure">Microsoft Azure Blob Storage</option>
+            <option value="google">Google Cloud Storage</option>
+            <option value="manual" selected>Other (Manual)</option>
+          </select>
+          <small class="muted">The provider chooses the API —
+            Amazon/Other use the S3 protocol, Azure uses the Blob
+            REST API, Google uses Cloud Storage's documented
+            XML interoperability mode.</small></div>
+
+        <fieldset class="provider-cfg" data-provider="amazon" disabled hidden>
+          <div class="grid-2">
+            <div class="field"><label for="s-bucket-amz">Bucket</label>
+              <input id="s-bucket-amz" name="bucket" maxlength="128"
+                     placeholder="qa-test-artifacts"></div>
+            <div class="field"><label for="s-region-amz">Region</label>
+              <input id="s-region-amz" name="region" maxlength="64"
+                     placeholder="e.g. eu-central-1"></div>
+            <div class="field"><label for="s-prefix-amz">Key prefix (optional)</label>
+              <input id="s-prefix-amz" name="prefix" maxlength="256"
+                     placeholder="testorchestrator/"></div>
+            <div class="field"><label for="s-cred-amz">Credential reference</label>
+              <input id="s-cred-amz" name="credential_ref" maxlength="64"
+                     placeholder="approved secret — 'access:secret'">
+              <small class="muted">Holds AWS access/secret key as
+                <code>access_key:secret_key</code> — never the
+                value itself.</small></div>
+            <div class="field"><label for="s-endpoint-amz">Endpoint override (advanced, optional)</label>
+              <input id="s-endpoint-amz" name="endpoint_url" maxlength="256"
+                     placeholder="default AWS endpoints"></div>
+            <div class="field"><label for="s-ca-amz">Custom CA bundle (optional)</label>
+              <input id="s-ca-amz" name="ca_bundle" maxlength="256"
+                     placeholder="/var/lib/testorchestrator/tls/ca.pem"></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="provider-cfg" data-provider="azure" disabled hidden>
+          <div class="grid-2">
+            <div class="field"><label for="s-url-az">Service endpoint</label>
+              <input id="s-url-az" name="account_url" maxlength="256"
+                     placeholder="https://<account>.blob.core.windows.net">
+              <small class="muted">Azure Blob Storage endpoint —
+                not an S3 URL; Azure has no native S3 API.</small></div>
+            <div class="field"><label for="s-container-az">Container</label>
+              <input id="s-container-az" name="container" maxlength="128"
+                     placeholder="testorchestrator"></div>
+            <div class="field"><label for="s-prefix-az">Blob prefix (optional)</label>
+              <input id="s-prefix-az" name="prefix" maxlength="256"
+                     placeholder="testorchestrator/"></div>
+            <div class="field"><label for="s-auth-az">Authentication</label>
+              <select id="s-auth-az" name="auth_mode">
+                <option value="account_key">Account key (Shared Key)</option>
+                <option value="sas">SAS token</option>
+              </select></div>
+            <div class="field"><label for="s-cred-az">Credential reference</label>
+              <input id="s-cred-az" name="credential_ref" maxlength="64"
+                     placeholder="approved secret name">
+              <small class="muted">Account key: the base64 key (or
+                <code>account:key</code>). SAS: the token without
+                the leading <code>?</code>. Values stay masked —
+                never in URLs, previews, or logs.</small></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="provider-cfg" data-provider="google" disabled hidden>
+          <div class="grid-2">
+            <div class="field"><label for="s-bucket-gcs">Bucket</label>
+              <input id="s-bucket-gcs" name="bucket" maxlength="128"
+                     placeholder="qa-test-artifacts"></div>
+            <div class="field"><label for="s-prefix-gcs">Key prefix (optional)</label>
+              <input id="s-prefix-gcs" name="prefix" maxlength="256"
+                     placeholder="testorchestrator/"></div>
+            <div class="field"><label for="s-cred-gcs">Credential reference</label>
+              <input id="s-cred-gcs" name="credential_ref" maxlength="64"
+                     placeholder="approved secret — HMAC 'access:secret'">
+              <small class="muted">Google Cloud Storage
+                <strong>interoperability mode</strong>: HMAC
+                access/secret keys (<code>access_key:secret_key</code>)
+                against <code>storage.googleapis.com</code>. Service-
+                account/JSON API auth is not supported by this
+                mode.</small></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="provider-cfg" data-provider="manual" disabled hidden>
+          <div class="grid-2">
+            <div class="field"><label for="store-endpoint">Endpoint (compatible services)</label>
+              <input id="store-endpoint" name="endpoint_url" maxlength="256"
+                     placeholder="https://s3.storage.example.com"></div>
+            <div class="field"><label for="store-bucket">Bucket</label>
+              <input id="store-bucket" name="bucket" maxlength="128"
+                     placeholder="qa-test-artifacts"></div>
+            <div class="field"><label for="store-prefix">Key prefix (optional)</label>
+              <input id="store-prefix" name="prefix" maxlength="256"
+                     placeholder="testorchestrator/">
+              <small class="muted">The prefix groups TestOrchestrator
+              files inside the bucket. It is not a local filesystem
+              path.</small></div>
+            <div class="field"><label for="store-region">Region (if required)</label>
+              <input id="store-region" name="region" maxlength="64"></div>
+            <div class="field"><label for="store-cred">Credential reference</label>
+              <input id="store-cred" name="credential_ref" maxlength="64"
+                     placeholder="approved secret name — never a value">
+              <small class="muted">Credentials stay masked and
+              reference-based — never embedded in endpoints, previews,
+              or logs.</small></div>
+            <div class="field"><label><input type="checkbox"
+                  name="path_style" value="1"> path-style
+              addressing (some S3-compatible services)</label></div>
+            <div class="field"><label for="store-ca">Custom CA bundle
+              (optional)</label>
+              <input id="store-ca" name="ca_bundle" maxlength="256"
+                     placeholder="/var/lib/testorchestrator/tls/ca.pem">
+              <small class="muted">PEM file on the TestOrchestrator
+              host, inside an administrator-approved storage root.
+              TLS verification is always on — this only changes
+              which certificate authority is trusted.</small></div>
+          </div>
+        </fieldset>
+      </fieldset>
+    </fieldset>
+
+    <fieldset>
+      <legend><strong>Step 3 — Access scope</strong></legend>
+      <p class="muted">This destination is scoped to project
+      <strong>{{ project.name }}</strong>. Only this project's new
+      executions write to it.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend><strong>Step 4 — Test connection, then save</strong></legend>
+      <p class="muted">The check creates a small temporary file or
+      object, reads it back, verifies it, and deletes it. It does
+      not modify existing results, create buckets, mount shares, or
+      change permissions.</p>
+      <div class="btn-row">
+        <button class="button secondary" type="submit"
+                formaction="{{ url_for('portal.store_test',
+                                       project_id=project.id) }}">
+          Test connection</button>
+        <button class="button primary" type="submit">
+          Save destination</button>
+        <button class="button danger" type="button"
+                data-close-details="add-store-details">
+          Cancel</button></div>
+    </fieldset>
+  </form>
+  </details>
+  <script src="{{ url_for('static', filename='js/storage-form.js') }}?v={{ js_v }}" defer></script>
+  {% endif %}
+
+  <h3>Artifact capture</h3>
+  <p class="muted">These are <strong>collection</strong>
+  permissions — they control which generated files
+  TestOrchestrator transfers and retains. They do
+  <strong>not</strong> guarantee a framework will produce those
+  files, and they do not prevent a framework from generating them
+  on the worker (generation is a framework setting). The policy is
+  snapshotted into each execution; changing it affects new runs
+  only. Excluded files stay recorded in the evidence manifest.
+  Broad checkout-directory uploads remain prohibited.</p>
+  {% if can_edit %}
+  <form method="post" class="add-form"
+        action="{{ url_for('portal.capture_policy_update',
+                           project_id=project.id) }}">
+    {{ plain_form.csrf_token }}
+    {% for key, label, required, note in capture_categories %}
+    <div class="field">
+      <label><input type="checkbox" name="cat_{{ key }}" value="1"
+        {% if required or capture_policy.get(key, true) %}checked{% endif %}
+        {% if required %}disabled{% endif %}> {{ label }}</label>
+      {% if required %}<small class="muted">always collected —
+        {{ note }}</small>
+      {% elif note %}<small class="muted">⚠ {{ note }}</small>{% endif %}
+    </div>
+    {% endfor %}
+    <div class="btn-row">
+      <button class="button secondary" type="submit">Save capture policy</button></div>
+  </form>
+  {% else %}
+  <ul>{% for key, label, required, note in capture_categories %}
+    <li>{{ label }} — {{ "on" if capture_policy.get(key, true) else "off" }}</li>
+  {% endfor %}</ul>
+  {% endif %}
+
+  <h3>Retention</h3>
+  <p class="muted">Artifact files and execution metadata have
+  <strong>separate</strong> retention policies. Operational logs use
+  their own setting ({{ retention_eff.logs_days }} days) — untouched
+  here. The clock starts when an execution reaches a terminal
+  state; active runs, in-flight transfers, and unverified
+  staged-only files are never deleted by cleanup. Policy changes
+  apply to existing eligible records, not only new runs.</p>
+  <table>
+    <tr><th>Domain</th><th>Keep for</th><th>Source</th></tr>
+    <tr><td>Artifact files</td>
+        <td>{{ retention_eff.artifact_days or "forever" }}{% if retention_eff.artifact_days %} days{% endif %}</td>
+        <td>{{ retention_eff.artifact_source }}{% if retention_eff.artifact_source == "global" %} ({{ retention_eff.global_artifact_days or "forever" }}){% endif %}</td></tr>
+    <tr><td>Execution metadata + summaries</td>
+        <td>{{ retention_eff.metadata_days or "forever" }}{% if retention_eff.metadata_days %} days{% endif %}</td>
+        <td>{{ retention_eff.metadata_source }}{% if retention_eff.metadata_source == "global" %} ({{ retention_eff.global_metadata_days or "forever" }}){% endif %}</td></tr>
+  </table>
+  {% if can_edit %}
+  <form method="post" class="add-form"
+        action="{{ url_for('portal.retention_update',
+                           project_id=project.id) }}">
+    {{ plain_form.csrf_token }}
+    <div class="grid-2">
+      <div class="field"><label for="ret-art">Artifact files — days
+        (empty = inherit global)</label>
+        <input id="ret-art" name="artifact_days" type="number" min="0"
+               placeholder="{{ retention_eff.global_artifact_days or 'forever' }}"
+               value="{{ retention_eff.project_raw.artifact_days
+                        if retention_eff.project_raw.artifact_days
+                           is not none else '' }}"></div>
+      <div class="field"><label for="ret-meta">Execution metadata +
+        summaries — days</label>
+        <input id="ret-meta" name="metadata_days" type="number" min="0"
+               placeholder="{{ retention_eff.global_metadata_days or 'forever' }}"
+               value="{{ retention_eff.project_raw.metadata_days
+                        if retention_eff.project_raw.metadata_days
+                           is not none else '' }}"></div>
+    </div>
+    <p class="muted"><em>Example:</em> keep artifact files for 30
+    days and execution summaries for 180 days — example values only,
+    not defaults.</p>
+    <div class="btn-row">
+      <button class="button secondary" type="submit">Save retention policy</button>
+    </div>
+  </form>
+  <form method="post" class="add-form"
+        action="{{ url_for('portal.retention_preview',
+                           project_id=project.id) }}">
+    {{ plain_form.csrf_token }}
+      <button class="button secondary" type="submit">Preview cleanup</button>
+  </form>
+  {% if current_user.role.value == 'admin' %}
+  <form method="post" class="add-form"
+        action="{{ url_for('portal.retention_run',
+                           project_id=project.id) }}"
+        data-confirm="Run retention cleanup now? This deletes expired artifact files and eligible execution records under the current policy.">
+    {{ plain_form.csrf_token }}
+      <button class="button" type="submit">Run cleanup now</button>
+  </form>
+  {% endif %}
+  <p class="muted">Git publication is a separate retention domain:
+  published reports live in the destination repository and are not
+  removed by artifact cleanup — Git history is never rewritten.</p>
+  {% endif %}
+
+  <h3>Optional — Git publication</h3>
+  <p class="muted">Publishing copies <em>explicitly selected</em>
+  reports to a Git repository. It is optional, independent of
+  primary storage, and never implies test success or failure.
+  Source changes, snapshots, environment exports, and raw
+  sensitive API traffic are excluded by default. Publication status
+  is shown per execution, separately from durable storage.</p>
+</section>
+
 </div>
 <script src="{{ url_for('static', filename='js/case-selector.js') }}?v={{ js_v }}" defer></script>
+<script src="{{ url_for('static', filename='js/schedule-form.js') }}?v={{ js_v }}" defer></script>
 {% if discovered and discovered.binding %}
 <!-- ============ CREATION MODALS ============ -->
 <div class="modal" id="suite-modal" role="dialog" aria-modal="true" aria-labelledby="suite-modal-t">
@@ -650,9 +1347,9 @@
       <input type="hidden" name="path" id="suite-path-auto">
       <div class="modal-body">
         <div class="modal-error" role="alert"></div>
-        <div class="field"><label>Suite name</label>
-          <input name="name" required placeholder="e.g. Smoke Suite" data-path-auto="suite-path-auto"></div>
-        <div class="field"><label>Test cases</label>
+        <div class="field"><label for="suite-name">Suite name</label>
+          <input id="suite-name" name="name" required placeholder="e.g. Smoke Suite" data-path-auto="suite-path-auto"></div>
+        <div class="field" role="group" aria-labelledby="tc-lbl-new"><span class="lbl" id="tc-lbl-new">Test cases</span>
           <div data-case-selector
                data-cases='{{ repo_cases | tojson }}' data-selected='[]'>
             <div data-hidden></div></div></div>
@@ -677,8 +1374,8 @@
       <input type="hidden" name="path" id="coll-path-auto">
       <div class="modal-body">
         <div class="modal-error" role="alert"></div>
-        <div class="field"><label>Collection name</label>
-          <input name="name" required placeholder="e.g. Regression Pack" data-path-auto="coll-path-auto"></div>
+        <div class="field"><label for="coll-name">Collection name</label>
+          <input id="coll-name" name="name" required placeholder="e.g. Regression Pack" data-path-auto="coll-path-auto"></div>
         <details class="adv"><summary>Member suites</summary>
           <div data-case-selector
                data-cases='{{ repo_suites | tojson }}' data-selected='[]'>

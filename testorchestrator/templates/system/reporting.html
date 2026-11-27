@@ -28,6 +28,7 @@ Saving never regenerates reports.</p>
       </div>
       <label class="switch" title="Enable reporting-labs report generation">
         <input type="checkbox" name="reportinglabs_enabled" value="1"
+          aria-label="Enable reporting-labs report generation"
           {% if settings.reportinglabs_enabled %}checked{% endif %}>
         <span class="slider"></span>
       </label>
@@ -37,6 +38,36 @@ Saving never regenerates reports.</p>
       report generation uses the package's own Python
       runtime — no customer-installed Node, npm, or external generator
       is needed and no extra download runs at report time.</small>
+    </div>
+  </div>
+
+  <div class="card settings-card">
+    <div class="settings-info">
+      <h2>Retention defaults</h2>
+      <p class="muted">Days after an execution <strong>finishes</strong>
+      before its data expires. <code>0</code> = keep forever.
+      Projects may override per-key in their own storage settings;
+      an empty project field inherits these defaults. Policy changes
+      apply to existing eligible records at the next cleanup run —
+      nothing is deleted on save.</p>
+      <div class="grid-2">
+        <div class="field">
+          <label for="ret-art-d">Artifact files — days</label>
+          <input id="ret-art-d" name="retention_artifact_days"
+                 type="number" min="0"
+                 value="{{ settings.retention_artifact_days or 0 }}">
+        </div>
+        <div class="field">
+          <label for="ret-meta-d">Execution metadata + summaries — days</label>
+          <input id="ret-meta-d" name="retention_metadata_days"
+                 type="number" min="0"
+                 value="{{ settings.retention_metadata_days or 0 }}">
+        </div>
+      </div>
+      <small class="muted"><em>Example:</em> keep artifact files for
+      30 days and execution summaries for 180 days — example values
+      only, not defaults. Operational logs keep their own separate
+      retention setting.</small>
     </div>
   </div>
 

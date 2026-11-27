@@ -4,6 +4,30 @@ Version pins, endpoint shapes, and verification status per integration.
 "Unverified" means the client exists but has never been exercised
 against a live service.
 
+## CI API (`/api/v1`) — bearer-token automation surface
+
+Transport requirements: the API shares the portal's HTTP(S) endpoint —
+production deployments MUST terminate TLS in front of it (the bearer
+token is a credential; plaintext HTTP exposes it to any on-path
+reader). The token value is shown once at creation; only a SHA-256 is
+stored, so recovery means re-minting.
+
+Rate limiting: the application does not impose its own request-rate
+limit — automation polling is expected traffic. Deployments that need
+throttling MUST apply it at the TLS-terminating reverse proxy (e.g.
+nginx `limit_req`). Failure behavior is fail-closed either way: an
+overloaded API returns 5xx, never a silently wrong answer. Token
+creation itself is the rate control for write traffic — scope `run` is
+required for any mutation, and every mutation is audit-recorded with
+the token name.
+
+Retry semantics (P3.14, ISS-022): `POST /executions/<id>/retry` queues
+a NEW execution chained via `retry_of` — it never mutates or relaunches
+the original row in place, even for UNKNOWN executions. The operator
+intent is explicit and audited (`api.execution.retried`); automatic
+in-band relaunch after a retry-blocked failure remains impossible by
+design (Windows no-relaunch policy, ISS-022).
+
 ## Buildbot (orchestration) — `testorchestrator/adapters/buildbot.py`
 
 - Role: execution orchestration only; the portal owns immutable

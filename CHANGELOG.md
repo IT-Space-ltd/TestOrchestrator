@@ -1,5 +1,679 @@
 # Changelog
 
+## [Unreleased] — 2.7.0 final candidate (PR #5)
+
+Final candidate on branch `feature/2.7.0-repository-discovery`.
+Not tagged, not published — owner sign-off is still required.
+Schema changes so far: `projects.retention_json`
+(project-level retention overrides); earlier 2.7.0 migrations add
+`framework_projects`, `discovered_items` framework/selector/
+provenance columns, `artifact_stores`, and discovery fingerprints.
+New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
+`migration_pending`; `o4b5c6d7e8f9` adds
+`runtime_connections.licensing_mode` / `license_refs` /
+`license_server_url`; `p5c6d7e8f9a0` adds `api_tokens.expires_at`.
+
+### Added
+
+- **Test tree view (Test tab default — owner decision, recorded).** Read-only inventory tree —
+  collection → suite → test cases — with per-level counts, repo badges
+  (repository-defined items refreshed on sync), per-framework
+  granularity labels (Cypress is file-level only), stale-member badges
+  (render-time diff against the current inventory, warn-only — entries
+  are never dropped), and last-result badges from a single rollup
+  query. Keyboard-navigable (ARIA treeview: arrows, Enter/Space,
+  `aria-expanded`, roving tabindex). All discovered content is escaped.
+
+- **Schedule target kinds.** Katalon schedules target a test suite, a
+  test suite collection, or a plan — matching the run form. Other
+  frameworks target a discovery selection or a plan. The item picker
+  filters by kind; collections show member suites and run mode
+  read-only. The server validates kind match and rejects mismatches
+  with a clear message, ignores picker values for plan targets,
+  requires at least one target, and never fails validation silently.
+  Timeout/overlap examples state collection semantics (timeout covers
+  the whole collection run; a collection is one run for overlap).
+  Legacy projects without framework-project rows still offer
+  `katalon`; old schedules open, save and run as before.
+
+- **Schedule form per-framework fields.** Jest (test path/name
+  patterns), Postman/Newman (collection, environment, folder,
+  iterations) and Bruno (collection folder, environment, tags) join
+  the framework selector; values map onto the execution-native run
+  config the dispatch layer already consumes. Switching framework
+  never carries hidden foreign values; the server rejects foreign
+  fields by name.
+
+- **CI API token expiry (P3.13).** Optional `expires_at` — default 90
+  days at creation, adjustable 1–3650 days, explicit never-expires
+  opt-out. Existing tokens migrate to NULL and stay valid. An expired
+  token is denied like a revoked one, the denial is audited, and the
+  integrations page surfaces expired / days-left (warning ≤14 days) /
+  never distinctly. Migration `p5c6d7e8f9a0` (additive, rollback
+  verified).
+
+- **KRE licensing modes — online / offline / private.** A KRE runtime
+  now declares its licensing mode explicitly
+  (`runtime_connections.licensing_mode`, migration
+  `o4b5c6d7e8f9`): `online` keeps the existing `-apiKey` credential
+  contract (unchanged for all existing runtimes); `offline` needs no
+  API key and instead uses genuine Katalon-issued `.lic` files in the
+  execution account's `~/.katalon/license` — either
+  operator-provisioned or managed through new `license`-kind secrets
+  delivered per-run and installed under a `to-<sha>.lic` ownership
+  prefix (operator files never touched, `.to_managed` ledger,
+  persistent across runs); `private` emits `-serverUrl=<url>`
+  alongside the API-key credential. The missing-credential dispatch
+  gate is licensing-mode aware, and the **local dispatch path gains
+  the gate it previously lacked**. There is deliberately no "hybrid"
+  execution mode — hybrid deployments run online- and
+  offline-configured runtimes side by side. The readiness probe
+  reports the actual execution account, license dir, .lic inventory,
+  and managed-marker state without attempting activation. See
+  `docs/kre-licensing-modes.md`.
+
+- **Credential authorization scope.** `runtime`-kind secrets now carry
+  a grant list (`scope_json`) matching project / runtime / runner
+  identities; every dimension is a list — non-empty must contain the
+  identity, empty is a wildcard. Dispatch denies resolution with a
+  machine-readable `credential-scope` error when no grant covers the
+  execution, checked at claim time so revocation is effective. New
+  secrets default-deny; saving a `credential_ref` on a runtime records
+  a pending association which never bypasses enforcement. Admins edit
+  grants on the Secrets page; migrating secrets get grants derived
+  from their concrete existing runtime associations (restricted
+  `allowed_projects` are preserved inside the grant) and are flagged
+  `migration_pending` for review — no automatic broadening.
+
+- **Repository discovery + framework projects.** A Git binding can
+  carry named framework projects (`pytest`, `robot`, `playwright`,
+  `cypress`, `jest`, `gtest`, `behave`, `pytest-bdd`, `postman`,
+  `bruno`, `katalon`). Each project selects its discovery adapter;
+  items carry framework, selector (`node_id`), granularity, and
+  provenance (`static` preview vs `native` worker collection).
+  Candidate items are never executable until validated.
+
+- **Execution-level runtime readiness.** Toolchain probing
+  (ready-discovery) is now distinct from execution readiness
+  (ready-execution): the (runtime, project) pair must validate —
+  association, framework compatibility, validated discovery, engine,
+  workspace permissions, browser/plugin evidence, and a result
+  ingestion path. Dispatch refuses non-KRE runtimes without current
+  per-project evidence; `native_collect` discovery keeps the
+  toolchain-only gate. Invalidation on probe results, runtime edits,
+  and project-association changes. UI explains every state and offers
+  the Validate-for-project action. KRE's existing flow is unchanged.
+
+- **Artifact stores (durable results/artifact storage).** Per-project
+  destinations of kind `local` / `mounted` / `s3` with display name,
+  per-kind config, active/retire lifecycle, and connection testing.
+  S3-compatible stores support endpoint, bucket, prefix, credential
+  reference (secrets store only — never inline), and a custom CA
+  bundle constrained to administrator-approved roots. Historical
+  artifacts keep their original store reference and stay retrievable
+  after destination changes.
+
+- **Object Storage Provider selector.** The artifact-store form now
+  offers Amazon S3 / Azure Blob Storage / Google Cloud Storage /
+  Other S3-compatible with per-provider fieldsets and a store-edit
+  flow. Azure Blob uses the documented REST API (Shared Key or SAS,
+  no new dependency — `requests`); GCS uses its official XML-API/HMAC
+  interop on the existing boto3 stack. Live PUT/GET against Azure/GCS
+  is not covered by an emulator on this environment — see the storage
+  verification report.
+
+- **Native GoogleTest execution on Windows workers.** The POSIX-only
+  gate is removed: Windows PB workers now run gtest suites through a
+  staged Python driver (`.to_gtest_run.py`) executed by the runtime's
+  configured interpreter — subprocess argv lists (no cmd quoting),
+  per-binary `--gtest_filter`/`--gtest_output=xml` runs, sha256
+  build-manifest, prepare/configure/build steps, `fail_if_no_test`
+  probing, list-tests support, and exit codes matching
+  `classify_exit`. Execution uses the `posix=False` spec path —
+  Job-object kill-on-close semantics on cancel/master-loss, no sh
+  or pidfile dependency. The runtime's `executable_path` is the
+  interpreter (e.g. `C:\Python312\python.exe`); the test binary comes
+  from discovery/selection as before.
+
+- **Runtime concurrency enforcement.** A KRE runtime's saved "Max
+  parallel sessions" is now effective at dispatch: executions beyond
+  the cap stay queued with a capacity reason instead of starting
+  uncontrolled processes. The cap is checked under the same atomic
+  claim as runner slot assignment, so simultaneous submissions cannot
+  over-admit; capacity is only released on confirmed termination or
+  explicit reconcile — an SSH disconnect never frees a slot. Configured
+  capacity stays distinct from KRE license entitlement, which the
+  product does not probe. Verified end-to-end on both supported
+  topologies — agentless Linux SSH and a Windows PB worker running
+  as SYSTEM/session-0 — with controlled synthetic launchers:
+  simultaneous submissions, real overlap (process evidence), queueing
+  at capacity, cancel and timeout isolation, connection/worker
+  interruption without duplicate dispatch, per-execution credential
+  ACLs and cleanup, zero orphaned processes, and serialization when
+  the cap is set to one.
+
+- **Separate retention policies.** Artifact files and execution
+  metadata/parsed summaries now have independent retention (global
+  defaults + per-project overrides; operational logs keep their
+  existing separate setting). Preview-affected-records before
+  enabling destructive policy, explicit confirmation for sweeps,
+  audit records on every cleanup. Active executions, in-flight
+  transfers, and unverified staged files are never deleted. Expired
+  artifacts render as `expired` state — never unexplained
+  missing-file errors; the execution summary remains available.
+
+### Changed
+
+- **`authoring.cleanup_abandoned` is wired into the reconcile loop** —
+  f00557d8 added it with tests but never invoked it; abandoned drafts
+  accumulated forever. Only user-abandoned drafts are touched.
+- **`.run` installer build default tracks the current release** — the
+  hardcoded 1.9.0 fallback silently wrapped a stale payload; the
+  default is now derived from `release/release.json`.
+
+### Removed
+
+- **`adapters/updater.py` placeholder seam** — unwired
+  `NotConfiguredError` stub; the real updater lives in
+  `testorchestrator/updater.py` with the full verify/drain/apply/
+  activate/health-check flow.
+
+### Fixed
+- **Windows KRE cancellation/process-tree kill.** The PowerShell
+  credential launcher set `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` through
+  a nested-struct member assignment, which PowerShell writes to a copy;
+  the limit silently remained zero and a force-killed wrapper could
+  leave the KRE child alive. The launcher now copies the nested limit
+  struct out, mutates it, and copies it back. Verified on the Windows
+  acceptance guest: `taskkill /F` on the wrapper killed the child,
+  removed the staged credential before launch, and leaked no fixed-key
+  material into wrapper output. Regression coverage pins the copy-back
+  contract.
+
+- **Windows controller upgrade preserves install identity and sessions.**
+  The NSIS installer rewrote `testorchestrator.env` before invoking
+  `init_env.py`, erasing the existing generated `TO_SECRET_KEY` and
+  `TO_INSTALL_ID`; every upgrade regenerated them and invalidated
+  sessions/install identity. Deterministic installer wiring is now
+  merged into the existing env file, preserving generated secrets and
+  operator-added lines while still updating installer-owned keys.
+  Regression coverage pins the merge behaviour.
+
+- **Upgrade blocker — installer payload-copy defense (owner ruling from
+  the production-like 2.6.0 upgrade cell).** A service unit missing
+  from the documented stop list (`testorchestrator-buildbot-ssh`)
+  survived the upgrade procedure, held the payload python busy, and
+  the copy crashed mid-write — a half-written hybrid install with all
+  services down. Both installers (source `scripts/install.py` and
+  frozen `toctl install`) now stop every active `testorchestrator-*`
+  unit themselves before copying, scan `/proc` for any process still
+  referencing the payload tree, and refuse to write until it is
+  stopped — no more brick-by-partial-copy. Regression tests
+  `tests/test_installer_upgrade_defense.py` (8/8). The Admin Manual
+  upgrade procedure gained the missing unit, a post-stop survivor
+  check, and a description of the installer safety net.
+
+- **D-NODE-SUBDIR-WORKDIR — node framework execution in monorepo
+  subdirectories.** The execution workdir, the `package-lock.json`
+  check and spec paths now follow the framework project root
+  (`fp.test_roots`) instead of the repository root — jest in a
+  monorepo subfolder runs `npm ci` and the CLI in the correct
+  directory, with spec paths rebased. Also fixes a pre-existing latent
+  crash in the deps-step builder (`run_config` read as a method).
+
+- **Native collection in monorepo subdirectories.** The collector
+  script (`.to_collect.js`) is referenced relative to the actual
+  execution workdir — previously it was staged at the source root and
+  missed with MODULE_NOT_FOUND whenever the project sat in a
+  subdirectory.
+
+- **Native collection inventory paths.** Node collectors emitted
+  absolute worker-local paths which ingestion stored verbatim,
+  polluting inventory with unusable rows. Collectors now emit
+  framework-root-relative paths, and ingestion re-prefixes the project
+  root for monorepo layouts so native rows merge with static rows.
+
+- **Native collection outcome reflects the operation.** A successful
+  collection ended INCOMPLETE because junit aggregation over zero
+  cases cannot pass; the outcome now reflects ingestion success.
+  Ingest errors were additionally written to a nonexistent attribute
+  and silently dropped — they are persisted in `error_text`.
+
+- **Execution snapshots always pin the source sha.** A headless or
+  API caller that omitted `source_sha` produced executions with no
+  reproducibility pin; the binding's synced sha is now pinned by
+  default.
+
+- **Readiness probes advance without UI interaction.** Probe
+  completion was processed only when someone opened the
+  infrastructure page — an unattended install could never become
+  ready. The worker maintenance loop now polls pending probes every
+  tick.
+
+- **Probes detect npx-incompatible runtime executables.** A
+  node-framework runtime pointed at `node` instead of `npx` passed
+  the PATH probes but died at dispatch (`bad option: --no-install`).
+  The probe now tests the configured executable with the exact
+  invocation shape dispatch uses and fails readiness with a clear
+  message.
+
+
+- **D-ARTIFACT-SUBDIR — artifact collection now follows the execution
+  workdir.** The node-framework exec spec hardcoded
+  `report_src="src/Reports"`, but subdirectory frameworks (Bruno at
+  its collection root, nested monorepo layouts) write reports inside
+  their workdir — nothing was ever uploaded and every such run falsely
+  ended INCOMPLETE despite the test CLI passing. `report_src` now
+  follows the execution workdir. Regression test
+  `tests/test_report_src_workdir.py`.
+
+- **Native collect refusal for collector-less frameworks.** Bruno,
+  Katalon and Postman have no collector script — a native collect
+  request previously failed deep in the pipeline and poisoned the
+  framework project's `discovery_status` to `failed`, blocking all
+  later dispatch. Collect is now refused early with a clear message
+  pointing at static discovery, the refusal never touches
+  `discovery_status`, and a pinned test loops over every
+  collector-less framework. Jest native collect runs `deps_prepare`
+  first (npm ci **without** `--ignore-scripts` — install scripts
+  execute; explicit admin action only, same role gate, audit event
+  with lockfile hash, timeout caps and lockfile requirement as the
+  dispatch path). With deps preparation off, collect fails clearly —
+  except when `node_modules` is vendored in the repository, the
+  documented exception — and never silently skips the install.
+
+- **POSIX probe scripts — syntax regression guard.** The Bruno probe
+  carried a stray `)` that failed `sh -n`; all six POSIX probe scripts
+  are now syntax-checked by `tests/test_probe_script_syntax.py`.
+
+- **ISS-023 — cancel intent now governs the terminal state across
+  Buildbot retries.** A cancel racing a retry could be lost: the retry
+  completed with passing results and the execution reported
+  `completed`/passed despite the operator's cancel. The classification
+  captures cancel intent before the collection pipeline, clears
+  contradictory unrequested-abort text, and refreshes the row before
+  reading intent (a heartbeats-stale row could misclassify a requested
+  cancel). Verified live on Linux ssh transport: queued, dispatched,
+  running and mid-retry cancels all end `canceled` — the mid-retry
+  cell (`7aaaf9e5849e`) killed the dispatcher mid-run, the cancel won
+  the retry window and no retry ever ran.
+- **ISS-024 — ssh remote workdirs are bounded.** `to_ssh_exec` never
+  removed per-execution remote directories; 1.5G accumulated on the
+  acceptance guest filled /tmp and broke SFTP staging. Workdirs are
+  removed after collection (success, failure, confirmed cancel) and a
+  preparation-time sweep removes stale marker-carrying siblings older
+  than 24h — foreign directories are never touched; `keep_workdir` is
+  an explicit debugging opt-out still bounded by the sweep.
+
+- **ISS-022 — blocked Windows retries no longer execute; executions
+  classify UNKNOWN.** A retry blocked by the prep-step guard
+  (`TO_RETRY_BLOCKED`, exit 70) previously continued through
+  fetch-source and re-ran the test CLI to completion because
+  `ShellCommand` defaults `haltOnFailure=False` — the no-relaunch
+  policy violation was invisible, the execution even showed
+  `completed`. All pre-run gate steps now halt on failure, the
+  portal checks for the block marker before accepting results, scans
+  the correct Windows step (`prep_1`, buildbot dedups duplicate step
+  names), and the execution classifies `UNKNOWN` with the
+  retry-blocked message per the W6-kit spec. Verified end-to-end on
+  Windows PB (worker killed mid-run): the retry halted after prep,
+  no run step, state UNKNOWN. Regression tests in
+  `tests/test_retry_prep.py` (14 tests).
+
+- **SSH private keys pasted into forms no longer corrupt (ISS-021).**
+  HTML form submission normalizes textarea newlines to CRLF, so a
+  private key pasted into the ssh-target form was stored with `\r\n`
+  line endings verbatim — the materialized key file then failed to
+  parse in both OpenSSH and paramiko ("error in libcrypto") and every
+  ssh-target execution failed authentication. `store_secret` now
+  normalizes CRLF to LF for `ssh`-kind secrets (key material is
+  LF-format by spec); other kinds are stored verbatim. Regression
+  test in `test_infra.py` pins both behaviors. Surfaced on the Linux
+  acceptance VM when the e2e-ui suite re-seeded the ssh target
+  through the UI form — the failure chain (probe verdict → validation
+  gate → dispatch refusal) correctly reported it as an ssh-target
+  problem rather than fabricating success.
+
+- **KRE credential delivery hardening.** Delivered credentials now
+  land inside a prep-created restricted drop dir (`build/.to_cred`:
+  0700 on POSIX, SYSTEM+Administrators DACL on Windows) instead of a
+  window where the file was briefly world-readable; the POSIX writer
+  applies its mode at `open()` time and SSH workdirs are chmod 700
+  before staging. `credential_ref` correctly wins over the legacy
+  `credential_file` when both are set, matching the documented
+  precedence.
+- **KRE credential-error acceptance defects.** Three defects found by
+  the credential-error acceptance matrix on the remote POSIX PB
+  transport: a KRE runtime with neither `credential_ref` nor
+  `credential_file` launched KRE with no `-apiKey` and reported
+  COMPLETED (now fails `config` before any transport work);
+  `kre_cred_exec.sh` rejected the delivered `../.to_cred/cred` path
+  form so every credentialed KRE run on a remote POSIX PB worker
+  failed (now accepts absolute paths or the per-run `../<name>` form);
+  and `kre_cred_exec:` errors were unconditionally classified `config`
+  (credential value/content problems stay `config`; file, permission,
+  and missing-executable problems now classify `infrastructure`).
+- **Interrupted runs can no longer report PASSED from partial
+  evidence.** `exit_status` was set on every reconciled run, so
+  `_normalize`'s `completed` flag was always true and a killed run
+  (exec_timeout, watchdog, worker loss) whose surviving junit was
+  all-pass reported outcome PASSED — a false-pass surface for
+  API/CI consumers (ISS-014). An interrupted run now asserts only
+  observed failures: nonzero exit + all-pass/no-failure evidence →
+  `incomplete` with an `execution.interrupted_partial` audit
+  record; observed failures still classify `failed`. Clean exits
+  are unaffected. Verified live on Windows PB (gtest
+  `--gtest_repeat=-1` killed at watchdog) and Linux PB
+  (exec_timeout).
+- **SSH transport: license rejection no longer masked as `config`.**
+  A failed KRE activation still prints KRE's argv-validation complaints
+  ("Cannot find project"), which outranked the generic license fallback
+  in `classify_error` — genuine license rejection over SSH surfaced as
+  `config` ("ssh remote group terminated") instead of `license`.
+  Activation-failure markers (incl. "Failed to activate with API key")
+  now outrank config markers whenever activation never succeeded;
+  successful runs that later hit a real config problem still classify
+  `config`. Verified live on the SSH transport with real `katalonc`
+  rejecting a synthetic key (`error_kind=license`, ex
+  4da4bae36ad04e4c98f84615792a48bd).
+- **Playwright native collector: file path for `--list` 1.4x+ schema.**
+  `playwright test --list --reporter=json` moved the file path from
+  `suite.location.file` to `suite.file` / `spec.file`; collected items
+  came back with an empty `path`, producing unusable native inventory
+  rows (ISS-015). The collector accepts all three locations; verified
+  live against Playwright 1.65.1 on a Linux PB worker.
+- **Cypress native collect no longer poisons discovery status.**
+  Cypress has no native list command, so its collector is an
+  intentional no-op — but `apply_native_inventory` treated the empty
+  item list as a failed collection and set
+  `fp.discovery_status = "failed"`, blocking every subsequent cypress
+  execution through the `_fp_item_gate` (ISS-016). No-op collect runs
+  (`"noop": true`) now leave inventory and discovery status untouched;
+  the informational warning still surfaces on the run. Verified live.
+- **Node native collectors spawn correctly on Windows workers.**
+  The staged playwright/jest collectors invoked `npx` literally —
+  on Windows that resolves to `npx.cmd`, which Node >=20.12 refuses
+  to exec without `shell: true` (ENOENT then EINVAL), and the
+  deps step is skipped for collect by design so npx bin resolution
+  could fall back to PATH and hit an unrelated `playwright` binary
+  (a Python `playwright.exe` presents a different CLI —
+  `unknown command 'test'`) (ISS-017). Collectors now run the staged
+  `node_modules` CLI deterministically via `node` — vendored POSIX
+  `.bin` shims never execute on Windows — and fall back to
+  `npx`/`npx.cmd` with `shell: true` on win32 only when no staged
+  package exists. Verified live on a Windows PB worker: real
+  `playwright test --list` produced test-granularity items.
+- **GoogleTest native collection and exact parameterized selection.**
+  Collect runs carried no framework settings (`fp.settings()` was
+  only folded into `run_config` for item dispatches, never for
+  `native_collect`), so `executables` resolved empty and the
+  collector exec'd the `.` test-root as a binary — zero items,
+  `discovery_status=failed` (ISS-018). The collect run now snapshots
+  project settings like item dispatches do; the staged collector
+  glob-expands `executables` patterns (`build/*`) against the
+  checkout instead of exec'ing them literally. Parameterized
+  instances collected `AddsUp/0  # GetParam() = 1` verbatim — the
+  annotation is not filterable and never matched junit identity;
+  node_ids are now the canonical name. Selecting a collected
+  `<exe>||Suite.Test` item now sets `spec` + exact `--gtest_filter`
+  (previously it ran the whole binary). Verified live on a Windows
+  PB worker: collect surfaces `Arith/ParamAdd.AddsUp/0,1,2`,
+  param-exact dispatch produced an isolated PASSED/FAILED result,
+  full-binary run produced all three.
+- **Busy runtimes no longer fail auto-picked executions.**
+  `pick_runtime` excluded any runtime at its concurrency cap, so a
+  queued execution on a single-capacity runtime failed "no enabled
+  compatible runtime" instead of waiting for the slot. Auto-pick now
+  prefers runtimes with free capacity but falls back to a busy one —
+  the capacity claim holds the execution QUEUED.
+- **Test harness credential-wrapper argv.** `bb_local_stub.py`
+  dropped `spec.executable`/`spec.args` when rendering the
+  credential wrapper — the stub ran `sh wrapper cred sh` instead of
+  the real exe (latent; only surfaced once pipeline fixtures carried
+  real credentials). Now mirrors the master.cfg argv construction.
+- **Project-scope authorization on runtime picks.** An explicit
+  `runtime_id` in a run request now enforces the runtime's
+  `allowed_projects` (and the bound runner's) — the check previously
+  applied only to auto-picked runtimes. KRE runtimes can also be
+  associated to projects through the same route as other kinds.
+- **Buildbot web UI theming.** The bundled Buildbot UI now uses the
+  product palette via `www.theme` (`bb-sidebar-*` variables mapped to
+  the app's `--sidebar-bg`/`--sidebar-fg`/accent values) instead of
+  Buildbot's stock blue theme.
+- **Project dashboard chart blowout.** The daily pass/fail bars on
+  a project's Dashboard tab were sized `2 + count × 14` px with no
+  normalization — a busy day produced ~1300px columns inside the
+  90px chart. Bar segments now scale to the peak day's total and
+  the chart box clips overflow.
+- **Guided-wizard framework picker alignment.** Step 1 radios
+  inherited the global `.field input { width: 100% }` rule,
+  leaving each radio detached full-width above its label. The
+  picker is now a grid of clickable tiles (radio + name +
+  description per card) with an accent highlight on the selection.
+- **Real-framework matrix defects** (found during Linux worker +
+  SSH-only acceptance against real toolchains):
+  - Discovery glob engine could not evaluate minimatch extglobs
+    (`@(...)` `?(...)` `+(...)` `*(...)` `!(...)`) — playwright/jest
+    `testMatch` defaults never matched spec files.
+  - postman/bruno probe scripts emitted `newman=`/`bru=` markers the
+    readiness summarizer never consumed — probe verdicts could not
+    reach `ready` and dispatch stayed gated.
+  - `Reports/`/`Reports/junit` not pre-created in the exec workdir —
+    jest `--outputFile`, newman junit export and bru
+    `--reporter-junit` failed ENOENT (POSIX exec wrapper, Windows
+    prep, SSH run.sh all covered).
+  - jest file-granularity items were not mapped to `spec` — a
+    suite-file selection ran the whole jest suite.
+  - `kre.classify_error` matched the bare word "license" — KRE logs a
+    benign "Failed to activate with TestCloud license" fallback in
+    every run, so unrelated failures misclassified as license.
+  - jest's `Reports/jest.json` contract was collected but never
+    parsed into TestResult rows — failing runs verdicted "no result
+    data" and clean passes surfaced `incomplete`. `parse_jest` now
+    feeds the canonical ingest (framework-gated, sha-deduped).
+  - gtest driver passed `--gtest_fail_if_no_test_selected`
+    unconditionally; gtest versions that don't know the flag (e.g.
+    libgtest 1.14) print help and exit 0 having run nothing — a
+    silent vacuous pass. The driver now probes `--gtest_help` per
+    binary and fails when no result XML was produced.
+- **Windows worker defects** (found during Windows 11 PB-worker
+  acceptance against real toolchains):
+  - Probe spec never set `posix` — Windows workers were sent POSIX
+    `sh` probe scripts.
+  - `probe.cmd` scripts (pytest/robot/node) used cmd constructs that
+    abort or double-fire: `call :label` inside `if`/`for` parens,
+    bare `npx`/`npm` (.cmd shims transfer control permanently),
+    `A && (B) || (C)` emitting both branches, unescaped parens in
+    marker text. Rewritten errorlevel-style with `.cmd` helper files.
+  - `_cleanup_win_argv` exited 1 — suppressed `Remove-Item` errors
+    still propagated through `$?` to `powershell -Command`.
+  - `ELECTRON_RUN_AS_NODE=""` in the exec env map broke Cypress on
+    Windows — an empty-valued variable is still present in the
+    environment block and Electron honours it (`MODULE_NOT_FOUND`,
+    empty requireStack). The key is omitted on Windows workers.
+  - postman/bruno/gtest had `unsupported-on-windows` probe
+    short-circuits despite Windows exec paths — replaced with real
+    `probe.cmd` implementations.
+  - Robot probe treated `python -m robot --version`'s exit 251
+    (informational) as missing — now output-based like POSIX.
+- **S3 artifact retrieval** after staging removal — objects now stream
+  via `open()` to a bounded staging file with sha256 verification and
+  deterministic cleanup (concurrency cap, size ceiling, ENOSPC
+  handling, abandoned-temp sweep on startup).
+- **Mounted-share blocking** — share I/O runs on a bounded executor
+  (2 workers, 20 s cap): an NFS `hard`-mount outage returns a prompt
+  `StoreError` instead of parking request threads; recovery is clean.
+- **Buildbot KRE failure classification** — license/config/
+  infrastructure kinds are now derived from the run log instead of
+  the generic "no result data" verdict.
+- **KRE on remote workers** (found during the remote-worker
+  acceptance matrix — the exec argv previously embedded the
+  controller-host path of `kre_cred_exec.py`, unreachable from any
+  remote worker, and the script itself was POSIX-only):
+  - The credential resolver is now staged **per execution** — inside
+    the source archive as `src/.to_kre_cred_exec.py` on PB workers
+    (run under the worker interpreter: `python` on Windows,
+    `python3` on POSIX), SFTP'd into the remote workdir on SSH
+    targets. `credential_wrapper` in the exec spec is the staged
+    name; `helper_sha256` records the staged content for evidence.
+  - `kre_cred_exec.py` is portable: Windows runs under a
+    kill-on-close job object; POSIX launches the engine in its own
+    process group and kills the pgid so `katalonc`'s java child
+    cannot outlive the wrapper while holding a license.
+  - Readiness probes validate the real remote path: KRE executable
+    version, worker interpreter, and staged-helper executability
+    (`helper_exec=ok`), not just executable presence.
+  - Classification distinguishes the layers: helper failures
+    (`kre_cred_exec:` → `config`, never a license verdict), genuine
+    KRE activation rejections (`license`), post-activation KRE
+    config complaints (`config` — outranking generic license words,
+    which fixes a truncated-tail misclassification), step kill
+    markers (`infrastructure`).
+  - Agentless-SSH: terminal failure confirms remote process-group
+    death (the detached run otherwise holds the license after a
+    timeout); SSH failure classification reads the SFTP'd `run.out`
+    artifact (SSH builds have no worker step stdout); a refused
+    buildrequest cancel is surfaced and re-issued every tick until
+    the buildrequest completes.
+- **Offline packaged install** — the vendored wheel set now includes
+  the pinned boto3 dependencies (boto3/botocore/jmespath/
+  python-dateutil/s3transfer) so S3 support resolves without network.
+- **Managed KRE credential delivery + target-native launchers**
+  (replaces the interim `.py` helper and the operator-placed key
+  file on remote targets):
+  - `credential_ref` is now the supported path on every topology:
+    an authorized user stores the KRE API key as a `runtime` secret
+    (System → Secrets) and selects the reference on the runtime.
+    Per execution, the portal stages a 0600 file and delivers it —
+    Buildbot `FileDownload` (`.to_kre_cred` at the build root) on PB
+    workers, SFTP `run.cred` into the run workdir on SSH targets.
+    No operator-placed file, no manual copying, nothing inside the
+    source archive or artifacts; every kill/cleanup path removes it.
+  - The credential resolver is now `kre_cred_exec.sh` (POSIX,
+    plain `sh` — no `python3` requirement) and
+    `kre_cred_exec.ps1` (Windows `powershell -File`, kill-on-close
+    Job Object — no `python` requirement). Both are staged per
+    execution with a `helper_sha256` provenance record; the helper
+    scrubs `-apiKey=` from KRE's own echoed argv before step
+    capture, and the key never appears in helper argv.
+  - POSIX kill semantics fixed: KRE runs in the launcher's process
+    group so Buildbot's step `killpg` and the SSH group kill both
+    reach it (a `setsid`'ed engine escaped both and could orphan a
+    licensed run); a pid-directed signal now kills the whole child
+    tree so `katalonc`'s java grandchild cannot survive holding the
+    license.
+  - Credential failure kinds are distinct: unknown reference and
+    wrong-kind secret → `config`; undecryptable material →
+    `infrastructure`; only a genuine KRE rejection → `license`.
+  - The legacy `credential_file` (operator-placed 0600 file on the
+    target) remains supported for compatibility — it is no longer
+    required or default.
+  - UI: the manual runtime form gained per-field platform examples
+    and a credential-reference selector; connection-requirements
+    help no longer overflows. Infrastructure buttons are now "Add
+    Runtime (Guided)" (the framework wizard — KRE included) and
+    "Add Runtime (Manual)". The guided wizard offers a Katalon
+    profile: executable path plus a `secret`-kind field rendered
+    as a select of `runtime`-kind secrets, mapping onto the KRE
+    runtime columns (`executable_path`, `credential_ref`,
+    `credential_file`, `concurrency`).
+- **Quality-gate pass** (dead-code, duplication, security,
+  memory-leak, and SonarLint sweeps):
+  - "Run now" on a plan-type schedule always raised "scheduled
+    plan no longer exists" — `plan` was hardcoded `None` (ISS-019);
+    it now loads via `db.session.get` like the cron path
+    (`dispatch.fire_due_schedules`), with a regression test
+    (`test_run_now_plan_target_dispatches`).
+  - Concurrency validation in the KRE runtime wizard used `assert`
+    inside `try`/`except` — silently skipped under `python -O`;
+    replaced with an explicit `ValueError` check; `0`/negative
+    submissions covered by test.
+  - Removed dead code surfaced by vulture + SonarLint:
+    unreferenced `after_this_request` import,
+    `behavefw.collect_args`, `gtestfw.list_args`,
+    `gherkin.scenario_node_id`, and unused locals
+    (`npx_forced`, `known`, `binding` + tuple-unpack renames).
+  - Bandit audit: 1 High flagged on `updater.py` tarfile is a
+    false positive (`tarfile.data_filter` is applied); all 16
+    Mediums audited clean (argv-list subprocesses, shlex-quoted
+    paramiko, no DTD XML path, intentional dual-stack binds).
+  - Duplication (jscpd): 0.39% — three clones, all per-adapter
+    probe-script boilerplate kept deliberately isolated.
+  - Memory: 300-cycle execution + junit-ingest loop showed flat
+    RSS (~93→96 MB plateau), stable object counts and constant
+    fd count — no leaks.
+
+Engine acceptance (all verified live — dev stack + installed
+package): Playwright 1.65.1 and Cypress 16.3.0/Electron 43 real
+runs on Linux PB, Windows PB and the final installed payload —
+collect, pass/fail, exec-timeout kill, cancel, junit + native
+artifacts on every topology. GoogleTest verified end-to-end —
+native collection, parameterized-instance identity and exact
+`--gtest_filter` selection, spaces/Unicode paths, timeout/kill,
+cancel, junit retrieval, worker-service termination + recovery —
+on Windows PB and on the installed package (worker-compiled
+MinGW/g++ binary). ISS-015/016/017/018 were found and fixed during
+this acceptance; no engine-coverage residuals remain.
+
+### Dependencies
+
+- Added runtime deps (pinned): `boto3==1.44.10`, `botocore`,
+  `jmespath`, `python-dateutil`, `s3transfer`, `six` — vendored in
+  `3rdparty/python-wheels/` with license texts + notices.
+
+### Known limitations (2.7.0)
+
+- **Windows worker installer is unsigned** (owner decision — no signing
+  step, no certificate, output name unchanged). Windows SmartScreen
+  will show a warning on first run ("Windows protected your PC").
+  To install anyway: click **More info** then **Run anyway** — the
+  publisher shows as "Unknown" because the binary is unsigned.
+  Before running, verify the download with `Get-FileHash` in
+  PowerShell against the SHA-256 published for the exact worker
+  installer artifact. **Code signing is a future item, owner-blocked,
+  with no work planned for 2.7.0.**
+- **Timeout classification** (owner decision): timeout-killed
+  executions classify failure-kind `execution` with outcome
+  INCOMPLETE — never PASSED. A distinct `timeout` classification is
+  a 2.8 candidate, not 2.7.0 scope.
+- **Secret-scope enforcement for Git-kind secrets is a documented
+  limitation for 2.7.0** (owner decision — enforcement moves to 2.8):
+  grants are enforced for KRE credential delivery only; Git-binding,
+  SSH and Buildbot secret consumers stay outside the grant model.
+  Reason: enforcement for Git bindings needs a migration that derives
+  grants for existing bindings, or every Git sync breaks at upgrade.
+  The exposed-secret pre-flight guard stays in force for ALL kinds —
+  a secret flagged exposed is refused at dispatch regardless of type.
+
+- S3 adapter verified against SeaweedFS (S3 stand-in, not GCS or
+  AWS-provider acceptance); Azure verified against Azurite 3.34.0
+  emulator over loopback+SSH tunnel, not live Azure. Insecure
+  endpoints are a test-only flag.
+- One production-issuer-key test remains blocked
+  (`test_production_key_auto_loaded` — declared skip; documented
+  boundary in `docs/licensing.md`). `test_payload_fields_signed`
+  now runs against an isolated test issuer in the suite — no
+  production-key dependence, and the test-only trust path cannot
+  enter production configuration.
+- Licensed two-session KRE overlap is unverified: scheduling,
+  isolation, cancellation and recovery were proven with synthetic
+  launchers on both topologies, but real concurrent KRE runs wait on
+  the rotated API key and confirmed license entitlement — synthetic
+  overlap must not be read as licensed KRE concurrency.
+- Packaged-acceptance topology collapsed server+worker into one
+  disposable VM — not independent-host partition evidence.
+- Secret authorization is implemented and verified at the
+  application level (default-deny grants: project/runner/runtime
+  dimensions, claim-time revocation, denial before decryption or
+  delivery, pending-association recording, audited admin edits —
+  `tests/test_secret_scope_acceptance.py`, upgrade migration
+  `n2b3c4d5e6f7` backfills grants from existing associations and
+  flags `migration_pending` for admin review). Two owner-accepted
+  residuals: the `-apiKey=` argv exposure boundary (same-account
+  visibility, documented disposable-target exception) and live
+  Katalon key rotation pending on the owner's replacement key.
+
+
 ## [2.6.0] — 2026-11-24
 
 Feature release — Playwright Test, headless Cypress E2E, Robot
@@ -493,3 +1167,35 @@ Initial public release.
   licence texts, notices, and a written corresponding-source offer
   fulfilled by IT-Space Kft. (see `3rdparty/CORRESPONDING-SOURCES.txt`
   and `docs/redistribution-review.md`).
+
+### npm ci prepare step (owner-approved semantics)
+
+- `deps_prepare` (npm ci) defaults ON — existing node-framework
+  projects keep the visible prepare step; `deps_prepare=false` in the
+  run config turns it off explicitly. Lockfile required: dispatch
+  refuses early when the bound root lacks `package-lock.json` /
+  `npm-shrinkwrap.json`. **Security note: `npm ci` runs dependency
+  install scripts on the target** — enabling it is a test-manager-and-
+  above decision, audited with the lockfile hash. Timeout and output
+  caps apply as for other steps. Never runs during discovery or
+  preview (native collection path — pinned by test).
+- The Jest probe is prepare-aware: a missing framework with npm
+  present is not fatal, since the probe runs before any install.
+
+### Native collection corrections (matrix batch findings)
+
+- Frameworks without a collector (postman, bruno — static discovery is
+  authoritative for their JSON/text structure) now get a clear early
+  refusal from native collection instead of a pre-artifact failed
+  execution that marked the framework project 'failed' and blocked all
+  later runs (ISS-016 pattern). Run binding discovery instead.
+- deps_prepare now also runs for native collection of node frameworks:
+  collection is the approved repo-code execution path (UI ack), and
+  jest --listTests genuinely requires project deps. Same lockfile
+  requirement, lockfile-hash audit, timeout and output caps. Static
+  discovery/preview remains parse-only and never executes anything.
+
+### 2.8.0 backlog
+
+Moved to `docs/Backlog-2.8.0.md` — owner-approved deferrals including
+the unified-model items and the external-authentication epic.

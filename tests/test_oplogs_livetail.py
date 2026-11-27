@@ -4,6 +4,19 @@ Uses Playwright request interception to hold/release tail responses so a
 deliberately-stale poll cannot be conflated with the current lifecycle.
 Requires a running preview on 127.0.0.1:39995 (skipped otherwise)."""
 import pytest
+
+def _preview_reachable():
+    import socket
+    try:
+        s = socket.create_connection(("127.0.0.1", 39995), timeout=2)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(not _preview_reachable(),
+                                reason="disposable preview :39995 not running")
 playwright = pytest.importorskip(
     "playwright.sync_api", reason="live-tail browser check")
 

@@ -204,9 +204,10 @@ def test_host_key_mismatch_hard_fails(tmp_path):
 
 
 def test_credential_wrapper_staged_and_scrubs(tmp_path):
-    """credential_file set → dispatcher sftp-stages kre_cred_exec.py
-    into the remote run dir; run.sh invokes it path-only (no secret in
-    argv), and the wrapper scrubs the credential from child output."""
+    """credential_file set → dispatcher sftp-stages kre_cred_exec.sh
+    into the remote run dir; run.sh invokes it under `sh` path-only
+    (no secret in argv, no PATH-resolved Python), and the wrapper
+    scrubs the credential from child output."""
     server = TestSSHServer(Path("/"))
     secret = "KREKEY-abc123_test"
     # fake KRE echoes its argv — the wrapper passes -apiKey=<v>
@@ -219,6 +220,7 @@ def test_credential_wrapper_staged_and_scrubs(tmp_path):
     spec = _spec(tmp_path, server, exe, tmp_path / "rd6")
     data = json.loads(spec.read_text())
     data["credential_file"] = str(cred_file)
+    data["keep_workdir"] = True
     spec.write_text(json.dumps(data))
     work = tmp_path / "dwork6"
     work.mkdir()
@@ -227,11 +229,12 @@ def test_credential_wrapper_staged_and_scrubs(tmp_path):
     assert proc.returncode == 0, out
     wd = tmp_path / "rd6"
     # wrapper was staged remote-side (remote == same fs in the harness)
-    assert (wd / "kre_cred_exec.py").exists()
-    # run.sh carries paths only — never the secret value
+    assert (wd / "kre_cred_exec.sh").exists()
+    # run.sh carries paths only — never the secret value — and the
+    # launcher runs under `sh`, not a PATH-resolved python3
     run_sh = (wd / "run.sh").read_text()
     assert secret not in run_sh
-    assert "kre_cred_exec.py" in run_sh
+    assert "sh " in run_sh and "kre_cred_exec.sh" in run_sh
     # child saw the resolved key in argv, output is scrubbed at source
     run_out = (work / "remote-artifacts" / "run.out").read_text()
     assert secret not in run_out
@@ -246,10 +249,10 @@ def test_credential_wrapper_explicit_remote_path_not_staged(tmp_path):
     # admin-provided wrapper already 'on the remote': a real script
     # that just execs the runner verbatim (no credential handling —
     # the point is the dispatcher must NOT overwrite it).
-    wrapper = tmp_path / "remote-wrapper.py"
+    wrapper = tmp_path / "remote-wrapper.sh"
     wrapper.write_text(
-        "#!/usr/bin/env python3\nimport os,sys\n"
-        "os.execv(sys.argv[2], [sys.argv[2]] + sys.argv[3:])\n")
+        "#!/bin/sh\n"
+        'shift\nexec "$@"\n')
     wrapper.chmod(0o755)
     exe = _runner_exec(tmp_path, 'echo "wrap-arg:$1"\nexit 0\n')
     cred_dir = tmp_path / "remote-creds7"
@@ -260,6 +263,7 @@ def test_credential_wrapper_explicit_remote_path_not_staged(tmp_path):
     spec = _spec(tmp_path, server, exe, wd)
     data = json.loads(spec.read_text())
     data["credential_file"] = str(cred_file)
+    data["keep_workdir"] = True
     data["remote_cred_wrapper"] = str(wrapper)
     spec.write_text(json.dumps(data))
     work = tmp_path / "dwork7"
@@ -269,4 +273,215 @@ def test_credential_wrapper_explicit_remote_path_not_staged(tmp_path):
     assert proc.returncode == 0, out
     run_sh = (wd / "run.sh").read_text()
     assert str(wrapper) in run_sh
-    assert not (wd / "kre_cred_exec.py").exists()
+    assert not (wd / "kre_cred_exec.sh").exists()
+
+
+def _remote_exists(server, path):
+    import os
+    return os.path.exists(path)
+
+
+def test_workdir_removed_after_success(tmp_path):
+    """ISS-024: after a successful run + collect the remote workdir is
+    removed — bounded retention, no unbounded /tmp growth."""
+    server = TestSSHServer(Path("/"))
+    wd = tmp_path / "rroot" / "e2e-ssh-clean"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec = _spec(tmp_path, server, exe, wd)
+    proc = _run_dispatcher(spec, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    assert not os.path.exists(wd), "remote workdir must be removed after collect"
+
+
+def test_stale_sibling_swept_fresh_and_foreign_kept(tmp_path):
+    """ISS-024 sweep: at the next run's prepare, sibling workdirs older
+    than the retention with TO markers are removed; younger ones and
+    foreign dirs survive."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot2"
+    old = root / "old-exec"
+    old.mkdir(parents=True)
+    (old / "run.sh").write_text("#!/bin/sh\n")
+    # age the dir beyond retention: spec uses tiny retention (2s)
+    import os, time
+    foreign = root / "foreign"
+    foreign.mkdir()
+    young = root / "young-exec"
+    young.mkdir()
+    (young / "run.sh").write_text("#!/bin/sh\n")
+    wd = root / "e2e-ssh-sweep"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec_p = _spec(tmp_path, server, exe, wd)
+    spec = json.loads(spec_p.read_text())
+    spec["workdir_retention_s"] = 2
+    spec_p.write_text(json.dumps(spec))
+    time.sleep(3)   # everything ages past the 2s retention
+    # 'young' is created after aging, so re-create marker fresh — it
+    # must survive because we touch it post-aging
+    os.utime(young, None)
+    proc = _run_dispatcher(spec_p, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    assert not os.path.exists(old), "stale marked workdir must be swept"
+    assert os.path.exists(foreign), "foreign dirs must survive"
+    assert os.path.exists(young), "fresh dirs must survive"
+
+
+def test_active_workdir_never_swept(tmp_path):
+    """ISS-024 sweep: a stale-aged workdir whose run.pid is still ALIVE
+    must survive — a long-running execution outliving the retention
+    window must not lose its workdir to a sibling's prepare sweep."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-active"
+    import os, time, subprocess
+    live_proc = subprocess.Popen(["sleep", "60"])
+    try:
+        active = root / "active-exec"
+        active.mkdir(parents=True)
+        (active / "run.sh").write_text("#!/bin/sh\n")
+        (active / "run.pid").write_text(str(live_proc.pid))
+        dead = root / "dead-exec"
+        dead.mkdir(parents=True)
+        (dead / "run.sh").write_text("#!/bin/sh\n")
+        (dead / "run.pid").write_text("999999")   # no such process
+        wd = root / "e2e-ssh-sweep-active"
+        exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+        spec_p = _spec(tmp_path, server, exe, wd)
+        spec = json.loads(spec_p.read_text())
+        spec["workdir_retention_s"] = 2
+        spec_p.write_text(json.dumps(spec))
+        time.sleep(3)
+        proc = _run_dispatcher(spec_p, tmp_path)
+        out, _ = proc.communicate(timeout=60)
+        assert proc.returncode == 0, out[-600:]
+        assert os.path.exists(active), "live-pid workdir must never be swept"
+        assert not os.path.exists(dead), "dead-pid stale workdir must be swept"
+    finally:
+        live_proc.kill()
+
+
+def test_unclear_pid_workdir_never_swept(tmp_path):
+    """ISS-024 sweep: a stale-aged workdir whose run.pid exists but is
+    EMPTY/unreadable is an unclear case — the sweep must KEEP it (never
+    delete what it cannot prove dead)."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-unclear"
+    import time
+    unclear = root / "unclear-exec"
+    unclear.mkdir(parents=True)
+    (unclear / "run.sh").write_text("#!/bin/sh\n")
+    (unclear / "run.pid").write_text("")   # empty — cannot prove dead
+    wd = root / "e2e-ssh-sweep-unclear"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec_p = _spec(tmp_path, server, exe, wd)
+    spec = json.loads(spec_p.read_text())
+    spec["workdir_retention_s"] = 2
+    spec_p.write_text(json.dumps(spec))
+    time.sleep(3)
+    proc = _run_dispatcher(spec_p, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    assert os.path.exists(unclear), "unclear-pid workdir must never be swept"
+
+
+def test_cred_scrubbed_from_nonlive_retained_workdir(tmp_path):
+    """ISS-024: credential material is scrubbed from any NON-LIVE marked
+    workdir at every prepare sweep — even inside the retention window —
+    because a controller death can skip both collect and kill scrubbing."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-credscrub"
+    retained = root / "retained-exec"
+    retained.mkdir(parents=True)
+    (retained / "run.sh").write_text("#!/bin/sh\n")
+    (retained / "run.pid").write_text("999999")   # dead pid — non-live
+    (retained / ".to_kre_cred").write_text("synthetic-secret-material")
+    wd = root / "e2e-ssh-credscrub"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec_p = _spec(tmp_path, server, exe, wd)
+    spec = json.loads(spec_p.read_text())
+    spec["workdir_retention_s"] = 86400   # inside retention — dir kept
+    spec_p.write_text(json.dumps(spec))
+    proc = _run_dispatcher(spec_p, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    assert os.path.exists(retained), "retention-window dir kept"
+    assert not os.path.exists(retained / ".to_kre_cred"), \
+        "credential file must be scrubbed from the non-live retained dir"
+
+
+def test_count_cap_removes_oldest_nonlive(tmp_path):
+    """ISS-024 count cap: marked sibling dirs beyond the cap are removed
+    oldest-first — but never live/unclear ones."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-cap"
+    import time
+    olds = []
+    for i in range(5):
+        d = root / f"old-{i}"
+        d.mkdir(parents=True)
+        (d / "run.sh").write_text("#!/bin/sh\n")
+        # no run.pid at all: pidless marked dir — treated as sweepable
+        # (nothing to prove live) once over the count cap
+        olds.append(d)
+    wd = root / "e2e-ssh-cap"
+    exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+    spec_p = _spec(tmp_path, server, exe, wd)
+    spec = json.loads(spec_p.read_text())
+    spec["workdir_retention_s"] = 86400   # age sweep keeps everything
+    spec["workdir_max_count"] = 4         # cap below the sibling count
+    spec_p.write_text(json.dumps(spec))
+    proc = _run_dispatcher(spec_p, tmp_path)
+    out, _ = proc.communicate(timeout=60)
+    assert proc.returncode == 0, out[-600:]
+    remaining = [d for d in olds if os.path.exists(d)]
+    assert len(remaining) < 5, "count cap must remove some oldest non-live dirs"
+
+
+def test_workdir_removed_after_cancel(tmp_path):
+    """ISS-024: a confirmed cancel kill also removes the workdir —
+    no credential or staging residue survives the cancellation."""
+    server = TestSSHServer(Path("/"))
+    wd = tmp_path / "rroot3" / "e2e-ssh-cancel"
+    exe = _runner_exec(tmp_path, "sleep 300\n")
+    spec = _spec(tmp_path, server, exe, wd)
+    proc = _run_dispatcher(spec, tmp_path)
+    time.sleep(6)
+    proc.send_signal(signal.SIGTERM)
+    out, _ = proc.communicate(timeout=60)
+    assert "cancel-confirmed" in out
+    assert not os.path.exists(wd), "workdir must be removed after confirmed kill"
+
+
+def test_count_cap_never_removes_live(tmp_path):
+    """workdir_max_count evicts oldest non-live dirs ONLY — a live-pid
+    workdir must survive even when it is the oldest and over the cap."""
+    server = TestSSHServer(Path("/"))
+    root = tmp_path / "rroot-caplive"
+    import subprocess, time
+    live_proc = subprocess.Popen(["sleep", "60"])
+    try:
+        live = root / "aaa-oldest-live"
+        live.mkdir(parents=True)
+        (live / "run.sh").write_text("#!/bin/sh\n")
+        (live / "run.pid").write_text(str(live_proc.pid))
+        import os as _os
+        old = time.time() - 10000
+        _os.utime(live, (old, old))   # make it the oldest by far
+        for i in range(5):
+            d = root / f"z-{i}"
+            d.mkdir(parents=True)
+            (d / "run.sh").write_text("#!/bin/sh\n")
+        wd = root / "e2e-ssh-caplive"
+        exe = _runner_exec(tmp_path, 'echo hi; mkdir -p Reports; echo x > Reports/junit.xml\nexit 0\n')
+        spec_p = _spec(tmp_path, server, exe, wd)
+        spec = json.loads(spec_p.read_text())
+        spec["workdir_retention_s"] = 999999   # age sweep inert
+        spec["workdir_max_count"] = 3
+        spec_p.write_text(json.dumps(spec))
+        proc = _run_dispatcher(spec_p, tmp_path)
+        out, _ = proc.communicate(timeout=60)
+        assert proc.returncode == 0, out[-600:]
+        assert os.path.exists(live), "live workdir must survive the count cap"
+    finally:
+        live_proc.kill()

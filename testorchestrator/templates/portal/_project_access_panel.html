@@ -20,6 +20,7 @@
           through Administrator role</td>
         {% else %}
         <td><input type="checkbox" class="u-cb" name="user_ids"
+                   aria-label="Grant {{ u.username }}"
                    value="{{ u.id }}"
                    {% if project.id in u.assigned_project_ids() %}checked{% endif %}></td>
         <td>{{ u.username }}</td>

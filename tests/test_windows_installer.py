@@ -124,6 +124,33 @@ def test_init_env_generates_and_preserves_secrets(tmp_path):
     assert env.read_text() == text
 
 
+def test_init_env_merge_preserves_secrets_and_custom_lines(tmp_path):
+    env = tmp_path / "testorchestrator.env"
+    env.write_text(
+        "TO_INSTANCE_DIR=old\n"
+        "TO_SECRET_KEY=old-secret\n"
+        "TO_INSTALL_ID=old-install\n"
+        "CUSTOM_OPERATOR_LINE=kept\n")
+    merge = tmp_path / "testorchestrator.env.installer"
+    merge.write_text("TO_INSTANCE_DIR=new\nTO_HTTPS_PORT=8443\n")
+    init_env.merge_env(env, merge)
+    added = init_env.ensure(env)
+    text = env.read_text()
+    assert added == []
+    assert "TO_INSTANCE_DIR=new\n" in text
+    assert "TO_HTTPS_PORT=8443\n" in text
+    assert "TO_SECRET_KEY=old-secret\n" in text
+    assert "TO_INSTALL_ID=old-install\n" in text
+    assert "CUSTOM_OPERATOR_LINE=kept\n" in text
+
+
+def test_nsi_merges_instead_of_rewriting_env():
+    text = NSI.read_text()
+    assert "testorchestrator.env.installer" in text
+    assert "--merge-file" in text
+    assert 'FileOpen $0 "$DATA_DIR\\testorchestrator.env" w' not in text
+
+
 @pytest.mark.parametrize("rel", [
     "build-scripts/build_windows.py",
     "packaging/windows/app-installer.nsi",

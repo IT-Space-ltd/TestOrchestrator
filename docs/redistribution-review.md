@@ -1,4 +1,4 @@
-# Redistribution review — Buildbot stack in TestOrchestrator 2.5.0
+# Redistribution review — Buildbot stack in TestOrchestrator 2.7.0
 
 Prepared for the approval gate `TO_BUILDBOT_GPL_APPROVED`. No
 customer distribution before this plan is approved; the flag stays
@@ -45,27 +45,66 @@ redistribution, which is what this review covers.
 
 | Artifact | Buildbot/paramiko content | Notes |
 |---|---|---|
-| `testorchestrator-2.5.0-linux-x86_64.tar.gz` / `.run` | `3rdparty/buildbot-wheels/` — pinned upstream wheels: `buildbot==4.3.0` (+ `[bundled]` extras), `buildbot-worker==4.3.0`, `buildbot-www==4.3.0`, `paramiko==2.12.0` + resolved deps (twisted, autobahn, zope.interface, cryptography, cffi, txaio, automat, incremental, msgpack, pyopenssl, hyperlink, idna, constantly, pycparser, six, bcrypt, pynacl, ujson, packaging, typing-extensions, setuptools deps) | install.py builds `payload/buildbot-venv` offline from these wheels; master + `to-local` + `to-ssh-dispatcher` run from it |
-| `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (inside the Linux package, served by the portal) | embedded Python runtime + `buildbot-worker==4.3.0` wheel + deps + `setup-worker.py` bootstrap | offline install on the remote Windows host; no controller, no KRE, no credentials inside |
-| `install_linux_worker.sh` | references `bb-wheels/` or PyPI for `buildbot-worker==4.3.0` | runs on the remote host; the script itself is TO code |
-| App payload (all) | **no** Buildbot code — the portal venv contains none of these packages | `paramiko` absent from the app venv; it belongs to buildbot-venv |
+| `testorchestrator-<version>-linux-x86_64.tar.gz` / `.run` | `3rdparty/buildbot-wheels/` — pinned upstream wheels: `buildbot==4.3.0` (+ `[bundled]` extras), `buildbot-worker==4.3.0`, `buildbot-www==4.3.0`, `paramiko==3.5.1` + resolved dependencies | install.py builds `payload/buildbot-venv` offline from these wheels; master + `to-local` + `to-ssh-dispatcher` run from it |
+| `testorchestrator-<version>-windows-amd64-setup-UNSIGNED.exe` | embedded `buildbot-py` runtime with the same Buildbot 4.3.0/paramiko 3.5.1 stack, plus the bundled remote-worker installer and corresponding-source archive | full Windows controller; the Buildbot processes remain separate from the portal process |
+| `TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe` (inside the controller packages, served by the portal) | embedded Python runtime + `buildbot-worker==4.3.0` wheel + deps + `setup-worker.py` bootstrap | offline install on the remote Windows host; no controller, no KRE, no credentials inside |
+| `TestOrchestrator-Buildbot-Worker-4.3.0-linux-x86_64.tar.gz` / `install_linux_worker.sh` | offline `bb-wheels/` closure for `buildbot-worker==4.3.0` | runs on the remote Linux host; the script itself is TO code |
+| App payload/portal virtualenv | **no** Buildbot code — the portal venv contains none of these packages | `paramiko` is absent from the portal process environment; it belongs to the Buildbot runtime |
 
 ## 3. Licenses of the bundled packages
 
-| Package | Version | License | Redistribution duties |
+Copyleft-covered packages — these drive the corresponding-source and
+license-text obligations:
+
+| Package | Version in the final 2.7.0 build | License | Redistribution duties |
 |---|---|---|---|
 | `buildbot` | 4.3.0 | **GPL-2.0** (COPYING in dist-info) | license text + copyright + corresponding source |
 | `buildbot-worker` | 4.3.0 | **GPL-2.0** | same |
-| `buildbot-www` | 4.3.0 | **GPL-2.0** (classifier; buildbot project-wide) | same |
-| `paramiko` | 2.12.0 | **LGPL-2.1+** | license text + source offer + no-TPM note (unmodified wheel — relinking trivially possible) |
-| twisted | 26.10.0 | MIT | notice only |
-| autobahn | 26.11.1 | MIT | notice only |
-| zope.interface | 8.7 | ZPL-2.1 | notice only |
-| cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause | notice only |
-| cffi / pycparser | 2.1.1 / 3.12 | MIT-0 / MIT | notice only |
-| automat, incremental | 25.4.16 / 24.11.0 | MIT | notice only |
-| msgpack | 1.2.4 | Apache-2.0 | notice only |
-| pyopenssl, hyperlink, idna, constantly, pynacl, bcrypt, txaio, ujson, typing-extensions, packaging, six, PyYAML, pyjwt | resolved at staging | MIT/Apache/BSD | notice only |
+| `buildbot-www` | 4.3.0 | **GPL-2.0** (classifier; Buildbot project-wide) | same |
+| `paramiko` | 3.5.1 | **LGPL** (upstream metadata/license text shipped) | license text + source offer + no-TPM note (unmodified wheel — replacement/relinking remains possible) |
+
+Resolved dependency inventory in the final Linux controller wheel set
+(each wheel is verbatim upstream; its license text is extracted into
+`3rdparty/licenses/`):
+
+| Package | Version | License family |
+|---|---|---|
+| alembic | 1.20.1 | MIT |
+| attrs | 26.1.0 | MIT |
+| autobahn | 26.11.2 | MIT |
+| Automat | 25.4.16 | MIT |
+| bcrypt | 5.0.0 | Apache-2.0 |
+| cbor2 | 6.3.0 | MIT |
+| cffi | 2.1.1 | MIT-0 |
+| constantly | 23.10.4 | MIT |
+| croniter | 7.0.0 | MIT |
+| cryptography | 50.0.2 | Apache-2.0 OR BSD-3-Clause |
+| hyperlink | 21.0.0 | MIT |
+| idna | 3.20 | BSD-3-Clause |
+| Incremental | 24.11.0 | MIT |
+| Jinja2 | 3.1.6 | BSD |
+| Mako | 1.4.3 | MIT |
+| MarkupSafe | 3.0.4 | BSD-3-Clause |
+| msgpack | 1.2.4 | Apache-2.0 |
+| multipart | 2.0.1 | MIT |
+| packaging | 26.4 | Apache-2.0 OR BSD-2-Clause |
+| pycparser | 3.12 | BSD-3-Clause |
+| PyJWT | 2.15.1 | MIT |
+| PyNaCl | 1.6.2 | Apache-2.0 |
+| pyOpenSSL | 26.4.0 | Apache-2.0 |
+| python-dateutil | 4.0.0 | BSD-3-Clause |
+| PyYAML | 6.0.4 | MIT |
+| service-identity | 26.1.0 | MIT |
+| setuptools | 84.2.1 | MIT |
+| SQLAlchemy | 2.1.9 | MIT |
+| treq | 26.7.0 | MIT |
+| Twisted | 26.10.0 | MIT |
+| txaio | 26.6.1 | MIT |
+| typing_extensions | 4.16.0 | PSF-2.0 |
+| tzdata | 2026.6 | Apache-2.0 |
+| ujson | 6.1.0 | BSD-3-Clause AND TCL |
+| unidiff | 1.0.1 | MIT |
+| zope.interface | 8.7 | ZPL-2.1 |
 
 ## 4. Notices and corresponding-source delivery — as implemented
 
@@ -109,10 +148,12 @@ artifacts happens at RC-build time per docs/acceptance-2.5.0.md.
 
 ## 5. Approval checklist
 
-- [ ] Confirm the separate-process/wire-protocol boundary is the
+Owner approval recorded in the 2.7.0 release session on 2026-11-27, and explicitly reconfirmed after this inventory was corrected to the final Buildbot 4.3.0 / paramiko 3.5.1 package set.
+
+- [x] Confirm the separate-process/wire-protocol boundary is the
       intended posture (it is — no linking, no modified sources)
-- [ ] Accept the GPLv2 §3(a) accompanying-source route (archive ships
+- [x] Accept the GPLv2 §3(a) accompanying-source route (archive ships
       beside every binary offer) with the §3(b) written offer retained
       only as residual for onward copies
-- [ ] Approve notice files above
-- [ ] Then: `TO_BUILDBOT_GPL_APPROVED=1` for the RC build only
+- [x] Approve notice files above
+- [x] Then: `TO_BUILDBOT_GPL_APPROVED=1` for the final clean build only

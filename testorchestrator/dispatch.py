@@ -15,6 +15,7 @@ Dispatch and collection run in `flask worker`, outside request handlers.
 import hashlib
 import json
 import os
+import posixpath
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -23,7 +24,8 @@ from flask import current_app
 
 from . import settings as settings_mod
 from .adapters import kre as kre_adapter
-from .adapters import nodefw, pytestfw, robotfw
+from .adapters import (behavefw, brunofw, gtestfw, nodefw, postmanfw,
+                       pytestfw, robotfw)
 
 
 def _tag_list(raw) -> list:
@@ -39,7 +41,7 @@ from .adapters.buildbot import BuildbotAdapter
 from . import buildbot_cfg
 from .execution import (ApiToken, Artifact, DiscoveredItem, Execution,
                         ExecutionState, GitBinding,
-                        OutboxEvent, Outcome, Plan, Release,
+                        OutboxEvent, Outcome, Plan, Project, Release,
                         ResourceReservation, Runner,
                         RuntimeConnection, Schedule, Suite, SyncState,
                         TestResult, utcnow)
@@ -55,6 +57,71 @@ LEASE_SECONDS = 60
 
 class DispatchError(RuntimeError):
     pass
+
+
+# Framework (discovery adapter) → required runtime kind. A
+# framework-project item may only dispatch through a matching
+# runtime — enforced server-side at creation AND at dispatch.
+FRAMEWORK_RUNTIME = {
+    "katalon": "kre",
+    "pytest": "pytest",
+    "pytest-bdd": "pytest",
+    "playwright-pytest": "pytest",
+    "behave": "behave",
+    "robot": "robot",
+    "cypress": "cypress",
+    "playwright": "playwright",
+    "gtest": "gtest",
+    "jest": "jest",
+    "postman": "postman",
+    "bruno": "bruno",
+}
+
+
+def _fp_item_gate(source_item, rc=None):
+    """Server-side enforcement for framework-project items: the
+    parent project must have VALIDATED discovery for the bound
+    revision, the item must be individually selectable, and the
+    chosen runtime kind must match the framework's runtime."""
+    if not getattr(source_item, "framework_project_id", None):
+        return                                    # legacy item
+    from .execution import FrameworkProject
+    fp = db.session.get(FrameworkProject,
+                        source_item.framework_project_id)
+    if fp is None:
+        raise DispatchError("framework project is gone — refresh "
+                            "the binding")
+    if fp.discovery_status != "ok":
+        raise DispatchError(
+            f"discovery is {fp.discovery_status} — run discovery "
+            "to validate this configuration before executing")
+    binding = db.session.get(GitBinding, fp.binding_id)
+    if binding and fp.discovered_sha and binding.last_synced_sha \
+            and fp.discovered_sha != binding.last_synced_sha:
+        raise DispatchError(
+            "discovery was validated for a different repository "
+            "revision — refresh the binding and re-run discovery")
+    if not source_item.selectable:
+        detail = (source_item.warnings or "").strip()
+        raise DispatchError(
+            f"{source_item.name!r} is a discovery candidate — it "
+            "needs native collection before it can execute" +
+            (f" ({detail})" if detail else ""))
+    if rc:
+        rid = str(rc.get("runtime_id") or "").strip()
+        if rid:
+            rt = db.session.get(RuntimeConnection, rid)
+            want = FRAMEWORK_RUNTIME.get(fp.framework, "")
+            got = getattr(rt, "runtime_kind", "") if rt else ""
+            if want and got != want:
+                raise DispatchError(
+                    f"{fp.framework} items require a {want!r} "
+                    f"runtime (selected is {got or 'unknown'!r})")
+        # Framework-project execution settings travel with the
+        # snapshot — gtest build/drive config, postman engine config.
+        if fp.framework in ("gtest", "postman", "bruno") \
+                and fp.framework not in rc:
+            rc[fp.framework] = dict(fp.settings() or {})
 
 
 # ---------- creation / snapshot ----------
@@ -162,6 +229,12 @@ def _validate_parallel(rc: dict, kind: str) -> None:
         rc["shard_index"], rc["shard_total"] = si, st
 
 
+def _role_may_set_deps_prepare(username: str) -> bool:
+    from .execution import User
+    u = User.query.filter_by(username=username).first()
+    return bool(u and u.role.value in ("admin", "test_manager"))
+
+
 def create_execution(username: str, suite: Suite = None,
                      binding: GitBinding = None,
                      plan_id: str = "",
@@ -177,12 +250,17 @@ def create_execution(username: str, suite: Suite = None,
     target: a TO suite OR a repository DiscoveredItem — never both,
     never neither. Repo-def runs snapshot their durable identity
     (binding+kind+path+sha) so history survives inventory replacement."""
-    if bool(suite) == bool(source_item):
+    if (run_config or {}).get("native_collect"):
+        pass                    # collection op — no test target
+    elif bool(suite) == bool(source_item):
         raise DispatchError(
             "exactly one execution target required: suite or "
             "source item")
 
-    project_id = (suite.project_id if suite else source_item.project_id)
+    project_id = (binding.project_id
+                  if (run_config or {}).get("native_collect")
+                  else suite.project_id if suite
+                  else source_item.project_id)
     if release_id:
         rel = db.session.get(Release, release_id)
         if rel is None or rel.project_id != project_id:
@@ -191,9 +269,151 @@ def create_execution(username: str, suite: Suite = None,
                 "this project")
 
     rc = dict(run_config or {})
+    if not source_sha and binding is not None:
+        # Reproducibility: the snapshot must pin the exact content it
+        # runs against. UI callers pass this explicitly; headless/API
+        # callers get the same pin from the binding's synced state.
+        source_sha = (binding.last_synced_sha or "")
+    if "deps_prepare" in rc and not _role_may_set_deps_prepare(username):
+        raise DispatchError(
+            "setting or changing deps_prepare requires the test manager "
+            "or admin role — npm ci runs dependency install scripts on "
+            "the target")
     if source_item is not None:
-        rc.setdefault("suite_path", source_item.path)
+        _fp_item_gate(source_item, rc)
+        suite_path = source_item.path
+        # Discovered paths are REPO-ROOT-relative, but a binding with
+        # `subdirectory` stages that subdir as the source root — the
+        # verbatim path does not exist under the shifted root and the
+        # runner exits with 'file or directory not found' before writing
+        # any results ( surfaced as 'no result data (path not found)').
+        # Rebase against the subdirectory: node_ids are already
+        # location-relative and unaffected; only the file/suite path
+        # carries the stale base.
+        eff_binding = binding
+        if eff_binding is None and getattr(source_item, "binding_id", ""):
+            eff_binding = db.session.get(GitBinding, source_item.binding_id)
+        sub = (eff_binding.subdirectory or "").strip("/") \
+            if eff_binding is not None else ""
+        if sub and suite_path:
+            sp = suite_path.strip("/")
+            if sp == sub:
+                suite_path = ""
+            elif sp.startswith(sub + "/"):
+                suite_path = sp[len(sub) + 1:]
+        rc.setdefault("suite_path", suite_path)
         rc.setdefault("collection", source_item.kind == "collection")
+        if source_item.node_id and \
+                source_item.granularity in ("test", "scenario"):
+            fw = source_item.framework or ""
+            if fw in ("pytest", "pytest-bdd", "playwright-pytest"):
+                rc.setdefault("node_ids", [source_item.node_id])
+            elif fw == "jest" and source_item.node_id.startswith(
+                    "t:"):
+                # t:<fullName> — jest -t matches the complete name
+                # path; anchored + regex-escaped so literals can't
+                # widen. File context via --runTestsByPath.
+                import re as _re
+                rc.setdefault("test_pattern",
+                              "^" + _re.escape(
+                                  source_item.node_id[2:]) + "$")
+                rc.setdefault("spec", source_item.path)
+            elif fw == "playwright" and \
+                    source_item.node_id.startswith("t:"):
+                # t:<title path>;;<project> — playwright --grep is a
+                # regex over the title; anchored+escaped, project
+                # selected by name, file as positional arg.
+                import re as _re
+                _tp, _, _pj = source_item.node_id[2:].partition(";;")
+                rc.setdefault("test_pattern",
+                              "^" + _re.escape(_tp) + "$")
+                if _pj:
+                    rc.setdefault("projects", [_pj])
+                rc.setdefault("spec", source_item.path)
+            elif fw == "behave":
+                rc.setdefault("behave_targets",
+                              [source_item.node_id])
+            elif fw == "robot":
+                rc.setdefault("robot_test", source_item.node_id)
+            elif fw == "gtest" and "||" in source_item.node_id:
+                # <exe>||Suite.Test — exe selects the binary, the
+                # test part becomes an exact --gtest_filter (covers
+                # parameterized instances AddsUp/0 verbatim).
+                exe, _, tst = source_item.node_id.partition("||")
+                if exe:
+                    rc.setdefault("spec", exe)
+                    rc["suite_path"] = exe
+                if tst:
+                    rc.setdefault("gtest_filter", tst)
+        elif source_item.node_id and \
+                source_item.granularity == "file":
+            fw = source_item.framework or ""
+            if fw == "pytest-bdd":
+                # pytest never collects a bare .feature positional —
+                # collection happens through the python modules that
+                # bind scenarios (ISS-026). Translate the feature
+                # selection into the exact node IDs of its bound
+                # scenarios from the discovery inventory; unbound
+                # scenarios simply have no node ID and stay unrun,
+                # which keeps negative selection intact.
+                from .execution import DiscoveredItem
+                nids = [r.node_id for r in DiscoveredItem.query.filter_by(
+                    framework_project_id=source_item.framework_project_id,
+                    path=source_item.path, granularity="scenario",
+                    selectable=True).all() if r.node_id]
+                if not nids:
+                    raise DispatchError(
+                        "pytest-bdd feature has no exact @scenario "
+                        "bindings — feature-level selection cannot "
+                        "resolve node IDs; bind scenarios with "
+                        "@scenario(feature, name) or select a "
+                        "bound scenario directly")
+                # suite_path stays in the snapshot for provenance;
+                # the argv builder already drops the positional when
+                # node_ids are present.
+                rc.setdefault("node_ids", nids)
+            elif fw in ("cypress", "playwright", "jest"):
+                rc.setdefault("spec", source_item.node_id)
+            elif fw == "postman":
+                rc.setdefault("postman_collection",
+                              source_item.node_id)
+                if "format:v3" in (source_item.tags or ""):
+                    rc.setdefault("postman_format", "v3")
+        elif source_item.node_id and \
+                source_item.granularity in ("folder", "request") and \
+                (source_item.framework or "") == "postman":
+            # Selection semantics differ by engine/format — v3 uses
+            # path selectors (definition.yaml folder / request file);
+            # v2.1 folders are newman --folder NAME selectors.
+            col = source_item.path
+            if "format:v3" in (source_item.tags or ""):
+                # v3: the collection arg is the ROOT dir (in: tag),
+                # not the folder/request file.
+                for t in (source_item.tags or "").split(";"):
+                    if t.startswith("in:"):
+                        col = t[3:]
+            rc.setdefault("postman_collection", col)
+            if "format:v3" in (source_item.tags or ""):
+                rc.setdefault("postman_format", "v3")
+                rc.setdefault("postman_paths",
+                              [source_item.node_id])
+            else:
+                rc.setdefault("postman_folder",
+                              source_item.node_id.split("/")[-1])
+        elif (source_item.framework or "") == "bruno":
+            # bru runs FROM the collection root; selectors are
+            # collection-relative paths in selection order.
+            col_root = ""
+            for t in (source_item.tags or "").split(";"):
+                if t.startswith("in:"):
+                    col_root = t[3:]
+            if source_item.granularity == "collection":
+                col_root = source_item.node_id
+                paths = []
+            else:
+                paths = [source_item.node_id]
+            rc.setdefault("bruno_collection", col_root)
+            rc.setdefault("bruno_paths", paths)
     _validate_parallel(rc, _snapshot_runtime_kind(rc))
     snapshot = {
         "plan_id": plan_id,
@@ -205,10 +425,14 @@ def create_execution(username: str, suite: Suite = None,
             "path": source_item.path,
             "name": source_item.name,
             "sha": source_item.sha,
+            "framework": source_item.framework,
+            "node_id": source_item.node_id,
+            "granularity": source_item.granularity,
         } if source_item is not None else None),
         "suite_id": suite.id if suite else "",
         "suite_name": (source_item.name if source_item is not None
-                       else suite.name),
+                       else suite.name if suite is not None
+                       else "native-collection"),
         "suite_version": suite.version if suite else 0,
         "suite_hash": suite.content_hash if suite else "",
         "entries": ([
@@ -248,6 +472,66 @@ def create_execution(username: str, suite: Suite = None,
             # pytest selection knobs (kind=pytest only).
             "pytest_keyword": str(rc.get("pytest_keyword") or "")[:256],
             "pytest_markers": str(rc.get("pytest_markers") or "")[:256],
+            # Framework-discovery selectors (2.7.0): exact node IDs
+            # for pytest-family items, behave path:LINE targets, and
+            # a single spec path for cypress/playwright file-level
+            # items. Server-side validated — only `selectable` items
+            # produce these.
+            "node_ids": [str(x)[:512]
+                         for x in list(rc.get("node_ids") or [])
+                         [:256]],
+            "behave_targets": [str(x)[:512]
+                               for x in list(rc.get("behave_targets")
+                                             or [])[:256]],
+            "spec": str(rc.get("spec") or "")[:512],
+            # jest: multi-project selection + natively-validated
+            # -t pattern; gtest: configured build/drive settings.
+            "projects": [str(x)[:64]
+                         for x in list(rc.get("projects") or [])
+                         [:16]],
+            "test_pattern": str(rc.get("test_pattern") or "")[:512],
+            "gtest_filter":
+                str(rc.get("gtest_filter") or "")[:512],
+            "gtest": {str(k)[:32]: v for k, v in
+                      dict(rc.get("gtest") or {}).items()},
+            # postman: engine settings resolved from the framework
+            # project; collection/folder from the selected item.
+            "postman_collection":
+                str(rc.get("postman_collection") or "")[:512],
+            "postman_folder":
+                str(rc.get("postman_folder") or "")[:512],
+            "postman_format":
+                str(rc.get("postman_format") or "")[:16],
+            "postman_paths": [str(x)[:512] for x in
+                              list(rc.get("postman_paths") or [])
+                              [:128]],
+            "postman": {str(k)[:32]: v for k, v in
+                        dict(rc.get("postman") or {}).items()},
+            # bruno: collection root + ordered collection-relative
+            # paths + explicit recursion + engine settings.
+            "bruno_collection":
+                str(rc.get("bruno_collection") or "")[:512],
+            "bruno_paths": [str(x)[:512]
+                            for x in list(rc.get("bruno_paths") or [])
+                            [:128]],
+            "bruno_recurse": bool(rc.get("bruno_recurse")),
+            "bruno": {str(k)[:32]: v for k, v in
+                      dict(rc.get("bruno") or {}).items()},
+            # Artifact capture permissions (§storage-5): immutable
+            # per-execution snapshot of the project's collection
+            # policy — editing the project policy never rewrites a
+            # past run's recorded permissions.
+            "capture_policy":
+                _project_capture_policy(project_id),
+            # Native-collection operation (M6): the worker runs the
+            # framework's own collector and returns structured JSON
+            # instead of executing tests. fp_id ties the result to
+            # the originating framework project.
+            "native_collect": bool(rc.get("native_collect")),
+            "fp_id": str(rc.get("fp_id") or "")[:32],
+            "collect_roots": [str(x)[:256]
+                              for x in list(rc.get("collect_roots")
+                                            or [])[:32]],
             # Running-time limit in seconds (process-launch clock,
             # not queue time); absent/0 = adapter default 3600.
             "timeout_seconds":
@@ -295,6 +579,35 @@ def create_execution(username: str, suite: Suite = None,
         if _rt is None or not _rt.enabled:
             raise DispatchError(
                 "runtime connection unavailable or disabled")
+        if _runtime_probe_blocked(_rt):
+            raise DispatchError(
+                f"runtime {_rt.name!r} is not dispatch-ready "
+                f"({ _rt.readiness_state}) — fix the toolchain or "
+                "re-run the readiness probe")
+        exec_block = _exec_ready_block(_rt, project_id,
+                                       run_config or {})
+        if exec_block:
+            raise DispatchError(exec_block)
+        # Project-scope authorization on an explicit pick — the same
+        # gate pick_runtime/pick_runner apply to auto-selection:
+        # a scoped submitter (API token, project member) must not
+        # route a run through a runtime (or its bound target) an
+        # admin restricted to other projects — for KRE runtimes this
+        # also decides where the managed credential may be sent.
+        _rt_allowed = json.loads(_rt.allowed_projects or "[]")
+        if _rt_allowed and project_id not in _rt_allowed:
+            raise DispatchError(
+                f"runtime {_rt.name!r} is restricted to other "
+                "projects — an administrator must associate it "
+                "before it can run this project")
+        if _rt.runner is not None:
+            _rn_allowed = json.loads(
+                _rt.runner.allowed_projects or "[]")
+            if _rn_allowed and project_id not in _rn_allowed:
+                raise DispatchError(
+                    f"target {_rt.runner.name!r} is restricted to "
+                    "other projects — an administrator must "
+                    "associate it before it can run this project")
         # worker_label runtimes are bindings to a removed worker
         # transport. They fail VISIBLY here rather than silently
         # rerouting: the runtime must be re-registered against a
@@ -742,6 +1055,12 @@ def _ssh_remote_cancel(ex: Execution) -> "bool | None":
                 return True  # never launched — nothing to kill
             _run(f"kill -TERM -{pid} 2>/dev/null; sleep 1; "
                  f"kill -KILL -{pid} 2>/dev/null; true", timeout=20)
+            # Wipe any delivered credential file — a killed run
+            # must not leave secret material on the target. The
+            # license pack is per-run staging too — installed
+            # licenses under ~/.katalon/license persist.
+            _run(f"rm -f {qwd}/.to_kre_cred {qwd}/.to_licpack.tar "
+                 f"{qwd}/to-*.lic 2>/dev/null; true")
             time.sleep(1)
             _, out = _run(f"kill -0 {pid} 2>/dev/null "
                           "&& echo alive || echo dead")
@@ -767,8 +1086,13 @@ def request_cancel(execution_id: str, username: str, reason: str = "") -> bool:
             if transport == "buildbot":
                 # One call covers queued AND running (verified 4.3.0):
                 # a claimed buildrequest's cancel stops the build and
-                # the worker kills the remote process tree.
-                BuildbotAdapter.from_settings().cancel(_bb_brid(ex))
+                # the worker kills the remote process tree. A refused
+                # call is surfaced — _redrive_cancels re-issues it each
+                # tick until the buildrequest completes.
+                if not BuildbotAdapter.from_settings().cancel(
+                        _bb_brid(ex)):
+                    reason = (reason + " " if reason else "") \
+                        + "[buildrequest cancel unconfirmed]"
         except Exception:
             pass  # flag + lease expiry still bound the run
     # Agentless-SSH runs detach via setsid and the buildbot worker
@@ -839,15 +1163,70 @@ def pick_runner(execution: Execution) -> Runner | None:
     return None
 
 
+def _runtime_probe_blocked(rt) -> bool:
+    """Non-KRE runtimes whose last probe returned a definitive
+    negative readiness outcome are not dispatch candidates —
+    scheduling onto a toolchain already proven absent would just
+    produce a failed run. Uncertain states (not-checked,
+    evidence-stale, checking) stay selectable; positive evidence is
+    per the structured readiness_state set at probe time. KRE
+    runtimes are untouched ("" / missing state → kre, no gate)."""
+    if (rt.runtime_kind or "kre") == "kre":
+        return False
+    return rt.readiness_state in ("missing-dependency",
+                                  "target-unavailable")
+
+
+def _exec_ready_block(rt, project_id: str, rc: dict) -> str:
+    """Error string when an EXECUTION may not launch on this runtime
+    for this project. Repository-discovery/collection operations
+    (native_collect) need only toolchain readiness — the
+    ready-execution pair evidence gates real runs. KRE untouched."""
+    if (rt.runtime_kind or "kre") == "kre":
+        return ""
+    if rc.get("native_collect"):
+        return ""
+    from . import execution_readiness
+    if execution_readiness.execution_ready(rt, project_id):
+        return ""
+    if rt.readiness_state == "project-validation-required":
+        detail = "project validation is required and incomplete"
+    elif rt.readiness_state in ("ready-discovery", "not-checked",
+                                "checking", "evidence-stale"):
+        detail = (f"toolchain state is {rt.readiness_state} — "
+                  "execution needs a positive probe plus per-project "
+                  "validation")
+    else:
+        detail = f"state is {rt.readiness_state}"
+    return (f"runtime {rt.name!r} is not ready-execution for this "
+            f"project ({detail}) — run 'Validate for project' on "
+            "the infrastructure page")
+
+
 def pick_runtime(execution: Execution, runner: Runner):
+    rc = execution.snapshot().get("run_config") or {}
+    eligible, busy = [], []
     for rt in runner.runtimes:
-        if not rt.enabled:
+        if not rt.enabled or _runtime_probe_blocked(rt):
+            continue
+        if _exec_ready_block(rt, execution.project_id, rc):
             continue
         allowed = json.loads(rt.allowed_projects or "[]")
         if allowed and execution.project_id not in allowed:
             continue
-        return rt
-    return None
+        rt_cap = _runtime_cap(rt)
+        if rt_cap is not None:
+            used = int(db.session.execute(
+                db.select(_runtime_active_subquery(
+                    runner, rt, execution.id))).scalar() or 0)
+            if used >= rt_cap:
+                # A full runtime is still eligible — the execution queues
+                # on the capacity claim. Prefer a runtime with headroom,
+                # never report "no compatible runtime" just for being busy.
+                busy.append(rt)
+                continue
+        eligible.append(rt)
+    return (eligible or busy or [None])[0]
 
 
 # ---------- worker ----------
@@ -996,6 +1375,39 @@ def _runner_cap(runner: Runner) -> int:
     return capacity_limit(runner)
 
 
+def _runtime_cap(runtime: RuntimeConnection) -> int | None:
+    """Effective per-runtime concurrent-session cap. Only KRE exposes
+    the saved "Max parallel sessions" setting; other kinds return None
+    (runner-level slots govern — the default 1 must not suddenly
+    serialize them)."""
+    if (runtime.runtime_kind or "") != "kre":
+        return None
+    try:
+        return max(1, int(runtime.concurrency or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _runtime_active_subquery(runner: Runner,
+                             runtime: RuntimeConnection, exclude_id):
+    """Active executions sharing this runtime's capacity group. For
+    KRE the group is (runner, executable_path): duplicate runtime
+    registrations pointing at the same install share ONE limit — a
+    second RuntimeConnection row cannot bypass it."""
+    group_ids = (db.session.query(RuntimeConnection.id)
+                 .filter(RuntimeConnection.runner_id == runner.id,
+                         RuntimeConnection.executable_path ==
+                         runtime.executable_path,
+                         RuntimeConnection.runtime_kind == "kre")
+                 .scalar_subquery())
+    return (db.session.query(db.func.count(Execution.id))
+            .filter(Execution.runner_id == runner.id,
+                    Execution.id != exclude_id,
+                    Execution.runtime_id.in_(group_ids),
+                    Execution.state.in_(_ACTIVE_STATES))
+            .scalar_subquery())
+
+
 def _assign_runner(ex: Execution, runner: Runner,
                    runtime: RuntimeConnection) -> bool:
     """Atomic QUEUED -> DISPATCHED assignment: runner/runtime/lease
@@ -1016,6 +1428,13 @@ def _assign_runner(ex: Execution, runner: Runner,
         conds.append(
             _active_procs_subquery(runner, ex.id)
             + requested_procs(ex) <= runner.max_procs)
+    # Saved runtime-level concurrency (KRE "Max parallel sessions"):
+    # enforced in the same atomic CAS — race-safe, and shared across
+    # duplicate registrations of the same executable on this runner.
+    rt_cap = _runtime_cap(runtime)
+    if rt_cap is not None:
+        conds.append(
+            _runtime_active_subquery(runner, runtime, ex.id) < rt_cap)
     n = db.session.query(Execution).filter(*conds).update(
         {"state": ExecutionState.DISPATCHED,
               "runner_id": runner.id,
@@ -1045,12 +1464,13 @@ def _assign_runner(ex: Execution, runner: Runner,
         db.session.refresh(ex)
     else:
         db.session.rollback()
-        ex.wait_reason = _capacity_block_reason(runner, ex)
+        ex.wait_reason = _capacity_block_reason(runner, ex, runtime)
         db.session.commit()
     return bool(n)
 
 
-def _capacity_block_reason(runner: Runner, ex: Execution) -> str:
+def _capacity_block_reason(runner: Runner, ex: Execution,
+                           runtime: RuntimeConnection = None) -> str:
     """Why this runner could not admit the execution — the actionable
     wait reason surfaced instead of a silent QUEUED stall."""
     active = Execution.query.filter(
@@ -1063,6 +1483,20 @@ def _capacity_block_reason(runner: Runner, ex: Execution) -> str:
                if runner.license_slots else "")
         return (f"capacity: runner '{runner.name}' job slots full "
                 f"({active}/{cap} in use{lic})")
+    rt = runtime or (db.session.get(RuntimeConnection, ex.runtime_id)
+                     if ex.runtime_id else None)
+    if rt is not None:
+        rt_cap = _runtime_cap(rt)
+        if rt_cap is not None:
+            used = int(db.session.execute(
+                db.select(_runtime_active_subquery(
+                    runner, rt, ex.id))).scalar() or 0)
+            if used >= rt_cap:
+                return (f"capacity: runtime '{rt.name}' parallel-"
+                        f"session limit reached ({used}/{rt_cap} "
+                        "concurrent on this executable — raise the "
+                        "runtime's 'Max parallel sessions' or wait "
+                        "for a session to finish)")
     if runner.max_procs:
         used = int(db.session.execute(
             db.select(_active_procs_subquery(runner, ex.id))
@@ -1092,6 +1526,12 @@ def _claim_for_start(ex: Execution,
     if runner is not None:
         q = q.filter(_active_count_subquery(runner, ex.id)
                      < _runner_cap(runner))
+        rt = (db.session.get(RuntimeConnection, ex.runtime_id)
+              if ex.runtime_id else None)
+        rt_cap = _runtime_cap(rt) if rt is not None else None
+        if rt_cap is not None:
+            q = q.filter(
+                _runtime_active_subquery(runner, rt, ex.id) < rt_cap)
     n = q.update({"state": ExecutionState.PREPARING,
                   "heartbeat_at": utcnow()},
                  synchronize_session=False)
@@ -1147,11 +1587,15 @@ def _select_runner_runtime(ex: Execution):
                       if runtime else [])
         if (not runtime or not runtime.enabled
                 or runtime.runner_id != runner.id
+                or _runtime_probe_blocked(runtime)
                 or (rt_allowed and ex.project_id not in rt_allowed)):
             return None, None, (
                 f"explicitly selected runtime {req_runtime[:12]}… is "
                 "unavailable or incompatible with the selected "
                 "runner — no fallback")
+        eb = _exec_ready_block(runtime, ex.project_id, rc)
+        if eb:
+            return None, None, eb
     else:
         runtime = ex.runtime or pick_runtime(ex, runner)
         if runtime is None:
@@ -1334,6 +1778,36 @@ def run_execution(execution_id: str) -> None:
         if not ok_b:
             _fail(ex, "config", browser_val)
             return
+        # Licensing gate (licensing-mode aware — the local path had
+        # no gate at all and would launch katalonc unlicensed).
+        lic_gate = _kre_licensing_gate(runtime)
+        if lic_gate:
+            _fail(ex, "config", lic_gate)
+            return
+        _lic_mode = (runtime.licensing_mode or "online").strip() \
+            or "online"
+        _srv_url = (runtime.license_server_url or "").strip() \
+            if _lic_mode == "private" else ""
+        if _lic_mode == "offline":
+            # Managed offline licenses: install into the execution
+            # account's ~/.katalon/license BEFORE launch — KRE
+            # verifies the .lic itself; a missing/invalid file can
+            # only produce a license failure, never a false pass.
+            try:
+                _lics = _resolve_license_secrets(
+                    runtime, project_id=ex.project_id)
+            except DispatchError as exc:
+                _fail(ex, getattr(exc, "credential_kind", "config"),
+                      str(exc))
+                return
+            if _lics:
+                try:
+                    _install_licenses_local(runtime, _lics)
+                except OSError as exc:
+                    _fail(ex, "infrastructure",
+                          f"to_license: local license install "
+                          f"failed: {exc}")
+                    return
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             project_path=str(project_dir),
@@ -1345,6 +1819,7 @@ def run_execution(execution_id: str) -> None:
             remote_webdriver_type=rc.get("remote_webdriver_type", ""),
             collection=bool(rc.get("collection")),
             extra=flags,
+            server_url=_srv_url,
         )
 
         _transition(ex, ExecutionState.RUNNING)
@@ -1410,6 +1885,192 @@ def run_execution(execution_id: str) -> None:
         db.session.commit()
 
 
+def _resolve_runtime_secret(runtime: RuntimeConnection,
+                            project_id: str = "") -> str:
+    """Resolve ``runtime.credential_ref`` with distinct failure
+    causes — never a secret value in the exception text.
+
+    - unknown reference (no SecretRef row) → names the missing ref
+    - denied access: ref exists but its kind is not ``runtime`` —
+      git/ssh/buildbot secrets are not usable for KRE invocation
+    - scope denial: no authorization grant covers this
+      project/runtime/runner → ``credential-scope`` denial before any
+      decryption or delivery (revocation is effective at claim time)
+    - missing/undecryptable material → the store's masked SecretError
+      propagates.
+    """
+    from .execution import SecretRef
+    from .secrets_store import SecretError, read_secret, scope_allows
+    ref = runtime.credential_ref
+    row = SecretRef.query.filter_by(name=ref).first()
+    if row is None:
+        exc = DispatchError(
+            f"runtime credential reference {ref!r} does not exist — "
+            "create it under System → Secrets (kind 'runtime')")
+        exc.credential_kind = "config"
+        raise exc
+    if row.kind != "runtime":
+        exc = DispatchError(
+            f"credential {ref!r} is a {row.kind!r}-kind secret — only "
+            "'runtime' secrets may be used for KRE invocation")
+        exc.credential_kind = "config"
+        raise exc
+    if not scope_allows(ref, project_id=project_id,
+                        runtime_id=runtime.id,
+                        runner_id=runtime.runner_id):
+        exc = DispatchError(
+            f"credential-scope: credential {ref!r} is not authorized "
+            "for this project/runtime — an administrator must grant "
+            "scope under System → Secrets")
+        exc.credential_kind = "config"
+        raise exc
+    try:
+        return read_secret(current_app._get_current_object(), ref)
+    except SecretError as exc:
+        err = DispatchError(
+            f"runtime credential {ref!r} could not be resolved: "
+            f"{exc}")
+        err.credential_kind = "infrastructure"
+        raise err from exc
+
+
+def _kre_licensing_gate(runtime: RuntimeConnection) -> str:
+    """Licensing-mode-aware pre-dispatch gate
+    (docs/kre-licensing-modes.md). Returns the failure text (config
+    error) or "" when the runtime's licensing config is dispatchable.
+
+    - online (default): the historical contract — a managed
+      credential_ref or operator-placed credential_file is required;
+      KRE would otherwise launch unlicensed and still report
+      completion.
+    - offline: an API key is NOT required — the license is the
+      machine-bound .lic under the execution account's
+      ~/.katalon/license. Managed refs (license-kind secrets) are
+      validated here; an empty set means operator-provisioned — the
+      probe reports presence and KRE's own verdict governs (it can
+      never yield a false PASS: ISS-013/ISS-014 classification).
+    - private: online semantics plus license_server_url — a private
+      instance without its URL is a config error, not a silent
+      fallback to the public service.
+    """
+    mode = (runtime.licensing_mode or "online").strip() or "online"
+    if mode == "offline":
+        for ref in runtime.license_ref_names():
+            from .execution import SecretRef
+            row = SecretRef.query.filter_by(name=ref).first()
+            if row is None:
+                return (f"license secret {ref!r} does not exist — "
+                        "create it under System → Secrets "
+                        "(kind 'license')")
+            if row.kind != "license":
+                return (f"license reference {ref!r} is a "
+                        f"{row.kind!r}-kind secret — only 'license' "
+                        "secrets may be provisioned as offline "
+                        "licenses")
+        return ""
+    has_cred = bool(runtime.credential_ref
+                    or (runtime.credential_file or "").strip())
+    if mode == "private":
+        if not (runtime.license_server_url or "").strip():
+            return ("private licensing mode requires a license "
+                    "server URL — set it on the runtime; an empty "
+                    "URL never silently falls back to the public "
+                    "Katalon service")
+        if not has_cred:
+            return ("private licensing mode requires an API-key "
+                    "credential — set a 'runtime' credential_ref "
+                    "(System → Secrets) or a legacy credential_file")
+        return ""
+    # online (and any unrecognised value is treated as online — a
+    # mistyped mode must not silently weaken the credential gate)
+    if not has_cred:
+        return ("KRE credential configuration missing — set a "
+                "'runtime' credential_ref (System → Secrets) or a "
+                "legacy credential_file on the runtime before "
+                "dispatch")
+    return ""
+
+
+def _resolve_license_secrets(runtime: RuntimeConnection,
+                             project_id: str = "") -> list:
+    """Resolve each license-kind secret to bytes for managed offline
+    provisioning — scope-enforced like runtime credentials: a grant
+    covering this project/runtime/runner must exist BEFORE any
+    decryption. Returns [bytes]."""
+    from .secrets_store import SecretError, read_secret, scope_allows
+    out = []
+    for ref in runtime.license_ref_names():
+        if not scope_allows(ref, project_id=project_id,
+                            runtime_id=runtime.id,
+                            runner_id=runtime.runner_id):
+            exc = DispatchError(
+                f"credential-scope: license {ref!r} is not "
+                "authorized for this project/runtime — an "
+                "administrator must grant scope under "
+                "System → Secrets")
+            exc.credential_kind = "config"
+            raise exc
+        try:
+            out.append(read_secret(current_app._get_current_object(),
+                                   ref).encode())
+        except SecretError as exc:
+            err = DispatchError(
+                f"license {ref!r} could not be resolved: {exc}")
+            err.credential_kind = "infrastructure"
+            raise err from exc
+    return out
+
+
+def _stage_license_pack(ex: Execution,
+                        runtime: RuntimeConnection) -> dict:
+    """Resolve + stage managed offline licenses for this run.
+    Returns the spec's license_install dict, or {} when the runtime
+    has no managed licenses (operator-provisioned or online mode).
+    The .lic bodies are Katalon-issued material — staged 0600,
+    pushed by FileDownload/SFTP, never in argv/properties/logs."""
+    names = runtime.license_ref_names()
+    if not names:
+        return {}
+    items = _resolve_license_secrets(runtime, project_id=ex.project_id)
+    stage, files = buildbot_cfg.write_run_license_pack(ex.id, items)
+    return {"mastersrc": stage, "stage": stage, "files": files}
+
+
+def _lic_dir_home() -> str:
+    """Controller-local license dir for offline KRE on a local
+    target — the execution account's own home."""
+    return str(Path.home() / ".katalon" / "license")
+
+
+def _install_licenses_local(runtime: RuntimeConnection,
+                            items: list) -> list:
+    """Install managed .lic bodies into ~/.katalon/license on the
+    controller host (local target) — the same to-<sha>.lic ownership
+    contract as remote installs: only to-* names, content-addressed
+    idempotency, .to_managed ledger. Returns installed names."""
+    import hashlib
+    ldir = Path(_lic_dir_home())
+    ldir.mkdir(parents=True, exist_ok=True)
+    marker = ldir / ".to_managed"
+    installed = []
+    for value in items:
+        digest = hashlib.sha256(value).hexdigest()
+        name = f"to-{digest[:12]}.lic"
+        dest = ldir / name
+        if not dest.exists():
+            fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                         0o600)
+            with os.fdopen(fd, "wb") as f:
+                f.write(value)
+        installed.append(name)
+        line = f"{digest}  {name}  user={os.environ.get('USER', '?')}"
+        existing = marker.read_text() if marker.exists() else ""
+        if line.split("  user=")[0] not in existing:
+            with open(marker, "a") as f:
+                f.write(line + "\n")
+    return installed
+
+
 def _redact_values(runtime: RuntimeConnection) -> list:
     """Resolve a runtime credential ref to VALUES for log scrubbing only —
     the secret itself never enters argv, artifacts, audit, or exports."""
@@ -1420,9 +2081,11 @@ def _redact_values(runtime: RuntimeConnection) -> list:
         return [read_secret(current_app._get_current_object(),
                             runtime.credential_ref)]
     except SecretError as exc:
-        raise DispatchError(
+        err = DispatchError(
             f"runtime credential {runtime.credential_ref!r} is "
-            f"configured but cannot be resolved: {exc}") from exc
+            f"configured but cannot be resolved: {exc}")
+        err.credential_kind = "infrastructure"
+        raise err from exc
 
 
 def _fail(ex: Execution, kind: str, text: str) -> None:
@@ -1432,6 +2095,19 @@ def _fail(ex: Execution, kind: str, text: str) -> None:
     ex.finished_at = utcnow()
     ex.outcome = Outcome.INCOMPLETE
     db.session.commit()
+
+
+def _collect_framework(ex: Execution) -> str:
+    """Framework for a native-collect run — from the referenced
+    FrameworkProject, or the source item's framework."""
+    fp_id = (ex.snapshot().get("run_config") or {}).get("fp_id", "")
+    if fp_id:
+        from .execution import FrameworkProject
+        fp = db.session.get(FrameworkProject, fp_id)
+        if fp:
+            return fp.framework
+    st = (ex.snapshot().get("source_target") or {})
+    return st.get("framework", "")
 
 
 def _resolve_source(ex: Execution) -> Path:
@@ -1459,6 +2135,14 @@ def _snapshot_suite_path(ex: Execution) -> str:
     return first or "Test Suites/suite"
 
 
+def _project_capture_policy(project_id: str) -> dict:
+    """Resolve the project's capture policy for snapshotting —
+    missing projects default to collect-everything (historical)."""
+    from .capture import normalize_policy
+    p = db.session.get(Project, project_id) if project_id else None
+    return p.capture_policy() if p else normalize_policy({})
+
+
 def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
     """Evidence collection: JUnit discovery + manifest with checksums;
     every file is registered, unmapped files stay at run level (§9).
@@ -1472,13 +2156,44 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             (logs_in / log_path.name).write_bytes(log_path.read_bytes())
     except OSError:
         pass  # log mirroring is best-effort; producers keep log_dir
+    # Native-collection runs return collect.json instead of junit —
+    # reconcile it into the framework project's inventory.
+    if (ex.snapshot().get("run_config") or {}).get("native_collect"):
+        cj = report_dir / "collect.json"
+        if cj.exists():
+            from .gitsync import apply_native_inventory
+            out = apply_native_inventory(ex, cj)
+            if out.get("error"):
+                ex.error_text = (
+                    "collection ingest failed: " + out["error"])[:512]
+        else:
+            ex.error_text = (
+                "native collection produced no collect.json")[:512]
     junit_files = set(kre_adapter.discover_reports(report_dir))
     manifest = results_mod.build_evidence_manifest(report_dir, junit_files)
+    # Capture policy (§storage-5): the immutable run_config snapshot
+    # controls which categories are COLLECTED. Excluded files are
+    # still generated on the worker — toggles never imply
+    # generation-time suppression — and are recorded in the sealed
+    # manifest so the evidence index stays honest about what the run
+    # produced vs. what was transferred.
+    from .capture import normalize_policy, policy_allows
+    policy = normalize_policy(
+        (ex.snapshot().get("run_config") or {}).get("capture_policy"))
+    excluded = []
     for item in manifest:
         if item["rel_path"] == "manifest.json":
             continue  # sealed index — rewritten+registered separately
         if item["rel_path"].startswith("logs/"):
             item["kind"] = "log"
+        allowed, cat = policy_allows(policy, item["rel_path"],
+                                     item["kind"])
+        if not allowed:
+            excluded.append({
+                "rel_path": item["rel_path"], "category": cat,
+                "sha256": item["sha256"], "size": item["size"],
+            })
+            continue
         db.session.add(Artifact(
             execution_id=ex.id,
             kind=item["kind"], rel_path=item["rel_path"],
@@ -1486,7 +2201,27 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             mapped=item["kind"] == "junit",
         ))
     db.session.commit()
-    _write_evidence_manifest(ex, report_dir)
+    if excluded:
+        record_audit("system", "artifacts.capture_excluded",
+                     f"{ex.id}: {len(excluded)} generated file(s) "
+                     "excluded by capture policy")
+    _write_evidence_manifest(ex, report_dir, excluded)
+    # Durable storage (M9): stage → store → verify; staging is kept
+    # — workspace cleanup may only drop confirmed `stored` copies.
+    try:
+        from .storage import store_execution_artifacts
+        out = store_execution_artifacts(ex, report_dir)
+        if out["failed"]:
+            record_audit("system", "artifacts.store_failed",
+                         f"{ex.id}: {out['failed']} artifact(s) "
+                         "failed durable storage — staging kept, "
+                         "retry via artifact re-transfer")
+    except Exception as exc:                        # noqa: BLE001
+        try:
+            record_audit("system", "artifacts.store_failed",
+                         f"{ex.id}: storage layer error {exc}")
+        except Exception:
+            pass  # storage must never break the execution pipeline
     # Local-report status is tracked separately from state/outcome.
     try:
         from . import reporting
@@ -1498,7 +2233,8 @@ def _collect(ex: Execution, report_dir: Path, log_dir: Path) -> None:
             pass  # reporting must never break the execution pipeline
 
 
-def _write_evidence_manifest(ex: Execution, report_dir: Path) -> None:
+def _write_evidence_manifest(ex: Execution, report_dir: Path,
+                             excluded: list = None) -> None:
     """Sealed evidence index: manifest.json lands INSIDE the report
     dir listing every registered artifact (path/kind/sha256/size) plus
     execution identity + deployed source state — then it is registered
@@ -1523,6 +2259,11 @@ def _write_evidence_manifest(ex: Execution, report_dir: Path) -> None:
                 "sha256": a.sha256, "size": a.size, "mime": a.mime,
                 "mapped": a.mapped,
             } for a in sorted(rows, key=lambda r: r.rel_path)],
+            # Files the worker generated but the capture policy
+            # excluded — recorded (not collected) so generation is
+            # never silently conflated with collection.
+            "excluded": sorted(excluded or [],
+                               key=lambda e: e["rel_path"]),
         }
         path = report_dir / "manifest.json"
         path.write_text(json.dumps(doc, indent=2, sort_keys=True),
@@ -1590,7 +2331,42 @@ def _normalize(ex: Execution) -> None:
             key = (case.classname, case.name)
             seen_names[key] = seen_names.get(key, 0) + 1
             cases.append((case, seen_names[key], parsed))
-    completed = ex.exit_status is not None
+    # Jest's structured contract is Reports/jest.json, not junit XML —
+    # without this its runs ingest zero result rows and a clean pass
+    # still verdicts "incomplete".
+    _item_fw = ""
+    if ex.source_item_id:
+        _it = db.session.get(DiscoveredItem, ex.source_item_id)
+        _item_fw = (_it.framework or "") if _it else ""
+    if _item_fw == "jest":
+        for artifact in Artifact.query.filter_by(
+                execution_id=ex.id).all():
+            if Path(artifact.rel_path).name != "jest.json":
+                continue
+            path = Path(ex.report_dir) / artifact.rel_path
+            try:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                continue
+            prior = seen_hash.get(digest)
+            if prior is not None and _same_report_source(
+                    prior, artifact.rel_path):
+                continue
+            seen_hash.setdefault(digest, artifact.rel_path)
+            try:
+                parsed = results_mod.parse_jest(path)
+            except Exception:
+                continue
+            parsed_docs.append(parsed)
+            for case in parsed.cases:
+                key = (case.classname, case.name)
+                seen_names[key] = seen_names.get(key, 0) + 1
+                cases.append((case, seen_names[key], parsed))
+    # ISS-014: an interrupted run (killed step, nonzero exit) may assert
+    # observed failures but never a pass — all-pass evidence that
+    # survived a kill cannot prove the untested remainder passed.
+    completed = (ex.exit_status == 0) or any(
+        c.status in ("failed", "error") for c, _, _ in cases)
     for case, occurrence, parsed in cases:
         db.session.add(TestResult(
             execution_id=ex.id,
@@ -1604,9 +2380,25 @@ def _normalize(ex: Execution) -> None:
             message=case.message[:4000],
             unresolved=parsed.discrepant,
         ))
-    ex.outcome = Outcome(
-        aggregate_outcome([c[0] for c in cases], completed=completed)
-    )
+    if (ex.snapshot().get("run_config") or {}).get("native_collect"):
+        # A collection op carries no test results — junit aggregation
+        # over zero cases would always read INCOMPLETE, even when the
+        # collection itself succeeded. The outcome reflects the
+        # operation: ingestion success = PASSED, ingest failure or a
+        # missing collect.json (error_message set above) = INCOMPLETE.
+        ex.outcome = (Outcome.INCOMPLETE if ex.error_text
+                      else Outcome.PASSED)
+    else:
+        ex.outcome = Outcome(
+            aggregate_outcome([c[0] for c in cases], completed=completed)
+        )
+    if (ex.outcome == Outcome.INCOMPLETE
+            and ex.exit_status not in (None, 0) and cases):
+        record_audit(
+            "system", "execution.interrupted_partial",
+            f"{ex.id}: exit={ex.exit_status} — {len(cases)} collected "
+            "case(s) from interrupted run; no-failure evidence cannot "
+            "assert a pass")
     # Stamp dedup fingerprints so repository imports match this
     # live run — same canonicalisation the importer applies.
     try:
@@ -1704,16 +2496,70 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                          f"{ex.id}: brid {ex.dispatch_id}")
             return
     source = _resolve_source(ex)
-    buildbot_cfg.stage_source(ex, source)
     _snap = ex.snapshot()
     rc = _snap.get("run_config") or {}
     _unit = _snap.get("unit") or {}
+    _cfw = _collect_framework(ex) if rc.get("native_collect") \
+        else ""
+    _cscripts = None
+    if _cfw:
+        from . import collectors
+        _script = collectors.COLLECT_SCRIPTS.get(_cfw)
+        if _script:
+            _fn = (".to_collect.js" if _cfw in
+                   collectors.NODE_SCRIPTS else ".to_collect.py")
+            _cscripts = {_fn: _script}
+    _helper_sha = ""
+    _kind0 = getattr(runtime, "runtime_kind", "") or "kre"
+    if (_kind0 == "kre"
+            and (runner.target_type or "local") != "ssh"
+            and (runtime.credential_file or runtime.credential_ref)):
+        # Credentialed KRE on a PB worker: the credential resolver is
+        # staged inside this run's source tar — remote workers can
+        # never resolve controller-host paths, and each execution gets
+        # its own copy under src/ (isolated, cleaned with the tree).
+        # Platform-selected: .sh under `sh` on POSIX, .ps1 under
+        # powershell on Windows — no PATH-resolved Python required.
+        _hwin = (runner.os_arch or "").lower().startswith("win")
+        try:
+            _helper_text = buildbot_cfg.kre_cred_helper_source(_hwin) \
+                .read_text(encoding="utf-8")
+        except OSError as exc:
+            _fail(ex, "infrastructure",
+                  f"KRE credential resolver missing from the "
+                  f"controller payload: {exc}")
+            return
+        _cscripts = dict(_cscripts or {})
+        _cscripts[buildbot_cfg.kre_cred_helper_name(_hwin)] = \
+            _helper_text
+        import hashlib as _hl
+        _helper_sha = _hl.sha256(_helper_text.encode()).hexdigest()
+    if (_kind0 == "gtest"
+            and (runner.target_type or "local") != "ssh"
+            and (runner.os_arch or "").lower().startswith("win")):
+        # Windows PB gtest: the Python run driver is staged beside the
+        # collector — no sh dependency on the target.
+        _cscripts = dict(_cscripts or {})
+        _cscripts[".to_gtest_run.py"] = gtestfw.RUN_PY
+    buildbot_cfg.stage_source(ex, source, scripts=_cscripts)
     # Slot-builders: a (builder, worker) pair runs one build at a time,
     # so the runner's admitted slots map to distinct builders. Pick a
     # free slot; bb_slot is persisted with the dispatch identity.
     slot = _pick_slot(ex, runner)
     timeout_s = int(rc.get("timeout_seconds") or 3600)
     node_kind = getattr(runtime, "runtime_kind", "") or "kre"
+    # Framework-project items dispatch only through their matching
+    # runtime kind — a mismatched pool pick is a config failure,
+    # never a silent re-interpretation.
+    st = (ex.snapshot_json and
+          (json.loads(ex.snapshot_json).get("source_target") or {}))
+    if st.get("framework"):
+        want = FRAMEWORK_RUNTIME.get(st["framework"], "")
+        if want and node_kind != want:
+            _fail(ex, "config",
+                  f"{st['framework']} item requires a {want!r} "
+                  f"runtime — dispatched to {node_kind!r}")
+            return
     if node_kind in nodefw.KINDS:
         ok_b, browser_val = nodefw.validate_browser(
             node_kind, rc.get("browser", ""))
@@ -1732,27 +2578,150 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                   or (f"{int(rc['shard_index'])}/{int(rc['shard_total'])}"
                       if rc.get("shard_index") else ""))
         _specs = _unit.get("specs") or []
-        node_args = nodefw.build_args(
-            node_kind, browser_val,
-            spec=(",".join(_specs) if _specs else ""),
-            workers=_pw_workers,
-            shard=_shard)
-        node_env = nodefw.junit_env(node_kind)
+        # Monorepo layout (D-NODE-SUBDIR-WORKDIR): the framework
+        # project root inside the repo (fp.test_roots, e.g. 'jest') is
+        # the directory npm ci and the framework CLI must run FROM —
+        # node_modules resolution, jest config discovery and the
+        # lockfile are all cwd-relative. Discovered spec paths are
+        # repo-root-relative, so they are rebased against the root.
+        # Repos with the project at the root ('.') are unaffected.
+        fp_root = ""
+        from .execution import FrameworkProject as _FP
+        from .execution import DiscoveredItem as _DI
+        _fp = None
+        if rc.get("fp_id"):
+            _fp = db.session.get(_FP, rc["fp_id"])
+        elif st.get("item_id"):
+            _it = db.session.get(_DI, st["item_id"])
+            if _it is not None and getattr(
+                    _it, "framework_project_id", ""):
+                _fp = db.session.get(_FP, _it.framework_project_id)
+        if _fp is not None:
+            _roots = [str(r).strip("/") for r in (_fp.test_roots() or [])]
+            fp_root = next((r for r in _roots if r and r != "."), "")
+
+        def _rebase_node(p):
+            p = (p or "").strip()
+            if fp_root and p == fp_root:
+                return ""
+            if fp_root and p.startswith(fp_root + "/"):
+                return p[len(fp_root) + 1:]
+            return p
+        node_wd = "build/src" + ("/" + fp_root if fp_root else "")
+        if rc.get("native_collect"):
+            # node collectors are .js scripts — run under `node`,
+            # not npx. The script is staged at the src root while the
+            # exec cwd may be a framework subdirectory (monorepo), so
+            # the reference is relative to the actual workdir.
+            node_args = [posixpath.relpath("build/src/.to_collect.js",
+                                           node_wd)]
+            npx_path = "node"        # collector interpreter
+            rc["collect_roots"] = [
+                _rebase_node(r) or "." for r in
+                (rc.get("collect_roots") or ["."])]
+        else:
+            node_args = nodefw.build_args(
+                node_kind, browser_val,
+                spec=(",".join(_rebase_node(s) for s in _specs)
+                      if _specs
+                      else _rebase_node(str(rc.get("spec") or ""))),
+                workers=_pw_workers,
+                shard=_shard,
+                projects=rc.get("projects") or (),
+                test_pattern=rc.get("test_pattern") or "",
+                path_pattern=rc.get("jest_path_pattern") or "")
         win = (runner.os_arch or "").lower().startswith("win")
+        node_env = nodefw.junit_env(node_kind, win=win)
         # npm sits next to npx — an explicit executable_path resolves
-        # the sibling, otherwise PATH does.
-        npx_path = runtime.executable_path or (
-            "npx.cmd" if win else "npx")
+        # the sibling, otherwise PATH does. Native collection runs
+        # the .js collector under `node` directly.
+        npx_path = ("node" if rc.get("native_collect")
+                    else runtime.executable_path or (
+                        "npx.cmd" if win else "npx"))
         npm = str(Path(npx_path).with_name("npm.cmd" if win
                                            else "npm")) \
             if Path(npx_path).parent != Path(".") else (
                 "npm.cmd" if win else "npm")
-        deps_argv = [npm, "ci", "--no-audit", "--no-fund"]
+        # deps_prepare defaults ON (2.7.0 behaviour preserved — existing
+        # projects keep the visible prepare step); an explicit
+        # deps_prepare=false in the run config turns it off. Lockfile
+        # required as a clear early refusal: npm ci without
+        # package-lock.json/npm-shrinkwrap.json is nondeterministic.
+        deps_explicit = "deps_prepare" in rc
+        # deps_prepare also runs for native collection: collection is
+        # the approved repo-code execution path (UI ack), and jest's
+        # --listTests enumeration genuinely needs project deps. The
+        # same lockfile requirement, audit and caps apply.
+        deps_on = rc.get("deps_prepare", True) not in \
+            (False, "false", "0", 0)
+        deps_argv = ([npm, "ci", "--no-audit", "--no-fund"]
+                     if deps_on else [])
+        if rc.get("native_collect") and not deps_on:
+            # Owner condition: deps-off collect must never silently skip
+            # the install and then fail opaquely — jest --listTests needs
+            # project deps. Vendored node_modules in the bound root is
+            # the documented alternative; otherwise refuse with a clear
+            # message before anything is staged.
+            import pathlib as _pl2
+            _b0 = db.session.get(GitBinding, ex.binding_id) \
+                if ex.binding_id else None
+            _base0 = _pl2.Path(_b0.worktree_path or "") if _b0 else None
+            if _b0 is not None and _b0.subdirectory:
+                _base0 = _base0 / _b0.subdirectory
+            if fp_root:
+                _base0 = _base0 / fp_root
+            vendored = bool(_base0 and _base0.is_dir()
+                            and (_base0 / "node_modules").is_dir())
+            if not vendored:
+                raise DispatchError(
+                    "deps_prepare is off — jest native collection "
+                    "requires project dependencies for --listTests. "
+                    "Enable deps_prepare (npm ci, lockfile required) or "
+                    "commit node_modules to the project. Collection "
+                    "never skips dependency installation silently.")
+        _bnd = db.session.get(GitBinding, ex.binding_id) \
+            if ex.binding_id else None
+        if deps_on and _bnd is not None:
+            import pathlib as _pl
+            base = _pl.Path(_bnd.worktree_path or "")
+            if _bnd.subdirectory:
+                base = base / _bnd.subdirectory
+            # npm ci runs in the exec workdir — the framework project
+            # root for monorepo layouts (D-NODE-SUBDIR-WORKDIR) — so
+            # the lockfile is valid exactly there.
+            if fp_root:
+                base = base / fp_root
+            lock = any((base / lf).is_file() for lf in
+                       ("package-lock.json", "npm-shrinkwrap.json")) \
+                if base.is_dir() else False
+            if not lock:
+                raise DispatchError(
+                    "deps_prepare is on but the project has no "
+                    "package-lock.json / npm-shrinkwrap.json in its "
+                    "bound root — npm ci requires a lockfile. Commit "
+                    "the lockfile or set deps_prepare=false in the run "
+                    "configuration.")
+            # audit the prepare decision with the lockfile hash — npm ci
+            # runs dependency install scripts on the target, so what
+            # was approved must be exactly what runs.
+            try:
+                import hashlib as _hl
+                lf = next(base / n for n in
+                          ("package-lock.json", "npm-shrinkwrap.json")
+                          if (base / n).is_file())
+                digest = _hl.sha256(lf.read_bytes()).hexdigest()[:16]
+                record_audit(ex.created_by or "system",
+                             "execution.deps_prepare",
+                             f"ex={ex.id} npm ci lockfile {lf.name} "
+                             f"sha256:{digest}")
+            except Exception:
+                pass
         if runner.target_type == "ssh":
             buildbot_cfg.materialize_ssh_key(runner)
-            extra = {"exec_subdir": "src", "env": node_env,
+            _sub = "src" + ("/" + fp_root if fp_root else "")
+            extra = {"exec_subdir": _sub, "env": node_env,
                      "deps_argv": deps_argv,
-                     "report_rel": "proj/src/Reports"}
+                     "report_rel": "proj/" + _sub + "/Reports"}
             npx_dir = str(Path(npx_path).parent)
             if Path(npx_path).is_absolute() and npx_dir != ".":
                 extra["path_prefix"] = npx_dir
@@ -1768,7 +2737,7 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         else:
             spec = buildbot_cfg.node_exec_spec(
                 ex, npx_path, node_args, env=node_env,
-                deps_argv=deps_argv, posix=not win)
+                deps_argv=deps_argv, posix=not win, workdir=node_wd)
             buildbot_cfg.run_specs_dir().mkdir(parents=True,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
@@ -1788,14 +2757,18 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         # python -m robot under the runtime's configured interpreter —
         # no browser concept (browsers belong to the project and its
         # libraries), no deps step (deps live in the configured env).
-        robot_args = robotfw.build_args(
-            suite_path=(rc.get("suite_path") or "").strip(),
-            test=(rc.get("robot_test") or "").strip(),
-            suite=(rc.get("robot_suite") or "").strip(),
-            include=_tag_list(rc.get("robot_include")),
-            exclude=_tag_list(rc.get("robot_exclude")),
-            pabot_processes=(
-                _gated_pabot(runtime, rc)))
+        if rc.get("native_collect"):
+            robot_args = [".to_collect.py"] + list(
+                rc.get("collect_roots") or ["."])
+        else:
+            robot_args = robotfw.build_args(
+                suite_path=(rc.get("suite_path") or "").strip(),
+                test=(rc.get("robot_test") or "").strip(),
+                suite=(rc.get("robot_suite") or "").strip(),
+                include=_tag_list(rc.get("robot_include")),
+                exclude=_tag_list(rc.get("robot_exclude")),
+                pabot_processes=(
+                    _gated_pabot(runtime, rc)))
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")
@@ -1855,11 +2828,16 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             except Exception:
                 _m = {}
             _serial = _m.get("opt_xdist") == "ok"
-        pytest_args = pytestfw.build_args(
-            suite_path=(rc.get("suite_path") or "").strip(),
-            keyword=(rc.get("pytest_keyword") or "").strip(),
-            markers=(rc.get("pytest_markers") or "").strip(),
-            numprocesses=_pprocs, force_serial=_serial)
+        if rc.get("native_collect"):
+            pytest_args = [".to_collect.py"] + list(
+                rc.get("collect_roots") or ["."])
+        else:
+            pytest_args = pytestfw.build_args(
+                suite_path=(rc.get("suite_path") or "").strip(),
+                keyword=(rc.get("pytest_keyword") or "").strip(),
+                markers=(rc.get("pytest_markers") or "").strip(),
+                node_ids=rc.get("node_ids") or (),
+                numprocesses=_pprocs, force_serial=_serial)
         win = (runner.os_arch or "").lower().startswith("win")
         py = (runtime.executable_path or "").strip() \
             or ("python.exe" if win else "python3")
@@ -1898,6 +2876,327 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         record_audit("system", "execution.buildbot_dispatched",
                      f"{ex.id}: {builder} (pytest) brid {brid}")
         return
+    if node_kind == "behave":
+        # python -m behave — junit under Reports/junit/, same
+        # spec/collect pipeline; targets are feature paths or
+        # path:LINE scenario selectors.
+        targets = list(rc.get("behave_targets") or [])
+        sp = (rc.get("suite_path") or "").strip()
+        if not targets and sp:
+            targets = [sp]
+        if rc.get("native_collect"):
+            behave_args = [".to_collect.py"] + targets
+        else:
+            behave_args = behavefw.build_args(targets=targets)
+        win = (runner.os_arch or "").lower().startswith("win")
+        py = (runtime.executable_path or "").strip() \
+            or ("python.exe" if win else "python3")
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            py_dir = str(Path(py).parent)
+            if Path(py).is_absolute() and py_dir != ".":
+                extra["path_prefix"] = py_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, behave_args, executable=py,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, py, behave_args, posix=not win)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (behave) brid {brid}")
+        return
+    if node_kind == "gtest":
+        # Driver script: optional configured prepare/configure/build
+        # + per-binary --gtest_list_tests/--gtest_filter +
+        # --gtest_output=xml:Reports/junit + build-manifest.json
+        # (binary sha256). All under the staged checkout on the
+        # target — never in the server process.
+        g = dict(rc.get("gtest") or {})
+        exe = (rc.get("spec") or "").strip()
+        filt = (rc.get("gtest_filter") or "").strip()
+        sp = (rc.get("suite_path") or "").strip()
+        runs = []
+        if exe:
+            runs.append((exe, filt,
+                         Path(exe).name or "run"))
+        elif sp:
+            runs.append((sp, filt, Path(sp).name or "run"))
+        if not runs and not rc.get("native_collect"):
+            _fail(ex, "config",
+                  "no test executable selected — discovery lists "
+                  "binaries from build_dir + executables patterns")
+            return
+        win = ((runner.target_type or "local") != "ssh"
+               and (runner.os_arch or "").lower().startswith("win"))
+        # gtest runtimes' executable_path is the interpreter used for
+        # collection and the Windows run driver — the test binary comes
+        # from discovery/selection, never this field.
+        py = ((runtime.executable_path or "").strip()
+              or ("python.exe" if win else "python3"))
+        if rc.get("native_collect"):
+            # The gtest collector lists each configured/discovered
+            # binary via --gtest_list_tests; its interpreter is the
+            # runtime's configured python.
+            gexes = list(g.get("executables") or [])
+            # gtest binaries come from the project's executables
+            # patterns — collect_roots are test-file roots for
+            # tree-scanning frameworks and are meaningless here
+            # (a "." root would be exec'd as a binary).
+            exe_items = [e for e in gexes if e]
+            spec = buildbot_cfg.node_exec_spec(
+                ex, py, [".to_collect.py"] + exe_items, posix=not win)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+            builder = buildbot_cfg.builder_for(runner, slot)
+            brid = adapter.submit(
+                builder, ex.id,
+                {"exec_spec": BuildbotAdapter.encode_props(spec),
+                 "exec_timeout": str(timeout_s)})
+            ex.dispatch_id = "bb:" + str(brid)
+            ex.bb_slot = slot
+            db.session.commit()
+            record_audit("system", "execution.buildbot_dispatched",
+                         f"{ex.id}: {builder} (gtest-collect) "
+                         f"brid {brid}")
+            return
+        script = gtestfw.build_script(
+            runs,
+            prepare=str(g.get("prepare_cmd") or ""),
+            configure=str(g.get("configure_cmd") or ""),
+            build=str(g.get("build_cmd") or ""),
+            extra_args=list(g.get("gtest_args") or []),
+            timeout_s=int(rc.get("timeout_seconds") or 0),
+            run_disabled=bool(g.get("run_disabled")),
+            fail_if_no_test=bool(g.get("fail_if_no_test", True)))
+        # Driver runs inline as `sh -c <script>` — no file staged
+        # into the checkout; the spec argv carries the whole driver.
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, ["-c", script],
+                executable="sh", extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            if win:
+                # Windows PB: staged Python driver — subprocess argv
+                # lists, no cmd quoting, Job-object kill semantics via
+                # posix=False.
+                manifest = gtestfw.run_manifest(
+                    runs,
+                    prepare=str(g.get("prepare_cmd") or ""),
+                    configure=str(g.get("configure_cmd") or ""),
+                    build=str(g.get("build_cmd") or ""),
+                    extra_args=list(g.get("gtest_args") or []),
+                    timeout_s=int(rc.get("timeout_seconds") or 0),
+                    run_disabled=bool(g.get("run_disabled")),
+                    fail_if_no_test=bool(
+                        g.get("fail_if_no_test", True)),
+                    posix=False)
+                spec = buildbot_cfg.node_exec_spec(
+                    ex, py, [".to_gtest_run.py", manifest],
+                    posix=False)
+            else:
+                spec = buildbot_cfg.node_exec_spec(
+                    ex, "sh", ["-c", script], posix=True)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (gtest) brid {brid}")
+        return
+    if node_kind == postmanfw.KIND:
+        # Postman: engine binary runs the selected collection inside
+        # the staged checkout. Settings come from the framework
+        # project (fp.settings → rc["postman"] via _fp_item_gate).
+        pmc = dict(rc.get("postman") or {})
+        engine = str(pmc.get("engine") or "newman")
+        if engine not in postmanfw.ENGINES:
+            _fail(ex, "config",
+                  f"postman engine {engine!r} not supported "
+                  f"(choose {', '.join(postmanfw.ENGINES)})")
+            return
+        win = (runner.os_arch or "").lower().startswith("win")
+        exe, prefix = postmanfw.build_invocation(
+            engine, (runtime.executable_path or "").strip(), win)
+        collection = str(rc.get("postman_collection") or "").strip()
+        if not collection:
+            _fail(ex, "config",
+                  "no Postman collection selected — discovery lists "
+                  "validated collections")
+            return
+        pm_args = prefix + postmanfw.build_args(
+            engine, collection,
+            folder=str(rc.get("postman_folder") or ""),
+            paths=list(rc.get("postman_paths") or []),
+            collection_format=str(rc.get("postman_format") or
+                                  "v2.1"),
+            environment=str(rc.get("postman_environment") or
+                            pmc.get("environment_file") or ""),
+            globals_file=str(pmc.get("globals_file") or ""),
+            data=str(pmc.get("data_file") or ""),
+            iterations=int(rc.get("postman_iterations") or
+                           pmc.get("iterations") or 0),
+            delay_ms=int(pmc.get("delay_ms") or 0),
+            timeout_ms=int(pmc.get("timeout_ms") or 0),
+            insecure=bool(pmc.get("insecure")),
+            capture_bodies=bool(pmc.get("capture_bodies")))
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src",
+                     "report_rel": "proj/src/Reports"}
+            exe_dir = str(Path(exe).parent)
+            if Path(exe).is_absolute() and exe_dir != ".":
+                extra["path_prefix"] = exe_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, pm_args, executable=exe,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, exe, pm_args, posix=not win)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (postman/{engine}) "
+                     f"brid {brid}")
+        return
+    if node_kind == brunofw.KIND:
+        # Bruno: `bru run` executes FROM the collection root —
+        # collection-relative paths in selection order, recursion
+        # explicit only. Settings → rc["bruno"] via _fp_item_gate.
+        bs = dict(rc.get("bruno") or {})
+        col_root = str(rc.get("bruno_collection") or "").strip()
+        if col_root == "" and not rc.get("bruno_paths"):
+            _fail(ex, "config",
+                  "no Bruno collection selected — discovery lists "
+                  "validated collection roots")
+            return
+        paths = list(rc.get("bruno_paths") or [])
+        recurse = bool(rc.get("bruno_recurse"))
+        bru_args = brunofw.build_args(
+            col_root, paths=paths, recurse=recurse,
+            environment=str(rc.get("bruno_environment") or
+                            bs.get("environment") or ""),
+            environment_file=str(bs.get("environment_file") or ""),
+            global_environment=str(bs.get("global_environment") or ""),
+            workspace_path=str(bs.get("workspace_path") or ""),
+            env_vars=list(bs.get("env_vars") or []),
+            global_env_vars=list(bs.get("global_env_vars") or []),
+            include_tags=([t.strip() for t in str(
+                rc.get("bruno_tags") or "").split(",") if t.strip()]
+                if rc.get("bruno_tags")
+                else list(bs.get("include_tags") or [])),
+            exclude_tags=list(bs.get("exclude_tags") or []),
+            tests_only=bool(bs.get("tests_only")),
+            bail=bool(bs.get("bail")),
+            delay_ms=int(bs.get("delay_ms") or 0),
+            iterations=int(bs.get("iterations") or 0),
+            data_file=str(bs.get("data_file") or ""),
+            insecure=bool(bs.get("insecure")),
+            developer_mode=bool(bs.get("developer_mode")),
+            module_cache=bool(bs.get("module_cache")),
+            cacert=str(bs.get("cacert") or ""),
+            client_cert=str(bs.get("client_cert") or ""),
+            proxy=str(bs.get("proxy") or ""),
+            no_proxy=bool(bs.get("no_proxy")))
+        win = (runner.os_arch or "").lower().startswith("win")
+        bru_exe = (runtime.executable_path or "").strip() or "bru"
+        col_wd = ("build/src" + ("/" + col_root if col_root else ""))
+        if runner.target_type == "ssh":
+            buildbot_cfg.materialize_ssh_key(runner)
+            extra = {"exec_subdir": "src" + ("/" + col_root
+                                            if col_root else ""),
+                     "report_rel": "proj/src" + ("/" + col_root
+                                                if col_root else "")
+                     + "/Reports"}
+            bru_dir = str(Path(bru_exe).parent)
+            if Path(bru_exe).is_absolute() and bru_dir != ".":
+                extra["path_prefix"] = bru_dir
+            spec_file = buildbot_cfg.write_ssh_run_spec(
+                ex, runner, runtime, bru_args, executable=bru_exe,
+                extra=extra)
+            import sys as _sys
+            spec = buildbot_cfg.ssh_exec_spec(
+                ex, python=_sys.executable,
+                dispatcher_script=str(
+                    Path(__file__).resolve().parent.parent / "scripts"
+                    / "to_ssh_exec.py"),
+                spec_file=str(spec_file))
+        else:
+            spec = buildbot_cfg.node_exec_spec(
+                ex, bru_exe, bru_args, posix=not win,
+                workdir=col_wd)
+            buildbot_cfg.run_specs_dir().mkdir(parents=True,
+                                               exist_ok=True)
+            (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
+             ).write_text(json.dumps(spec))
+        builder = buildbot_cfg.builder_for(runner, slot)
+        brid = adapter.submit(
+            builder, ex.id,
+            {"exec_spec": BuildbotAdapter.encode_props(spec),
+             "exec_timeout": str(timeout_s)})
+        ex.dispatch_id = "bb:" + str(brid)
+        ex.bb_slot = slot
+        db.session.commit()
+        record_audit("system", "execution.buildbot_dispatched",
+                     f"{ex.id}: {builder} (bruno) brid {brid}")
+        return
     flags, dropped = kre_adapter.gated_flags(
         runtime.detected_version, rc.get("kre_options") or {})
     if dropped and not rc.get("kre_options_allow_drop"):
@@ -1911,17 +3210,51 @@ def _submit_buildbot(ex: Execution, runner: Runner,
     if not ok_b:
         _fail(ex, "config", browser_val)
         return
+    # Licensing gate — licensing-mode aware. Online/private need an
+    # API-key credential (KRE cannot start a licensed console
+    # session without one); offline validates its managed-license
+    # refs instead and emits no -apiKey.
+    _lic_gate = _kre_licensing_gate(runtime)
+    if _lic_gate:
+        _fail(ex, "config", _lic_gate)
+        return
+    _lic_mode = (runtime.licensing_mode or "online").strip() \
+        or "online"
+    _srv_url = (runtime.license_server_url or "").strip() \
+        if _lic_mode == "private" else ""
+    _lic_install = {}
+    if _lic_mode == "offline":
+        try:
+            _lic_install = _stage_license_pack(ex, runtime)
+        except DispatchError as exc:
+            _fail(ex, getattr(exc, "credential_kind", "config"),
+                  str(exc))
+            return
 
     if runner.target_type == "ssh":
-        cred_file = runtime.credential_file or ""
-        if runtime.credential_ref and not cred_file:
-            _fail(ex, "config",
-                  "ssh target: runtime credential_ref is portal-side "
-                  "only — configure a credential_file path on the "
-                  "remote host instead")
-            return
         buildbot_cfg.materialize_ssh_key(runner)
         remote = runner.ssh_workdir.rstrip("/") + "/" + ex.id
+        # credential_file stays the no-transfer option (operator-
+        # placed 0600 file on the remote host). credential_ref is
+        # resolved portal-side, written as a per-run 0600 staging
+        # file, and SFTP'd into the run workdir as .to_kre_cred —
+        # isolated per execution, removed with remote cleanup.
+        # Precedence: a managed credential_ref wins over the legacy
+        # operator-placed credential_file when both are set — the
+        # UI documents the reference as the override, and the managed
+        # path is the supported workflow. The file remains the
+        # fallback when no reference is configured.
+        cred_file = runtime.credential_file or ""
+        cred_stage = ""
+        if runtime.credential_ref:
+            try:
+                cred_stage = buildbot_cfg.write_run_credential(
+                    ex.id, _resolve_runtime_secret(runtime, project_id=ex.project_id))
+            except DispatchError as exc:
+                _fail(ex, getattr(exc, "credential_kind", "license"),
+                      str(exc))
+                return
+            cred_file = remote + "/.to_kre_cred"
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             # source.tar holds a top-level src/ — the remote project
@@ -1934,9 +3267,12 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             remote_webdriver_url=rc.get("remote_webdriver_url", ""),
             remote_webdriver_type=rc.get("remote_webdriver_type", ""),
             collection=bool(rc.get("collection")),
-            extra=flags)
+            extra=flags,
+            server_url=_srv_url)
         spec_file = buildbot_cfg.write_ssh_run_spec(
-            ex, runner, runtime, args[1:], cred_file)
+            ex, runner, runtime, args[1:], cred_file,
+            credential_stage=cred_stage,
+            licenses=_lic_install or None)
         import sys as _sys
         spec = buildbot_cfg.ssh_exec_spec(
             ex,
@@ -1950,22 +3286,32 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             spec_file=str(spec_file))
         builder = buildbot_cfg.builder_for(runner, slot)
     else:
+        # credential_file stays the no-transfer option (operator-
+        # placed 0600 file on the worker host). credential_ref is
+        # resolved portal-side into a per-run 0600 staging file —
+        # used directly on controller-local workers, delivered by
+        # FileDownload to remote workers (build/.to_kre_cred; the
+        # exec workdir is build/src so the path is ../.to_kre_cred).
+        # Precedence: managed credential_ref wins over the legacy
+        # operator-placed credential_file (same rule as the SSH
+        # branch) — the reference is the documented override.
         cred_file = runtime.credential_file or ""
-        if not cred_file and runtime.credential_ref:
-            if runner.target_type == "local":
-                # Controller-host worker: portal resolves the secret to
-                # a per-run 0600 file the wrapper reads — never argv.
-                from .secrets_store import read_secret
-                cred_file = buildbot_cfg.write_run_credential(
-                    ex.id, read_secret(
-                        current_app._get_current_object(),
-                        runtime.credential_ref))
-            else:
-                _fail(ex, "config",
-                      "remote worker: runtime credential_ref is "
-                      "portal-side only — configure a credential_file "
-                      "on the worker host instead")
+        cred_mastersrc = ""
+        if runtime.credential_ref:
+            try:
+                staged = buildbot_cfg.write_run_credential(
+                    ex.id, _resolve_runtime_secret(runtime, project_id=ex.project_id))
+            except DispatchError as exc:
+                _fail(ex, getattr(exc, "credential_kind", "license"),
+                      str(exc))
                 return
+            if runner.target_type == "local":
+                cred_file = staged
+            else:
+                cred_mastersrc = staged
+                # The FileDownload lands inside the prep-created
+                # restricted drop dir (0700 / SYSTEM+Admins DACL).
+                cred_file = "../.to_cred/cred"
         args = kre_adapter.build_args(
             executable=runtime.executable_path,
             project_path=".",
@@ -1976,10 +3322,17 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             remote_webdriver_url=rc.get("remote_webdriver_url", ""),
             remote_webdriver_type=rc.get("remote_webdriver_type", ""),
             collection=bool(rc.get("collection")),
-            extra=flags)
+            extra=flags,
+            server_url=_srv_url)
+        _win = (runner.os_arch or "").lower().startswith("win")
         spec = buildbot_cfg.kre_exec_spec(
             ex, runtime, args[1:], credential_file=cred_file,
-            posix=not (runner.os_arch or "").lower().startswith("win"))
+            credential_mastersrc=cred_mastersrc,
+            licenses=_lic_install or None,
+            posix=not _win,
+            helper_launch=kre_adapter.helper_launch_for(
+                runner.os_arch),
+            helper_sha256=_helper_sha)
         # Persist the rendered spec — collection re-renders it as the
         # kre-invocation.log evidence record (same contract the local
         # path had: the exact argv, never secret values).
@@ -2582,6 +3935,34 @@ def _resolve_unlaunched_cancels() -> int:
     return n
 
 
+def _redrive_cancels() -> int:
+    """Re-issue buildrequest cancels for CANCEL_REQUESTED executions
+    whose run is still live — request_cancel's call is best-effort and
+    a transient orchestrator error must not strand the remote run for
+    the full timeout_s. Idempotent: cancelling an already-complete or
+    already-cancelled buildrequest is a no-op."""
+    n = 0
+    adapter = None
+    for ex in Execution.query.filter(
+            Execution.state == ExecutionState.CANCEL_REQUESTED,
+            Execution.role != "parent",
+            Execution.dispatch_id.like("bb:%")).all():
+        if adapter is None:
+            try:
+                adapter = BuildbotAdapter.from_settings()
+            except Exception:
+                break
+        try:
+            br = adapter.buildrequest(_bb_brid(ex))
+            if not br or br.get("complete"):
+                continue
+            adapter.cancel(_bb_brid(ex))
+            n += 1
+        except Exception:
+            continue  # orchestrator unreachable — retry next cycle
+    return n
+
+
 def _redrive_queued_remote(limit: int = 10) -> int:
     """Capacity-blocked executions: their dispatch outbox event is
     consumed once — a lost capacity CAS or a no-runner tick must not
@@ -2630,9 +4011,18 @@ def worker_once() -> int:
             n += reconcile_buildbot_runs()
         except Exception:
             pass  # orchestrator unreachable — retry next cycle
+    # Probe completion processing must not depend on someone rendering
+    # the infrastructure page: unattended/headless installs would never
+    # leave "checking" and the dispatch gate would stay closed forever.
+    # Cheap no-op when nothing is pending.
+    try:
+        from . import runner_readiness
+        n += runner_readiness.poll_all_pending()
+    except Exception:
+        pass  # retry next cycle
     n += (reconcile_stale() + fire_due_schedules() + process_outbox()
           + enforce_plan_policies() + _resolve_unlaunched_cancels()
-          + aggregate_parent_runs()
+          + _redrive_cancels() + aggregate_parent_runs()
           + _release_terminal_reservations() + _expire_queue_deadlines()
           + _enqueue_terminal_notifications()
           + _heartbeat_local_runners() + _redrive_queued_remote())
@@ -2668,6 +4058,14 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
     # Capture the cancel intent BEFORE the collection pipeline
     # transitions the row through COLLECTING/NORMALIZING/FINALIZING —
     # checking ex.state at the end would never see CANCEL_REQUESTED.
+    # Refresh first: the reconcile query may have loaded this row
+    # heartbeats before a concurrent request_cancel committed — the
+    # identity-map object would otherwise classify a requested cancel
+    # as an unrequested abort (live cell 45566a02).
+    try:
+        db.session.refresh(ex)
+    except Exception:
+        pass    # row gone — the capture below degrades honestly
     cancel_requested = (ex.state == ExecutionState.CANCEL_REQUESTED
                         or bool(ex.cancel_reason))
     rt0 = db.session.get(RuntimeConnection, ex.runtime_id)
@@ -2711,7 +4109,8 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                 argv = [spec["executable"], *spec.get("args", [])]
                 if spec.get("credential_wrapper") \
                         and spec.get("credential_file"):
-                    argv = [spec["credential_wrapper"],
+                    argv = [*spec.get("credential_launch", []),
+                            spec["credential_wrapper"],
                             spec["credential_file"], *argv]
                 import shlex as _shlex
                 (log_dir / "kre-invocation.log").write_text(
@@ -2742,12 +4141,15 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
     buildbot_cfg.clear_staging(ex.id)
     has_results = bool(TestResult.query.filter_by(
         execution_id=ex.id).first())
-    if results_code == 6 or (cancel_requested
-                             and not (results_code == 0 or has_results)):
-        # CANCELLED — or any non-success result after a cancel request:
-        # buildrequest cancel may surface as RETRY/FAILURE depending on
-        # where the worker was in the step, but the user intent was
-        # recorded and must govern the terminal state.
+    if results_code == 6 or cancel_requested:
+        # CANCELLED — or ANY result after a cancel request: the user
+        # intent was recorded and must govern the terminal state. This
+        # holds even when passing junit arrives anyway (results_code
+        # == 0): those results are post-cancel artifacts — typically a
+        # buildbot auto-retry the cancel did not reach (live cell
+        # 8fa43035, ISS-023) — and reporting them as PASSED would
+        # silently discard the cancel. They stay collected as evidence;
+        # the execution is never COMPLETED/PASSED.
         if cancel_requested:
             if "UNCONFIRMED" in (ex.cancel_reason or ""):
                 ex.state = ExecutionState.FAILED
@@ -2759,6 +4161,12 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
                     "manual verification required")
             else:
                 ex.state = ExecutionState.CANCELED
+                # A prior racing classification pass may already have
+                # written the unrequested-abort text before the cancel
+                # commit landed — never let a contradicting message
+                # survive next to the user-intent terminal state.
+                ex.error_kind = ""
+                ex.error_text = ""
             ex.outcome = Outcome.INCOMPLETE
         else:
             # Unrequested abort — worker loss/external stop are
@@ -2773,10 +4181,6 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
             ex.outcome = Outcome.INCOMPLETE
             record_audit("system",
                          "execution.buildbot_aborted_unrequested", ex.id)
-    elif results_code == 0 or has_results:
-        # A failed build with real junit is failed TESTS — the
-        # normalized outcome carries the verdict, not the step status.
-        ex.state = ExecutionState.COMPLETED
     elif (blocked := _retry_blocked_line(adapter, ex)) is not None:
         # The retry prep step REFUSED to launch: the prior attempt's
         # liveness could not be proven stopped, or the configured
@@ -2784,6 +4188,10 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         # still be executing — UNKNOWN is the honest state: open
         # reservations stay held until an operator reconciles, never
         # a silent terminal label and never a freed slot.
+        # Checked BEFORE the results branch: when the latest attempt
+        # was blocked, any junit it carries is stale residue from the
+        # interrupted original attempt — never a verdict of the
+        # blocked retry.
         ex.state = ExecutionState.UNKNOWN
         ex.error_kind = "infrastructure"
         ex.error_text = (blocked + " — automatic relaunch blocked; "
@@ -2792,6 +4200,10 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         ex.outcome = Outcome.INCOMPLETE
         record_audit("system", "execution.retry_blocked",
                      f"{ex.id}: {blocked}")
+    elif results_code == 0 or has_results:
+        # A failed build with real junit is failed TESTS — the
+        # normalized outcome carries the verdict, not the step status.
+        ex.state = ExecutionState.COMPLETED
     else:
         ex.state = ExecutionState.FAILED
         # EXCEPTION (4) = the step never ran the test binary — an
@@ -2814,7 +4226,42 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
         else:
             ex.error_kind = "execution"
             detail = ""
-            if rt0 is not None and (rt0.runtime_kind or "") \
+            if rt0 is not None and \
+                    (rt0.runtime_kind or "kre") == "kre":
+                # KRE failure kinds come from the run log (license,
+                # config, infrastructure) — a bare results=FAILURE
+                # alone is not an actionable classification. SSH runs
+                # capture the remote output as a run.out artifact
+                # instead of a worker step log; both sources are
+                # combined because each truncation window can lose a
+                # marker the other still holds.
+                parts = []
+                for cand in (log_dir / "kre-remote-run.log",
+                             report_dir / "run.out"):
+                    try:
+                        parts.append(cand.read_text(
+                            errors="replace")[-4000:])
+                    except OSError:
+                        continue
+                tail = "\n".join(parts)
+                class _R:  # classify_error reads .canceled/.timed_out/.exit_status
+                    canceled = False
+                    timed_out = False
+                    exit_status = results_code
+                kind = kre_adapter.classify_error(_R(), tail)
+                if kind:
+                    ex.error_kind = kind
+                    detail = f" — KRE reported a {kind} error"
+                    if "kre_cred_exec:" in (tail or ""):
+                        # The credential resolver's own message is the
+                        # precise cause — surface it, not the generic
+                        # kind alone.
+                        for line in (tail or "").splitlines():
+                            if "kre_cred_exec:" in line:
+                                detail = (" — " +
+                                          line.strip()[:200])
+                                break
+            elif rt0 is not None and (rt0.runtime_kind or "") \
                     in (robotfw.KIND, pytestfw.KIND):
                 # Robot/pytest write xunit only on a valid execution —
                 # classify the console log so invalid data / missing
@@ -2854,6 +4301,18 @@ def _collect_buildbot(adapter: BuildbotAdapter, ex: Execution,
             ex.error_text = (f"buildbot run {ex.dispatch_id} ended "
                              f"results={results_code} with no result "
                              f"data{detail}")
+        # Agentless-SSH runs detach via setsid: a timed-out or failed
+        # dispatcher leaves the remote process group running (license
+        # still held) unless the portal kills it directly. Terminal
+        # failure must confirm remote death — returns None for non-SSH
+        # executions (no spec file), True when nothing survived.
+        ssh_kill = _ssh_remote_cancel(ex)
+        if ssh_kill is True:
+            ex.error_text = ((ex.error_text or "")
+                             + " [ssh remote group terminated]")
+        elif ssh_kill is False:
+            ex.error_text = ((ex.error_text or "")
+                             + " [ssh remote kill UNCONFIRMED]")
     db.session.commit()
 
 
@@ -2873,7 +4332,7 @@ def _retry_blocked_line(adapter: BuildbotAdapter,
         return None
     try:
         log = adapter.run_log(builds[-1]["buildid"],
-                              step_names=("prep",))
+                              step_names=("prep", "prep_1"))
     except Exception:
         return None
     for line in (log or "").splitlines():
@@ -2885,7 +4344,7 @@ def _retry_blocked_line(adapter: BuildbotAdapter,
         # emitted output line.
         body = line[1:] if line[:1] in "oehi" else line
         if body.startswith("TO_RETRY_BLOCKED:"):
-            return line.strip()[:400]
+            return body.strip()[:400]
     return None
 
 
@@ -2902,7 +4361,6 @@ def _record_buildbot_attempts(adapter: BuildbotAdapter,
         return
     snap = ex.snapshot()
     attempts = snap.setdefault("bb_attempts", [])
-    known = {a.get("buildid") for a in attempts}
     for b in sorted(builds, key=lambda x: x.get("number", 0)):
         entry = next(
             (a for a in attempts
@@ -2978,6 +4436,11 @@ def reconcile_buildbot_runs() -> int:
         except Exception:
             pass
     _sweep_stale_staging()
+    try:
+        from .authoring import cleanup_abandoned
+        cleanup_abandoned()   # only user-abandoned drafts; audit already recorded
+    except Exception:
+        pass    # janitorial — never blocks reconciliation
     return fixed
 
 

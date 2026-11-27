@@ -93,6 +93,7 @@ def _env(app, monkeypatch, stub, target_type="local",
         db.session.flush()
         rt = RuntimeConnection(name="kre", runner_id=r.id,
                                executable_path="/opt/kre/katalonc",
+                               credential_file="/opt/kre/.krecred",
                                enabled=True)
         db.session.add(rt)
         db.session.flush()
@@ -310,6 +311,341 @@ def test_success_collects_and_completes(app, monkeypatch, tmp_path):
         db.session.refresh(ex)
         assert ex.state == ExecutionState.COMPLETED
         assert ex.outcome == Outcome.PASSED
+
+
+def test_native_collect_outcome_reflects_operation(app, monkeypatch,
+                                                   tmp_path):
+    """A successful native collection ends PASSED (the operation
+    succeeded), never INCOMPLETE from junit aggregation over zero
+    cases. Ingest failure reads INCOMPLETE with the reason in
+    error_text (regression: error_message was never a model column —
+    ingest errors were silently dropped)."""
+    import json as _json
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 0, "claimed": True}
+    stub.br_state["8"] = {"complete": True, "results": 0, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        from testorchestrator.execution import (FrameworkProject,
+                                                GitBinding)
+        di = db.session.get(DiscoveredItem, diid)
+        fp = FrameworkProject(project_id=di.project_id,
+                              binding_id=di.binding_id,
+                              framework="jest", name="jest",
+                              discovery_status="ok")
+        fp.test_roots_json = "[\".\"]"
+        db.session.add(fp)
+        db.session.flush()
+        bnd = db.session.get(GitBinding, di.binding_id)
+
+        def _mkex(brid):
+            ex = d.create_execution(
+                "u", None, binding=bnd,
+                run_config={"runtime_id": rtid, "native_collect": True,
+                            "fp_id": fp.id, "collect_roots": ["."]})
+            ex.state = ExecutionState.DISPATCHED
+            ex.dispatch_id = f"bb:{brid}"
+            ex.runner_id = rid
+            ex.runtime_id = rtid
+            db.session.commit()
+            return ex
+
+        # success: valid collect.json -> COMPLETED/PASSED, no error
+        ex = _mkex("7")
+        src = buildbot_cfg.artifacts_dir() / ex.id
+        src.mkdir(parents=True)
+        (src / "collect.json").write_text(_json.dumps({
+            "framework": fp.framework, "items": [
+                {"kind": "test", "path": di.path, "name": "t1",
+                 "node_id": di.path + "::t1", "granularity": "test",
+                 "tags": []}], "warnings": []}))
+        # failure: unreadable collect.json -> INCOMPLETE + reason
+        ex2 = _mkex("8")
+        src2 = buildbot_cfg.artifacts_dir() / ex2.id
+        src2.mkdir(parents=True)
+        (src2 / "collect.json").write_text("{not json")
+
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        db.session.refresh(ex2)
+        assert ex.state == ExecutionState.COMPLETED, ex.error_text
+        assert ex.outcome == Outcome.PASSED, \
+            f"collect outcome: {ex.outcome} err={ex.error_text}"
+        assert not ex.error_text
+        assert ex2.outcome == Outcome.INCOMPLETE
+        assert "ingest failed" in (ex2.error_text or "").lower()
+
+
+def test_kre_buildbot_failure_classifies_license(
+        app, monkeypatch, tmp_path):
+    """A KRE run ending results=2 with a license error in the run log
+    must surface error_kind='license' — not the generic 'no result
+    data' execution verdict."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 2,
+                          "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.DISPATCHED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        stub_run_log_orig = stub.run_log
+        stub.run_log = lambda *a, **k: "License is not activated"
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        stub.run_log = stub_run_log_orig
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "license"
+        assert "license" in ex.error_text.lower()
+
+
+def test_kre_ssh_failure_classifies_via_run_out(
+        app, monkeypatch, tmp_path):
+    """Agentless-SSH runs have no worker step log — the remote output
+    lands as a run.out artifact. Classification must read it: a
+    missing credential is 'license', never bare 'infrastructure'."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 2,
+                          "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub,
+                               target_type="ssh")
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.DISPATCHED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        src = buildbot_cfg.artifacts_dir() / ex.id
+        src.mkdir(parents=True)
+        (src / "run.out").write_text(
+            "Activation failed: No Offline License or you have "
+            "forgot to put in your -apiKey command for online "
+            "activation.\nKRE exit code: 2\n")
+        stub.run_log = lambda *a, **k: ""  # no 'ssh-run' step match
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "license"
+        assert "license" in ex.error_text.lower()
+
+
+def test_failed_ssh_run_confirms_remote_death(
+        app, monkeypatch, tmp_path):
+    """A failed/timed-out SSH run leaves the detached remote group
+    running — terminal failure must confirm remote death (§6 timeout
+    stops the full process tree)."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 2,
+                          "claimed": True}
+    kills = []
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        monkeypatch.setattr(d, "_ssh_remote_cancel",
+                            lambda ex: kills.append(ex.id) or True)
+        rid, rtid, diid = _env(app, monkeypatch, stub,
+                               target_type="ssh")
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.DISPATCHED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert kills == [ex.id]
+        assert "[ssh remote group terminated]" in ex.error_text
+
+
+def test_redrive_cancels_reissues_until_complete(
+        app, monkeypatch, tmp_path):
+    """request_cancel's buildrequest cancel is best-effort — a
+    transient failure must not strand the remote run: each tick
+    re-issues cancel while the buildrequest stays incomplete."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": False, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.CANCEL_REQUESTED
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        assert d._redrive_cancels() == 1
+        assert stub.cancels == ["7"]
+        # Already-complete buildrequests are left alone.
+        stub.br_state["7"] = {"complete": True, "results": 6}
+        assert d._redrive_cancels() == 0
+        assert stub.cancels == ["7"]
+
+
+def test_kre_classify_ignores_benign_testcloud_fallback():
+    """KRE logs "Failed to activate with TestCloud license" in every
+    run before acquiring the KRE license. A run that activates fine
+    and then fails for another reason must not classify 'license'."""
+    from testorchestrator.adapters import kre
+    from testorchestrator.adapters.kre import InvocationResult
+
+    res = InvocationResult(exit_status=2)
+    tail = (
+        "Failed to activate with TestCloud license. "
+        "Activated successfully with Katalon Runtime Engine license. "
+        "Execution failed with error: "
+        "com.katalon.execution.exception.ExecutionException: "
+        "Found no test suite to execute in the test suite collection.")
+    assert kre.classify_error(res, tail) != "license"
+
+    fatal = InvocationResult(exit_status=2)
+    assert kre.classify_error(
+        fatal, "Failed to activate with Katalon Runtime Engine "
+        "license.") == "license"
+
+    # ISS-013: a failed API-key activation followed by KRE's own
+    # argv-validation complaint ("Cannot find project") is a genuine
+    # license rejection — the project marker must not mask it.
+    # Sequence observed verbatim on real katalonc over SSH.
+    lic_tail = (
+        "Start activating offline...\n"
+        "The number of valid offline licenses: 0\n"
+        "Failed to activate with API key\n"
+        "Failed to activate with TestCloud license. "
+        "Failed to get organization or project info\n"
+        "Project path is a folder.\n"
+        "Invalid argument: Cannot find project '/w/proj/src'.\n"
+        "KRE exit code: 5")
+    assert kre.classify_error(InvocationResult(exit_status=5),
+                            lic_tail) == "license"
+
+    noact = InvocationResult(exit_status=2)
+    assert kre.classify_error(noact, "License is not activated") \
+        == "license"
+
+    # The staged credential resolver failing before KRE launches is
+    # never a license verdict (the license was never reached). Split by
+    # layer: credential VALUE problems are config; file/transfer/
+    # permission/executable problems are infrastructure.
+    wrap = InvocationResult(exit_status=1)
+    assert kre.classify_error(
+        wrap, "kre_cred_exec: credential file unreadable") \
+        == "infrastructure"
+    assert kre.classify_error(
+        wrap, "kre_cred_exec: KRE executable not found at the "
+        "configured path") == "infrastructure"
+    assert kre.classify_error(
+        wrap, "kre_cred_exec: credential file is empty") == "config"
+    assert kre.classify_error(
+        wrap, "kre_cred_exec: conflicting credential source: -apiKey "
+        "already supplied") == "config"
+
+    # The step runner's kill marker → timeout is infrastructure even
+    # when the coordinator reports a bare failure code.
+    to = InvocationResult(exit_status=1)
+    assert kre.classify_error(
+        to, "command timed out: 20 seconds without output "
+        "running [...] attempting to kill") == "infrastructure"
+
+    # The logged argv always echoes "-projectPath=<dir>" — data, not
+    # an error. The bare substring must not fire "config".
+    argvecho = InvocationResult(exit_status=1)
+    assert kre.classify_error(
+        argvecho,
+        "argv: [b'katalonc', b'-projectPath=.', b'-reportFolder=R'] "
+        "program finished with exit code 1") != "config"
+    # …while a real project-path complaint still classifies config.
+    badproj = InvocationResult(exit_status=4)
+    assert kre.classify_error(
+        badproj, "cannot find project") == "config"
+    # KRE's bad-selection marker is config, not infrastructure — but a
+    # test failure mentioning "not found" inside a suite stays honest.
+    badsuite = InvocationResult(exit_status=4)
+    assert kre.classify_error(
+        badsuite, "Test suite 'Test Suites/NOPE' not found.") \
+        == "config"
+    testfail = InvocationResult(exit_status=1)
+    assert kre.classify_error(
+        testfail, "Test suite 'TS2' — Test Cases/TC3 FAILED: "
+        "element not found on page") != "config"
+
+    # A truncated tail can lose the "Activated successfully" line
+    # while keeping stray "Failed to activate with TestCloud" noise —
+    # the suite-not-found marker only appears after activation, so it
+    # outranks generic license words.
+    truncated = InvocationResult(exit_status=4)
+    assert kre.classify_error(
+        truncated,
+        "Failed to activate with TestCloud license. "
+        "Test suite 'Test Suites/NOPE' not found. "
+        "KRE exit code: 4") == "config"
+
+
+def test_kre_exec_spec_staged_helper(app):
+    """Credentialed KRE on a PB worker: the launcher travels inside
+    the exec tar as src/.to_kre_cred_exec.{sh,ps1} and runs under the
+    target-native shell — never a controller-host path or a
+    PATH-resolved Python."""
+    with app.app_context():
+        ex = type("E", (), {})()
+        ex.snapshot = lambda: {"run_config": {}}
+        rt = type("R", (), {"executable_path": "/x"})()
+        spec = buildbot_cfg.kre_exec_spec(
+            ex, rt, ["a"], credential_file="C:/to/kre.key",
+            posix=False, helper_launch=["powershell", "-File"],
+            helper_sha256="ab12")
+        assert spec["credential_wrapper"] == ".to_kre_cred_exec.ps1"
+        assert spec["credential_wrapper"] == \
+            buildbot_cfg.kre_cred_helper_name(True)
+        assert spec["credential_launch"] == ["powershell", "-File"]
+        assert spec["credential_file"] == "C:/to/kre.key"
+        assert spec["helper_sha256"] == "ab12"
+        spec_posix = buildbot_cfg.kre_exec_spec(
+            ex, rt, ["a"], credential_file="/t/kre.key",
+            credential_mastersrc="/staging/x.cred",
+            helper_launch=["sh"], helper_sha256="cd34")
+        assert spec_posix["credential_wrapper"] == ".to_kre_cred_exec.sh"
+        assert spec_posix["credential_mastersrc"] == "/staging/x.cred"
+        # No credential → no helper fields at all (missing-cred path
+        # still runs the bare executable).
+        spec2 = buildbot_cfg.kre_exec_spec(ex, rt, ["a"])
+        assert "credential_wrapper" not in spec2
+        assert "credential_launch" not in spec2
+
+
+def test_kre_cred_helper_source_is_portable():
+    """The staged launchers must exist in the payload: the POSIX one
+    syntax-checks under sh and carries the setsid/scrub contract; the
+    Windows one carries the kill-on-close job object."""
+    import subprocess as _sp
+    sh_src = buildbot_cfg.kre_cred_helper_source(False)
+    assert sh_src.is_file()
+    text = sh_src.read_text(encoding="utf-8")
+    assert "setsid" in text and "REDACTED" in text
+    assert _sp.run(["sh", "-n", str(sh_src)]).returncode == 0
+    ps_src = buildbot_cfg.kre_cred_helper_source(True)
+    assert ps_src.is_file()
+    ps = ps_src.read_text(encoding="utf-8")
+    assert "AssignProcessToJobObject" in ps
+    assert "KILL_ON_JOB_CLOSE" in ps or "0x2000" in ps
+    assert "$limits = $info.BasicLimitInformation" in ps
+    assert "$limits.LimitFlags = 0x2000" in ps
+    assert "$info.BasicLimitInformation = $limits" in ps
+    assert "$info.BasicLimitInformation.LimitFlags = 0x2000" not in ps
 
 
 def test_prep_script_echo_is_not_a_retry_block(
@@ -568,14 +904,14 @@ def test_ssh_remote_cancel_kills_process_group(app, monkeypatch, tmp_path):
 
 
 def test_staging_cleared_on_predispatch_fail(app, monkeypatch, tmp_path):
-    """A _fail INSIDE _submit_buildbot (after stage_source — e.g. the
-    ssh credential gate) leaves no staged tar/cred behind."""
+    """A _fail INSIDE _submit_buildbot (after stage_source — e.g. an
+    unresolvable credential_ref) leaves no staged tar/cred behind."""
     stub = _BBProbe()
     ids = _env(app, monkeypatch, stub, target_type="ssh")
     rid, rtid, diid = ids
     with app.app_context():
         rt = db.session.get(RuntimeConnection, rtid)
-        rt.credential_ref = "portal-side-secret"   # ssh: rejected gate
+        rt.credential_ref = "portal-side-secret"   # unknown ref → fail
         db.session.commit()
         ex = d.create_execution(
             "u", None, run_config={"runtime_id": rtid},
@@ -585,7 +921,7 @@ def test_staging_cleared_on_predispatch_fail(app, monkeypatch, tmp_path):
         d._buildbot_assign_and_submit(ex)
         db.session.refresh(ex)
         assert ex.state == ExecutionState.FAILED
-        assert "credential_ref is portal-side" in ex.error_text
+        assert "does not exist" in ex.error_text
         assert not (sd / f"{ex.id}.tar").exists()
         assert not (sd / f"{ex.id}.cred").exists()
 
@@ -609,3 +945,298 @@ def test_sweep_removes_terminal_leftovers_keeps_live(app, tmp_path):
         assert not (sd / f"{done.id}.tar").exists()
         assert (sd / f"{live.id}.tar").exists()
         assert (sd / "no-such-exec.tar").exists()
+
+
+def test_gtest_windows_pb_uses_python_driver(app, monkeypatch, tmp_path):
+    """Windows PB runner + gtest runtime: no POSIX gate — the spec runs
+    the staged Python driver with posix=False and carries the run
+    manifest as argv."""
+    stub = _BBProbe()
+    monkeypatch.setattr(BuildbotAdapter, "from_settings",
+                        classmethod(lambda cls: stub))
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        _s.update({"buildbot_endpoint": "http://stub",
+                   "buildbot_home": "/tmp/bb-test-home"})
+        r = Runner(name="bb-win", connection_mode="remote",
+                   target_type="buildbot-worker",
+                   os_arch="windows-x86_64", max_slots=2)
+        db.session.add(r)
+        db.session.flush()
+        rt = RuntimeConnection(
+            name="gt", runner_id=r.id, runtime_kind="gtest",
+            executable_path=r"C:\Python312\python.exe", enabled=True,
+            readiness_state="ready-execution")
+        db.session.add(rt)
+        db.session.flush()
+        p = Project(name="p")
+        db.session.add(p)
+        db.session.flush()
+        cfg = rt.config()
+        cfg["_exec_ready"] = {p.id: {"validated_at": "now"}}
+        rt.config_json = json.dumps(cfg)
+        wt = tmp_path / "wt"
+        (wt / "gtest" / "build").mkdir(parents=True)
+        (wt / "gtest" / "build" / "to_gtest.exe").write_text("pe")
+        b = GitBinding(project_id=p.id, name="b", url="/x",
+                       worktree_path=str(wt))
+        db.session.add(b)
+        db.session.flush()
+        di = DiscoveredItem(project_id=p.id, binding_id=b.id,
+                            kind="suite", path="gtest/build", name="gt",
+                            sha="s", order_idx=0)
+        db.session.add(di)
+        db.session.commit()
+        ex = d.create_execution(
+            "u", None, run_config={
+                "runtime_id": rt.id,
+                "spec": "gtest/build/to_gtest.exe",
+                "gtest_filter": "Smoke.*"},
+            source_item=db.session.get(DiscoveredItem, di.id))
+        d._handle_event(_event_for(ex))
+        ex = db.session.get(Execution, ex.id)
+        assert ex.state == ExecutionState.DISPATCHED, (
+            ex.state, ex.error_kind, ex.error_text)
+        assert len(stub.submits) == 1
+        spec = json.loads(stub.submits[0][2]["exec_spec"])
+        assert spec["posix"] is False
+        assert spec["args"][0] == ".to_gtest_run.py"
+        manifest = json.loads(spec["args"][1])
+        assert manifest["runs"] == [["gtest/build/to_gtest.exe",
+                                     "Smoke.*", "to_gtest.exe"]]
+        assert manifest["posix"] is False
+
+
+def test_cancel_request_governs_over_late_passing_results(
+        app, monkeypatch, tmp_path):
+    """ISS-023 (lost cancel, live cell 8fa43035): a cancel requested
+    while running must NEVER surface as COMPLETED/PASSED, even when
+    the run — typically a buildbot auto-retry the cancel didn't reach
+    — produced clean passing junit afterwards. The user intent governs
+    the terminal state; the results remain collected as evidence but
+    the execution is CANCELED/INCOMPLETE."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 0, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.CANCEL_REQUESTED
+        ex.cancel_reason = "user cancel"
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        # passing junit lands despite the cancel (retry ran to completion)
+        src = buildbot_cfg.artifacts_dir() / ex.id
+        src.mkdir(parents=True)
+        (src / "junit.xml").write_text(
+            '<testsuite tests="1" failures="0"><testcase '
+            'classname="T" name="c" time="0.1"/></testsuite>')
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state != ExecutionState.COMPLETED, \
+            "a cancelled execution must never report completed"
+        assert ex.outcome != Outcome.PASSED, \
+            "a cancelled execution must never report passed"
+        assert ex.state == ExecutionState.CANCELED
+        assert ex.outcome == Outcome.INCOMPLETE
+
+
+def test_cancel_unconfirmed_with_results_stays_failed_infra(
+        app, monkeypatch, tmp_path):
+    """Cancel with UNCONFIRMED remote kill + results arriving anyway:
+    the process tree may have run unsupervised — FAILED/infrastructure,
+    never canceled-and-certainly never passed."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 0, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.CANCEL_REQUESTED
+        ex.cancel_reason = "user cancel [ssh remote kill UNCONFIRMED]"
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        src = buildbot_cfg.artifacts_dir() / ex.id
+        src.mkdir(parents=True)
+        (src / "junit.xml").write_text(
+            '<testsuite tests="1" failures="0"><testcase '
+            'classname="T" name="c" time="0.1"/></testsuite>')
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.FAILED
+        assert ex.error_kind == "infrastructure"
+        assert ex.outcome == Outcome.INCOMPLETE
+
+
+def test_requested_cancel_clears_racing_unrequested_text(
+        app, monkeypatch, tmp_path):
+    """Live cell 45566a02: a racing first pass can write the
+    unrequested-abort message before the cancel commit lands; when the
+    requested-cancel classification later wins, the contradicting text
+    must not survive — CANCELED carries no error."""
+    stub = _BBProbe()
+    stub.br_state["7"] = {"complete": True, "results": 6, "claimed": True}
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        rid, rtid, diid = _env(app, monkeypatch, stub)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        ex.state = ExecutionState.CANCEL_REQUESTED
+        ex.cancel_reason = "user cancel"
+        # stale text from the racing first pass
+        ex.error_kind = "infrastructure"
+        ex.error_text = ("buildbot run bb:7 ended CANCELLED without a "
+                         "recorded cancellation request")
+        ex.dispatch_id = "bb:7"
+        ex.runner_id = rid
+        ex.runtime_id = rtid
+        db.session.commit()
+        d.reconcile_buildbot_runs()
+        db.session.refresh(ex)
+        assert ex.state == ExecutionState.CANCELED
+        assert not ex.error_text
+        assert not ex.error_kind
+
+
+def test_suite_path_rebased_for_subdirectory_binding(app, monkeypatch, tmp_path):
+    """Discovered paths are repo-root-relative but a subdirectory binding
+    stages that subdir as the source root — suite_path must be rebased or
+    the runner exits 'file or directory not found' with no results."""
+    stub = _BBProbe()
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        _, rtid, diid = _env(app, monkeypatch, stub,
+                             worktree=tmp_path / "wt")
+        di = db.session.get(DiscoveredItem, diid)
+        b = db.session.get(GitBinding, di.binding_id)
+        b.subdirectory = "pytest"
+        di.path = "pytest/test_smoke.py"
+        db.session.commit()
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        assert ex.snapshot()["run_config"]["suite_path"] == "test_smoke.py"
+        # exact-subdir selection means 'the whole staged root'
+        di2 = DiscoveredItem(project_id=di.project_id, binding_id=b.id,
+                             kind="suite", path="pytest", name="root",
+                             sha="s", order_idx=9)
+        db.session.add(di2)
+        db.session.commit()
+        ex2 = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, di2.id))
+        assert ex2.snapshot()["run_config"]["suite_path"] == ""
+        # no subdirectory — path passes through verbatim
+        b.subdirectory = ""
+        db.session.commit()
+        ex3 = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, diid))
+        assert ex3.snapshot()["run_config"]["suite_path"] == "pytest/test_smoke.py"
+
+
+def _bdd_env(app, monkeypatch, stub, tmp_path):
+    """pytest-bdd fixture: one framework project, two features — the
+    selected one with two exactly-bound scenarios, plus a bound
+    scenario in the OTHER feature (the negative-selection witness)."""
+    from testorchestrator.execution import FrameworkProject
+    _, rtid, diid = _env(app, monkeypatch, stub,
+                         worktree=tmp_path / "wt")
+    di = db.session.get(DiscoveredItem, diid)
+    rt = db.session.get(RuntimeConnection, rtid)
+    rt.runtime_kind = "pytest"
+    fp = FrameworkProject(project_id=di.project_id, name="bdd",
+                          framework="pytest-bdd", binding_id=di.binding_id,
+                          discovery_status="ok")
+    db.session.add(fp)
+    db.session.flush()
+
+    def _item(kind, path, name, gran, node_id="", selectable=True):
+        it = DiscoveredItem(
+            project_id=di.project_id, binding_id=di.binding_id,
+            framework_project_id=fp.id, framework="pytest-bdd",
+            kind=kind, path=path, name=name, sha="s", order_idx=0,
+            node_id=node_id, granularity=gran, selectable=selectable)
+        db.session.add(it)
+        return it
+
+    suite = _item("suite", "features/smoke.feature", "smoke", "file",
+                  node_id="features/smoke.feature")
+    _item("scenario", "features/smoke.feature", "addition works",
+          "scenario", node_id="tests/test_bdd.py::test_addition")
+    _item("scenario", "features/smoke.feature", "addition negative",
+          "scenario", node_id="tests/test_bdd.py::test_addition_neg")
+    # unbound scenario in the same feature — no node id, must not run
+    _item("scenario", "features/smoke.feature", "unbound", "scenario",
+          node_id="", selectable=False)
+    # negative witness: a bound scenario of a DIFFERENT feature
+    _item("scenario", "features/fail.feature", "subtraction fails",
+          "scenario", node_id="tests/test_bdd.py::test_subtraction")
+    db.session.commit()
+    return fp, suite, rtid
+
+
+def test_pytestbdd_feature_translates_to_bound_scenario_node_ids(
+        app, monkeypatch, tmp_path):
+    """ISS-026: pytest never collects a bare .feature positional — the
+    feature selection must dispatch the exact node IDs of its bound
+    scenarios, and ONLY those (negative selection)."""
+    stub = _BBProbe()
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        from testorchestrator import execution_readiness
+        monkeypatch.setattr(execution_readiness, "execution_ready",
+                            lambda rt, pid: True)
+        fp, suite, rtid = _bdd_env(app, monkeypatch, stub, tmp_path)
+        ex = d.create_execution(
+            "u", None, run_config={"runtime_id": rtid},
+            source_item=db.session.get(DiscoveredItem, suite.id))
+        rc = ex.snapshot()["run_config"]
+        nids = sorted(rc.get("node_ids") or [])
+        assert nids == ["tests/test_bdd.py::test_addition",
+                        "tests/test_bdd.py::test_addition_neg"]
+        # negative selection: the other feature's bound scenario and
+        # this feature's unbound scenario are absent
+        assert "tests/test_bdd.py::test_subtraction" not in nids
+        assert all("unbound" not in n for n in nids)
+        # suite_path stays for provenance; argv drops it (node_ids win)
+        assert rc["suite_path"] == "features/smoke.feature"
+        from testorchestrator.adapters import pytestfw
+        args = pytestfw.build_args(suite_path=rc["suite_path"],
+                                   node_ids=rc["node_ids"])
+        assert "features/smoke.feature" not in args
+
+
+def test_pytestbdd_feature_without_binding_refused(
+        app, monkeypatch, tmp_path):
+    """A feature whose scenarios all lack exact bindings cannot resolve
+    node IDs — dispatch refuses with the explanation."""
+    stub = _BBProbe()
+    with app.app_context():
+        monkeypatch.setattr(buildbot_cfg, "home", lambda: tmp_path)
+        from testorchestrator import execution_readiness
+        monkeypatch.setattr(execution_readiness, "execution_ready",
+                            lambda rt, pid: True)
+        fp, suite, rtid = _bdd_env(app, monkeypatch, stub, tmp_path)
+        # sever every binding in the selected feature
+        for it in DiscoveredItem.query.filter_by(
+                framework_project_id=fp.id,
+                path="features/smoke.feature",
+                granularity="scenario").all():
+            it.node_id = ""
+            it.selectable = False
+        db.session.commit()
+        import pytest as _pt
+        with _pt.raises(d.DispatchError, match="no exact @scenario"):
+            d.create_execution(
+                "u", None, run_config={"runtime_id": rtid},
+                source_item=db.session.get(DiscoveredItem, suite.id))

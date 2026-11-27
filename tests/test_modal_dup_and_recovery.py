@@ -1,6 +1,19 @@
 """Real modal submit/failure/recovery behavior via intercepted responses."""
 import pytest
 
+def _preview_reachable():
+    import socket
+    try:
+        s = socket.create_connection(("127.0.0.1", 39995), timeout=2)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(not _preview_reachable(),
+                                reason="disposable preview :39995 not running")
+
 pytest.importorskip("playwright.sync_api")
 from playwright.sync_api import sync_playwright
 

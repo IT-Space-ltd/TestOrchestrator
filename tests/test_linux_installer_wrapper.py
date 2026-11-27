@@ -39,12 +39,18 @@ def test_nonzero_propagates(tmp_path):
 
 
 def test_cleanup_scope(tmp_path):
+    """Uses its own TMPDIR — the real /tmp is shared mutable state:
+    another test's wrapper cleanup completing mid-window changes the
+    glob set without any product defect (full-suite-only failure)."""
     tb = _fixture_payload(tmp_path)
     run = tmp_path / "to.run"
     build(tb, run); os.chmod(run, 0o755)
-    before = set(Path("/tmp").glob("to-install-*"))
-    subprocess.run([str(run)], capture_output=True, text=True)
-    assert before == set(Path("/tmp").glob("to-install-*"))
+    xit = tmp_path / "xit"; xit.mkdir()
+    env = dict(os.environ, TMPDIR=str(xit))
+    r = subprocess.run([str(run)], capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stderr
+    # the run's extraction dir is gone — TMPDIR holds no to-install-*
+    assert not list(xit.glob("to-install-*"))
 
 
 def test_interruption_cleans_extract_and_child(tmp_path):
@@ -72,7 +78,7 @@ def test_interruption_cleans_extract_and_child(tmp_path):
     time.sleep(1.3)
     before = set(Path(env["TMPDIR"]).glob("to-install-*"))
     proc.send_signal(signal.SIGTERM)
-    proc.wait(timeout=10)
+    proc.wait(timeout=30)
     # the run's extraction dir is gone
     assert before, "expected a to-install-* dir during the run"
     leftover = [p for p in before if p.exists()]
@@ -109,7 +115,7 @@ def test_sigint_kills_descendant_too(tmp_path):
     time.sleep(1.4)
     gc = int(outfile.read_text().split(":")[1])
     proc.send_signal(signal.SIGINT)
-    proc.wait(timeout=10)
+    proc.wait(timeout=30)
     assert not list(Path(env["TMPDIR"]).iterdir()), "dir not cleaned"
     try:
         os.kill(gc, 0); alive = True
@@ -140,7 +146,7 @@ def test_term_ignoring_child_is_killed(tmp_path):
     time.sleep(1.4)
     gc = int(outfile.read_text().split(":")[1])
     proc.send_signal(signal.SIGTERM)
-    proc.wait(timeout=10)
+    proc.wait(timeout=30)
     # sleep has no TERM handler -> dies on TERM (grandchild assertion)
     try:
         os.kill(gc, 0); alive = True

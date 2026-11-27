@@ -299,9 +299,13 @@ def sync() -> dict:
 
 # ---------- staging & specs ----------
 
-def stage_source(ex, source_dir: Path) -> Path:
+def stage_source(ex, source_dir: Path,
+                 scripts: dict = None) -> Path:
     """Tar the resolved source for a buildrequest — FileDownload pushes
-    it to the worker; nothing on the remote needs git."""
+    it to the worker; nothing on the remote needs git. ``scripts``
+    injects extra files (e.g. the native collector) into the tar at
+    src/<name> WITHOUT writing into the live worktree."""
+    import io
     staging_dir().mkdir(parents=True, exist_ok=True)
     dest = staging_dir() / f"{ex.id}.tar"
     tmp = dest.with_suffix(".tar.tmp")
@@ -316,6 +320,12 @@ def stage_source(ex, source_dir: Path) -> Path:
         source_dir = empty / "src"
     with tarfile.open(tmp, "w") as tar:
         tar.add(source_dir, arcname="src")
+        for name, content in (scripts or {}).items():
+            data = content.encode()
+            info = tarfile.TarInfo(name=f"src/{name}")
+            info.size = len(data)
+            info.mode = 0o644
+            tar.addfile(info, io.BytesIO(data))
     tmp.replace(dest)
     return dest
 
@@ -360,14 +370,50 @@ def _retry_policy(ex, posix: bool = True) -> dict:
             "retry_enabled": bool(rc.get("retry_enabled", True))}
 
 
+# Name the credential resolver is staged under inside the exec source
+# tar (src/<name> — stage_source "scripts" injection). The worker runs
+# the staged copy under the target-native shell — sh on POSIX,
+# powershell on Windows — never a PATH-resolved Python; nothing on
+# the worker resolves controller-host paths.
+KRE_CRED_HELPER_POSIX = ".to_kre_cred_exec.sh"
+KRE_CRED_HELPER_WIN = ".to_kre_cred_exec.ps1"
+
+
+def kre_cred_helper_name(win: bool) -> str:
+    return KRE_CRED_HELPER_WIN if win else KRE_CRED_HELPER_POSIX
+
+
+def kre_cred_helper_source(win: bool = False) -> Path:
+    """Controller-side location of the credential resolver that gets
+    staged into the exec tar for every credentialed KRE run —
+    platform-selected: sh script for POSIX targets, PowerShell for
+    Windows. Both are target-native shells; no interpreter install
+    is required specifically for KRE."""
+    return (Path(__file__).resolve().parent.parent / "scripts"
+            / ("kre_cred_exec.ps1" if win else "kre_cred_exec.sh"))
+
+
 def kre_exec_spec(ex, runtime, args: list,
                   credential_file: str = "",
-                  posix: bool = True) -> dict:
+                  credential_mastersrc: str = "",
+                  licenses: dict = None,
+                  posix: bool = True,
+                  helper_launch: list = None,
+                  helper_sha256: str = "") -> dict:
     """Validated runner spec for local + remote worker targets — argv
     only, never a shell string and never secrets. ``credential_file``
     is a PATH: worker-local for remote targets, a portal-written 0600
-    file under staging for the controller-local worker. ``posix=False``
-    (Windows workers) skips the pidfile wrapper — no sh there."""
+    file under staging for the controller-local worker.
+    ``credential_mastersrc`` names a master-side staging file a
+    FileDownload step delivers to the worker builddir (mode 0600)
+    before exec — how a portal-side credential_ref reaches a remote
+    worker without entering the source archive, properties, or argv.
+    ``posix=False`` (Windows workers) skips the pidfile wrapper — no
+    sh there. The credential resolver travels inside the exec tar as
+    src/.to_kre_cred_exec.{sh,ps1} and runs under ``credential_launch``
+    — the target-native shell argv prefix (``sh`` / ``powershell
+    -NoProfile -ExecutionPolicy Bypass -File``); remote workers must
+    never resolve controller-host paths or PATH-found Pythons."""
     spec = {
         "executable": runtime.executable_path,
         "args": list(args),
@@ -379,12 +425,25 @@ def kre_exec_spec(ex, runtime, args: list,
         "report_src": "src/Reports",
         "posix": posix,
     }
-    wrapper = str(
-        Path(__file__).resolve().parent.parent / "scripts"
-        / "kre_cred_exec.py")
     if credential_file:
-        spec["credential_wrapper"] = wrapper
+        spec["credential_wrapper"] = kre_cred_helper_name(not posix)
         spec["credential_file"] = credential_file
+        if credential_mastersrc:
+            spec["credential_mastersrc"] = credential_mastersrc
+        if helper_launch:
+            spec["credential_launch"] = list(helper_launch)
+        if helper_sha256:
+            spec["helper_sha256"] = helper_sha256
+    # Managed offline licenses: {mastersrc, files:[{name,sha256}]}
+    # — the pack is FileDownloaded into the restricted .to_lic drop
+    # dir, then a target-native step installs each file into the
+    # execution account's ~/.katalon/license — where it PERSISTS
+    # (offline licenses are durable machine-bound state, not
+    # per-run material like .to_kre_cred). Only to-* names are
+    # ever installed; operator files are never overwritten or
+    # removed.
+    if licenses:
+        spec["license_install"] = dict(licenses)
     spec.update(_retry_policy(ex, posix=posix))
     return spec
 
@@ -392,17 +451,57 @@ def kre_exec_spec(ex, runtime, args: list,
 def write_run_credential(execution_id: str, value: str) -> str:
     """Controller-local runs (to-local worker): portal resolves the
     runtime credential to a per-run 0600 file the wrapper reads — the
-    value never enters properties/argv/logs."""
-    staging_dir().mkdir(parents=True, exist_ok=True)
-    path = staging_dir() / f"{execution_id}.cred"
-    path.write_text(value)
-    os.chmod(path, 0o600)
+    value never enters properties/argv/logs. Mode is applied at
+    creation (umask-independent) so secret bytes are never written
+    to a readable file."""
+    sd = staging_dir()
+    sd.mkdir(parents=True, exist_ok=True)
+    os.chmod(sd, 0o700)
+    path = sd / f"{execution_id}.cred"
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(value)
     return str(path)
+
+
+def write_run_license_pack(execution_id: str,
+                           items: list) -> tuple:
+    """Master-side staging for managed Katalon .lic files — one tar
+    archive holding every .lic for this run, under names that carry
+    the content digest (``to-<sha12>.lic``). 0600, same contract as
+    write_run_credential. Returns (staging_path, file_entries) where
+    file_entries is [{name, sha256}] for the spec's install step.
+
+    The to-* naming is the ownership contract: TestOrchestrator only
+    ever writes files under its own prefix, so an operator-owned
+    .lic can never be overwritten, and a re-delivery of identical
+    bytes is a content-addressed no-op."""
+    import hashlib
+    import io
+    entries = []
+    sd = staging_dir()
+    sd.mkdir(parents=True, exist_ok=True)
+    os.chmod(sd, 0o700)
+    path = sd / f"{execution_id}.licpack.tar"
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tf:
+        for value in items:
+            digest = hashlib.sha256(value).hexdigest()
+            name = f"to-{digest[:12]}.lic"
+            info = tarfile.TarInfo(name)
+            info.size = len(value)
+            info.mode = 0o600
+            tf.addfile(info, io.BytesIO(value))
+            entries.append({"name": name, "sha256": digest})
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as f:
+        f.write(raw.getvalue())
+    return str(path), entries
 
 
 def node_exec_spec(ex, executable: str, args: list,
                    env: dict = None, deps_argv: list = None,
-                   posix: bool = True) -> dict:
+                   posix: bool = True, workdir: str = "") -> dict:
     """Validated runner spec for Node.js browser-test runtimes
     (playwright/cypress). Same contract as kre_exec_spec — argv list
     only, no shell, no secrets — plus an explicit env map (e.g.
@@ -410,19 +509,33 @@ def node_exec_spec(ex, executable: str, args: list,
     No credential wrapper: these frameworks need no TO licence key.
     ``deps_argv`` is an optional pre-exec step (``npm ci`` — the
     project's pinned dependencies into the isolated workspace)."""
+    eff_workdir = workdir or "build/src"
+    # Reports are written relative to the EXECUTION workdir — when a
+    # framework runs from a subdirectory (bruno executes from the
+    # collection root), the upload source must follow it or nothing
+    # is ever collected (matrix defect D-ARTIFACT-SUBDIR).
+    # exec_workdir is builddir-relative ("build/src[/...]"); the
+    # upload workersrc is builddir-relative without the leading
+    # "build/".
+    sub = eff_workdir[len("build/"):] if eff_workdir.startswith(
+        "build/") else "src"
     spec = {
         "executable": executable,
         "args": list(args),
         # tar unpacks the project to <builddir>/src — the framework
-        # CLI runs inside it (project-pinned deps via npx).
-        "exec_workdir": "build/src",
-        "report_src": "src/Reports",
+        # CLI runs inside it (project-pinned deps via npx). Bruno
+        # executes from the collection root (workdir override).
+        "exec_workdir": eff_workdir,
+        "report_src": f"{sub}/Reports",
         "posix": posix,
     }
     if env:
         spec["env"] = dict(env)
     if deps_argv:
         spec["deps_argv"] = list(deps_argv)
+        spec["deps_timeout"] = int(
+            (((ex.snapshot().get("run_config") or {}).get("deps_timeout"))
+             if ex else 0) or 600)
     spec.update(_retry_policy(ex, posix=posix))
     return spec
 
@@ -455,6 +568,8 @@ def ssh_exec_spec(ex, python: str, dispatcher_script: str,
 
 def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
                        credential_file: str = "",
+                       credential_stage: str = "",
+                       licenses: dict = None,
                        extra: dict = None,
                        executable: str = None,
                        source_tar: str = "",
@@ -480,6 +595,16 @@ def write_ssh_run_spec(ex, runner: Runner, runtime, args: list,
         "executable": executable or runtime.executable_path,
         "args": list(args),
         "credential_file": credential_file,
+        # Master-side staging file the dispatcher SFTP-puts to the
+        # remote workdir (0600) before launch — how a portal-side
+        # credential_ref reaches an agentless target. Path only, never
+        # a value; cleared by clear_staging at finalize.
+        "credential_stage": credential_stage,
+        # Managed offline licenses: {stage, files:[{name,sha256}]}
+        # — the dispatcher SFTP-installs each into the login
+        # account's ~/.katalon/license (0600), where they persist
+        # across runs.
+        "license_install": dict(licenses or {}),
         "report_rel": "Reports",
         "timeout_s": int((ex.snapshot().get("run_config") or {})
                          .get("timeout_seconds") or 3600),

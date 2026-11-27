@@ -226,6 +226,86 @@ def _write_unit(path, body: str) -> None:
     path.write_text(body)
 
 
+
+def _active_to_units() -> list:
+    """Names of currently active systemd units matching testorchestrator-*.
+    Empty when systemd is unavailable or nothing runs."""
+    import shutil, subprocess
+    if not shutil.which("systemctl"):
+        return []
+    r = subprocess.run(
+        ["systemctl", "list-units", "--type=service", "--state=active",
+         "--no-legend", "--no-pager", "testorchestrator-*"],
+        capture_output=True, text=True, check=False)
+    return [ln.split()[0] for ln in r.stdout.splitlines()
+            if ln.split() and ln.split()[0].startswith("testorchestrator-")]
+
+
+def _payload_processes(payload) -> list:
+    """Live processes whose cmdline or executable references the payload
+    tree — survivors of a service stop or never-managed strays."""
+    import os
+    me = os.getpid()
+    needle = str(payload)
+    found = []
+    proc_root = "/proc"
+    if not os.path.isdir(proc_root):
+        return found
+    for entry in os.listdir(proc_root):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid == me:
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                cmd = fh.read().replace(b"\0", b" ").decode(
+                    "utf-8", "replace").strip()
+        except (OSError, PermissionError):
+            continue
+        if not cmd:
+            continue
+        hit = needle in cmd
+        if not hit:
+            try:
+                hit = os.readlink(f"/proc/{pid}/exe").startswith(needle)
+            except (OSError, PermissionError):
+                hit = False
+        if hit:
+            found.append((pid, cmd[:160]))
+    return found
+
+
+def _stop_services_before_copy(payload, dry_run: bool) -> int:
+    """Upgrade defense (owner-mandated after the 2.6.0 cell: a survivor
+    of an incomplete stop held the payload python busy and the copy
+    crashed mid-write, bricking the server). BEFORE anything is
+    written: stop every active testorchestrator-* unit, then refuse
+    to install while any process still references the payload tree.
+    Returns 0 when safe to proceed."""
+    import os, shutil, subprocess, time
+    if dry_run:
+        return 0
+    if os.geteuid() == 0 and shutil.which("systemctl"):
+        units = _active_to_units()
+        if units:
+            print(f"[install] stopping running services before the "
+                  f"payload copy: {', '.join(units)}")
+            subprocess.run(["systemctl", "stop", *units], check=False,
+                           stdout=subprocess.DEVNULL)
+            time.sleep(3)
+    if payload.exists():
+        left = _payload_processes(payload)
+        if left:
+            detail = "; ".join(f"pid {p}: {c}" for p, c in left[:5])
+            print(f"[install] FAILED — processes still reference "
+                  f"{payload} after the service stop; refusing to "
+                  f"overwrite a busy tree. Stop them and re-run: "
+                  f"{detail}", file=sys.stderr)
+            return 2
+    return 0
+
+
 def cmd_install(args) -> int:
     """Install the frozen package — payload copy, dirs, web.env,
     migrations, unit staging/enable, readiness.
@@ -250,6 +330,10 @@ def cmd_install(args) -> int:
               "in-place upgrade pass --upgrade (its readiness is then "
               "verified against this install's id).", file=sys.stderr)
         return 2
+
+    rc = _stop_services_before_copy(payload, args.dry_run)
+    if rc:
+        return rc
 
     if not args.dry_run:
         # 1) payload copy — rerun-safe (files overwrite, symlinks kept)

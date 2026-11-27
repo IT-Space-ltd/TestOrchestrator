@@ -52,11 +52,11 @@
   <form method="post" action="{{ url_for('system.save_address') }}">
     {{ address_form.csrf_token }}
     <div class="addr-enable">
-      <label class="switch">
+      <span class="switch">
         {{ address_form.external_enabled() }}
         <span class="slider"></span>
-      </label>
-      <span>{{ address_form.external_enabled.label.text }}</span>
+      </span>
+      <label for="external_enabled">{{ address_form.external_enabled.label.text }}</label>
     </div>
     {% for c in candidates %}
     <label class="addr-option" for="cand-{{ loop.index }}">

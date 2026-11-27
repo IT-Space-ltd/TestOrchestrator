@@ -19,6 +19,7 @@ from ..extensions import db
 from .. import settings as settings_mod
 from ..netconf import (NetApplyError, apply_config, rollback_config)
 from ..certs import (CertificateError, generate_local, import_pem)
+from .. import dispatch
 from ..models import Role, record_audit
 from ..network import (ValidationError, access_links, check_port_conflicts,
                        detect_address_candidates, parse_host,
@@ -28,6 +29,58 @@ from . import system_bp
 from .forms import (AddressForm, ApplyForm, GenerateCertForm, ImportCertForm,
                     PortsForm, ResetForm, RunnerForm, RuntimeForm, SecretForm,
                     UserForm, UserTimezoneForm)
+
+
+def _runtime_cred_ref_error(ref: str):
+    """Server-side guard for runtime credential_ref fields: the named
+    secret must exist and be kind 'runtime' — a git/ssh/buildbot
+    secret selected here can never work for KRE invocation, so the
+    form rejects it rather than letting dispatch fail later.
+    Returns the error text, or "" when the ref is usable/empty."""
+    ref = (ref or "").strip()
+    if not ref:
+        return ""
+    from ..execution import SecretRef
+    row = SecretRef.query.filter_by(name=ref).first()
+    if row is None:
+        return (f"credential reference {ref!r} does not exist — "
+                "create it under Secrets (kind 'runtime')")
+    if row.kind != "runtime":
+        return (f"credential {ref!r} is a {row.kind!r}-kind secret — "
+                "choose a 'runtime' secret for KRE invocation")
+    return ""
+
+
+def _runtime_license_ref_error(ref: str):
+    """Server-side guard for offline-license refs: the named secret
+    must exist and be kind 'license' — each entry holds one genuine
+    Katalon-issued .lic file body. Returns error text or ""."""
+    ref = (ref or "").strip()
+    if not ref:
+        return ""
+    from ..execution import SecretRef
+    row = SecretRef.query.filter_by(name=ref).first()
+    if row is None:
+        return (f"license reference {ref!r} does not exist — "
+                "create it under Secrets (kind 'license')")
+    if row.kind != "license":
+        return (f"license reference {ref!r} is a {row.kind!r}-kind "
+                "secret — choose a 'license' secret")
+    return ""
+
+
+def _license_refs_from_form() -> tuple:
+    """Parse + validate the license_refs form field (comma/newline
+    separated names). Returns (json_str, first_error)."""
+    import json as _json
+    raw = (request.form.get("license_refs") or "") \
+        .replace("\r", ",").replace("\n", ",")
+    names = [n.strip() for n in raw.split(",") if n.strip()]
+    for n in names:
+        err = _runtime_license_ref_error(n)
+        if err:
+            return "[]", err
+    return _json.dumps(names), ""
 
 
 def _context():
@@ -312,11 +365,22 @@ def integrations_page():
     """Subsystem-separated integration config (Git evidence export,
     CI API tokens, webhook endpoints). Each section is its own
     labelled card; secrets are referenced by name only."""
-    from ..execution import ApiToken, Project, WebhookEndpoint
+    from ..execution import ApiToken, Project, WebhookEndpoint, utcnow
+    from datetime import timezone as _tz
+    tokens = ApiToken.query.order_by(ApiToken.created_at).all()
+    now = utcnow()
+    days_left = {}
+    for t in tokens:
+        exp = t.expires_at
+        if exp is not None:
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=_tz.utc)   # sqlite drops tz
+            days_left[t.id] = (exp - now).days
     return render_template(
         "system/integrations.html",
+        token_days_left=days_left,
         settings=settings_mod.all_settings(),
-        api_tokens=ApiToken.query.order_by(ApiToken.created_at).all(),
+        api_tokens=tokens,
         webhooks=WebhookEndpoint.query.order_by(
             WebhookEndpoint.created_at).all(),
         projects=Project.query.order_by(Project.name).all())
@@ -339,15 +403,33 @@ def create_api_token():
         return redirect(url_for("system.integrations_page"))
     projects = _json.dumps(request.form.getlist("project_ids"))
     token = "to_" + _secrets.token_hex(24)
+    # Expiry: default 90 days (decision §A) — the admin may shorten/
+    # extend it, or explicitly opt out with never_expires. An expiry
+    # in the past is rejected as a form error.
+    from datetime import timedelta as _td
+    expires_at = None
+    expiry_note = "never expires (explicit admin choice)"
+    if request.form.get("never_expires"):
+        expires_at = None
+    else:
+        try:
+            days = int(request.form.get("expires_days") or "90")
+        except ValueError:
+            days = 90
+        days = max(1, min(days, 3650))
+        from ..execution import utcnow as _utcnow
+        expires_at = _utcnow() + _td(days=days)
+        expiry_note = f"expires {expires_at.date().isoformat()}"
     row = ApiToken(name=name, scope=scope, allowed_projects=projects,
                    token_hash=hashlib.sha256(token.encode()).hexdigest(),
-                   created_by=current_user.username)
+                   created_by=current_user.username,
+                   expires_at=expires_at)
     db.session.add(row)
     db.session.commit()
     record_audit(current_user.username, "api.token.created",
-                 f"{name} scope={scope}")
-    flash(f"API token for {name!r} — store it now, it will not be "
-          f"shown again: {token}", "info")
+                 f"{name} scope={scope} {expiry_note}")
+    flash(f"API token for {name!r} ({expiry_note}) — store it now, "
+          f"it will not be shown again: {token}", "info")
     return redirect(url_for("system.integrations_page"))
 
 
@@ -483,13 +565,21 @@ def reporting_save():
     """Persist reporting config. Saving NEVER publishes — publication is
     a separate explicit action."""
     from flask import request
-    settings_mod.update({
-        "reportinglabs_enabled":
-            bool(request.form.get("reportinglabs_enabled")),
-    })
+    upd = {"reportinglabs_enabled":
+           bool(request.form.get("reportinglabs_enabled"))}
+    for key in ("retention_artifact_days", "retention_metadata_days"):
+        raw = (request.form.get(key) or "").strip()
+        try:
+            upd[key] = max(0, int(raw or 0))
+        except ValueError:
+            flash(f"{key} must be a whole number ≥ 0.", "error")
+            return redirect(url_for("system.reporting_page"))
+    settings_mod.update(upd)
     record_audit(current_user.username, "reporting.config.saved",
                  "reporting settings updated (no values)")
-    flash("Reporting settings saved. No runs were published.", "info")
+    flash("Reporting settings saved. No runs were published and "
+          "no records were deleted — retention runs are a separate "
+          "explicit action.", "info")
     return redirect(url_for("system.reporting_page"))
 
 
@@ -931,6 +1021,41 @@ def create_secret():
         record_audit(current_user.username, "secret.stored",
                      f"{form.name.data.strip()} ({form.kind.data})")
         flash(f"Credential {form.name.data.strip()} stored.", "info")
+    return redirect(url_for("system.secrets"))
+
+
+@system_bp.route("/secrets/<name>/scope", methods=["POST"])
+@role_required(Role.ADMIN)
+def update_secret_scope_route(name):
+    """Administer authorization scope for a credential: grants and
+    pending associations as JSON. Runtime-kind scope is enforced at
+    dispatch ('use'); editing it is the 'administer' action — both are
+    admin-only here. Saving scope marks the migration review complete."""
+    from ..execution import SecretRef
+    from ..secrets_store import SecretError, update_secret_scope
+    import json as _json
+    ApplyForm().validate_on_submit()
+    sec = SecretRef.query.filter_by(name=name).first()
+    if sec is None:
+        flash(f"Credential {name!r} does not exist.", "error")
+        return redirect(url_for("system.secrets"))
+    if sec.kind in ("buildbot", "runner"):
+        flash("System-managed credentials have no editable scope.",
+              "error")
+        return redirect(url_for("system.secrets"))
+    raw = (request.form.get("scope") or "").strip()
+    try:
+        scope = _json.loads(raw) if raw else {"grants": [], "pending": []}
+    except ValueError:
+        flash("Scope must be valid JSON — not saved.", "error")
+        return redirect(url_for("system.secrets"))
+    try:
+        update_secret_scope(name, scope)
+    except SecretError as exc:
+        flash(f"Scope rejected — {exc}", "error")
+        return redirect(url_for("system.secrets"))
+    record_audit(current_user.username, "secret.scope_updated", name)
+    flash(f"Authorization scope for {name!r} updated.", "info")
     return redirect(url_for("system.secrets"))
 
 
@@ -1491,10 +1616,13 @@ def _render_infrastructure(runner_form, runtime_form):
             unbound.append(rt)
     from ..secrets_store import list_secret_meta
     try:
-        secret_names = sorted(
-            s["name"] for s in list_secret_meta())
+        _meta = list_secret_meta()
+        secret_names = sorted(s["name"] for s in _meta)
+        runtime_secret_names = sorted(
+            s["name"] for s in _meta if s["kind"] == "runtime")
     except Exception:
         secret_names = []
+        runtime_secret_names = []
     return render_template(
         "system/infrastructure.html",
         runners=runners, runtimes=runtimes,
@@ -1507,7 +1635,15 @@ def _render_infrastructure(runner_form, runtime_form):
         bb_sources=_bb_sources_asset(),
         pb_hints=_pb_endpoint_hints(),
         secret_names=secret_names,
+        runtime_secret_names=runtime_secret_names,
+        all_projects=Project.query.order_by(Project.name).all(),
+        readiness_help=_readiness_help(),
     )
+
+
+def _readiness_help():
+    from ..runtime_profiles import READINESS_HELP
+    return READINESS_HELP
 
 
 @system_bp.route("/infrastructure/runners", methods=["POST"])
@@ -1868,13 +2004,35 @@ def create_runtime():
             max_slots=4)
         db.session.add(_runner); db.session.flush()
     _kind = (request.form.get("runtime_kind") or "kre").strip()[:16]
-    if _kind not in ("kre", "playwright", "cypress", "robot", "pytest"):
+    if _kind not in ("kre", "playwright", "cypress", "robot",
+                     "pytest", "behave", "gtest", "jest"):
         _kind = "kre"
     kre_missing_path = (
-        _kind in ("kre", "robot", "pytest")
+        _kind in ("kre", "robot", "pytest", "behave")
         and not (form.executable_path.data or "").strip())
-    if form.validate_on_submit() and not kre_missing_path:
-        db.session.add(RuntimeConnection(
+    pyfamily_err = _python_family_exec_error(
+        _kind, form.executable_path.data or "")
+    cred_ref_err = _runtime_cred_ref_error(form.credential_ref.data)
+    # Licensing mode + offline-license refs (KRE only — other kinds
+    # keep the default online gate).
+    _lmode = (request.form.get("licensing_mode") or "online").strip()
+    if _lmode not in ("online", "offline", "private"):
+        _lmode = "online"
+    if _kind != "kre":
+        _lmode = "online"
+    _lrefs_json, _lref_err = _license_refs_from_form()
+    _lsrv = (request.form.get("license_server_url") or "").strip()
+    if _lmode == "offline":
+        if not _lref_err and cred_ref_err:
+            cred_ref_err = ""  # offline needs no api-key credential
+    if _lmode == "private" and not _lsrv:
+        _lref_err = (_lref_err
+                     or "private licensing mode requires a license "
+                        "server URL")
+    if (form.validate_on_submit() and not kre_missing_path
+            and not cred_ref_err and not _lref_err
+            and not pyfamily_err):
+        _rt = RuntimeConnection(
             name=form.name.data.strip(),
             description=form.description.data or "",
             runner_id=_runner.id,
@@ -1885,11 +2043,23 @@ def create_runtime():
             git_ssh_key_path=form.git_ssh_key_path.data or "",
             credential_ref=(form.credential_ref.data or "").strip(),
             credential_file=(form.credential_file.data or "").strip(),
+            licensing_mode=_lmode,
+            license_refs=_lrefs_json,
+            license_server_url=_lsrv if _lmode == "private" else "",
 
             concurrency=form.concurrency.data or 1,
             runtime_kind=_kind,
-        ))
+        )
+        db.session.add(_rt)
         db.session.commit()
+        if _rt.credential_ref:
+            from ..secrets_store import record_pending_association
+            record_pending_association(
+                _rt.credential_ref, _rt.id, _rt.runner_id)
+        for _lr in _rt.license_ref_names():
+            from ..secrets_store import record_pending_association
+            record_pending_association(
+                _lr, _rt.id, _rt.runner_id)
         record_audit(current_user.username, "runtime.registered",
                      form.name.data.strip())
     else:
@@ -1902,7 +2072,17 @@ def create_runtime():
             flash("KRE and Robot runtimes require the executable "
                   "path on the selected worker (KRE binary or "
                   "Python interpreter).", "error")
-        if errs or kre_missing_path:
+        if pyfamily_err:
+            flash(f"Executable path rejected — {pyfamily_err}",
+                  "error")
+        if cred_ref_err:
+            flash(f"Credential reference rejected — {cred_ref_err}",
+                  "error")
+        if _lref_err:
+            flash(f"License configuration rejected — {_lref_err}",
+                  "error")
+        if errs or kre_missing_path or cred_ref_err or _lref_err \
+                or pyfamily_err:
             from ..execution import Project as _P
             runner_form = RunnerForm()
             runner_form.allowed_projects.choices = [
@@ -2062,6 +2242,25 @@ def edit_runner(runner_id):
     return redirect(url_for("system.infrastructure"))
 
 
+def _python_family_exec_error(kind: str, executable_path: str) -> str:
+    """pytest/behave/robot runtimes invoke the framework as a module of
+    the configured interpreter (`python -m pytest` / `-m behave` /
+    `-m robot`) — the executable must be the python interpreter, never
+    the framework entry-point binary. Catch the common misconfiguration
+    at save time rather than at probe time."""
+    if (kind or "") not in ("pytest", "behave", "robot"):
+        return ""
+    base = (executable_path or "").strip().replace("\\", "/") \
+        .rsplit("/", 1)[-1].lower()
+    if base in ("robot", "robot.exe", "pytest", "pytest.exe",
+                "behave", "behave.exe"):
+        return (f"{kind} runtimes execute as 'python -m {kind}' — the "
+                f"executable must be the python interpreter (e.g. "
+                f"/opt/venv/bin/python), not the {base!r} entry-point "
+                "binary")
+    return ""
+
+
 @system_bp.route("/runtimes/<runtime_id>/edit", methods=["POST"])
 @role_required(Role.ADMIN)
 def edit_runtime(runtime_id):
@@ -2082,16 +2281,62 @@ def edit_runtime(runtime_id):
         wr is not None and wr != rt.workspace_root) or (
         rn is not None and rn != (rt.runner_id or "")))
     if ep is not None:
+        ep_err = _python_family_exec_error(rt.runtime_kind or "", ep)
+        if ep_err:
+            flash(f"Executable path rejected — {ep_err}", "error")
+            return redirect(url_for("system.infrastructure"))
         rt.executable_path = ep
     if wr is not None:
         rt.workspace_root = wr
-    # credential_ref preserved unless explicitly changed/cleared
+    # credential_ref preserved unless explicitly changed/cleared —
+    # a new value is validated: only existing 'runtime'-kind secrets
+    # are usable for KRE invocation.
     cr = request.form.get("credential_ref")
-    if cr is not None:
-        rt.credential_ref = cr
+    if cr is not None and cr != rt.credential_ref:
+        err = _runtime_cred_ref_error(cr)
+        if err:
+            flash(f"Credential reference rejected — {err}", "error")
+            return redirect(url_for("system.infrastructure"))
+        rt.credential_ref = cr.strip()
+        if cr.strip():
+            from ..secrets_store import record_pending_association
+            record_pending_association(cr.strip(), rt.id, rt.runner_id)
     cf = request.form.get("credential_file")
     if cf is not None:
         rt.credential_file = cf.strip()
+    # Licensing mode fields — a mode change clears probe evidence
+    # too (the probe reports licensing state under the execution
+    # account; the old diagnostic no longer describes it).
+    lm = request.form.get("licensing_mode")
+    if lm is not None:
+        lm = lm.strip()
+        if lm in ("online", "offline", "private"):
+            if lm != (rt.licensing_mode or "online"):
+                rt.licensing_mode = lm
+                probe_changed = True
+    lr = request.form.get("license_refs")
+    if lr is not None:
+        lrefs_json, lref_err = _license_refs_from_form()
+        if lref_err:
+            flash(f"License configuration rejected — {lref_err}",
+                  "error")
+            return redirect(url_for("system.infrastructure"))
+        if lrefs_json != (rt.license_refs or "[]"):
+            rt.license_refs = lrefs_json
+            probe_changed = True
+            for _lr2 in rt.license_ref_names():
+                from ..secrets_store import \
+                    record_pending_association
+                record_pending_association(_lr2, rt.id,
+                                           rt.runner_id)
+    lsu = request.form.get("license_server_url")
+    if lsu is not None:
+        rt.license_server_url = lsu.strip()
+        if (rt.licensing_mode or "") == "private" \
+                and not lsu.strip():
+            flash("Private licensing mode requires a license "
+                  "server URL.", "error")
+            return redirect(url_for("system.infrastructure"))
     conc = request.form.get("concurrency")
     if conc:
         rt.concurrency = int(conc)
@@ -2107,6 +2352,10 @@ def edit_runtime(runtime_id):
         rt.probe_json = ""
         rt.last_diagnostic = (
             "re-check required — probe-relevant config changed")
+        if (rt.runtime_kind or "kre") != "kre":
+            from .. import execution_readiness
+            execution_readiness.clear_evidence(rt)
+            rt.readiness_state = "evidence-stale"
     db.session.commit()
     record_audit(current_user.username, "runtime.edited", rt.name)
     return redirect(url_for("system.infrastructure"))
@@ -2394,3 +2643,223 @@ def backup_restore_report():
     if stashed is None:
         return redirect(url_for("system.backup_page"))
     return render_template("system/backup_report.html", **stashed)
+
+
+# ---------- Guided Add Runtime wizard (M16 — non-KRE only) ----------
+
+def _wizard_targets():
+    """Existing authorized execution targets for step 2 — workers +
+    SSH hosts with their reachability shown; nothing is provisioned."""
+    from ..execution import Runner
+    return [r for r in Runner.query.filter_by(enabled=True)
+            .order_by(Runner.name).all()
+            if not r.name.startswith("fx-")]
+
+
+@system_bp.route("/infrastructure/add-runtime")
+@role_required(Role.ADMIN)
+def add_runtime_wizard():
+    """Guided runtime-profile creation, KRE included.
+
+    A runtime tells TestOrchestrator which installed tools to use on
+    a worker or SSH target — adding one never installs software."""
+    from ..runtime_profiles import RUNTIME_PROFILES, sandbox_choices
+    from ..secrets_store import list_secret_meta
+    try:
+        runtime_secret_names = sorted(
+            s["name"] for s in list_secret_meta()
+            if s["kind"] == "runtime")
+    except Exception:
+        runtime_secret_names = []
+    return render_template(
+        "system/runtime_wizard.html",
+        apply_form=ApplyForm(),
+        profiles=RUNTIME_PROFILES,
+        sandbox_choices=sandbox_choices(),
+        targets=_wizard_targets(),
+        runtime_secret_names=runtime_secret_names,
+        selected_fw=(request.args.get("framework") or ""))
+
+
+@system_bp.route("/infrastructure/add-runtime", methods=["POST"])
+@role_required(Role.ADMIN)
+def add_runtime_create():
+    """Create a runtime profile. Only fields belonging to the chosen
+    framework are read — hidden/incompatible settings are dropped
+    even if forcibly submitted. Saves are allowed incomplete with
+    readiness_state 'not-checked'; dispatch gates on readiness."""
+    from ..execution import Runner, RuntimeConnection
+    from ..runtime_profiles import RUNTIME_PROFILES, profile
+    ApplyForm().validate_on_submit()
+    framework = (request.form.get("framework") or "").strip()
+    prof = profile(framework)
+    if prof is None:
+        flash("Unknown framework.", "error")
+        return redirect(url_for("system.add_runtime_wizard"))
+    runner = db.session.get(Runner,
+                            (request.form.get("runner_id") or ""))
+    if runner is None or not runner.enabled:
+        flash("Choose an existing enabled execution target — the "
+              "wizard never provisions hosts.", "error")
+        return redirect(url_for(
+            "system.add_runtime_wizard", framework=framework))
+    if framework == "katalon":
+        return _add_runtime_create_kre(request, runner)
+    cfg = {}
+    for key, _kind, _label, _help in prof["fields"]:
+        v = (request.form.get(f"cfg_{key}") or "").strip()
+        if key == "env":
+            v = "\n".join(l.strip() for l in v.splitlines()
+                          if l.strip())[:2048]
+        if v:
+            cfg[key] = v[:512] if key != "env" else v
+    ef = prof.get("engine_field")
+    if ef:
+        engine = (request.form.get(f"cfg_{ef[0]}") or "").strip()
+        if engine not in {v for v, _ in ef[2]}:
+            flash("Postman requires an explicit engine choice — "
+                  "Newman or Postman CLI; they support different "
+                  "collection formats.", "error")
+            return redirect(url_for(
+                "system.add_runtime_wizard", framework=framework))
+        cfg[ef[0]] = engine
+    rt = RuntimeConnection(
+        name=(request.form.get("name") or "").strip()[:128]
+            or f"{framework} @ {runner.name}",
+        description=(request.form.get("description") or "")[:1024],
+        runner_id=runner.id,
+        transport=runner.target_type,
+        executable_path=(request.form.get("cfg_exec_path")
+                         or request.form.get("cfg_python_env")
+                         or request.form.get("cfg_node_bin") or "")
+                         .strip()[:512],
+        workspace_root=(request.form.get("workspace_root")
+                        or "").strip()[:512],
+        runtime_kind=dispatch.FRAMEWORK_RUNTIME[framework],
+        config_json=json.dumps(cfg),
+        readiness_state="not-checked")
+    db.session.add(rt)
+    db.session.commit()
+    record_audit(current_user.username, "runtime.wizard_created",
+                 f"{rt.id} {framework} on {runner.name}")
+    flash(f"Runtime {rt.name!r} saved — status: not checked. "
+          "Run Check readiness before using it; project "
+          "compatibility is validated when a repository is "
+          "connected.", "info")
+    return redirect(url_for("system.infrastructure"))
+
+
+def _add_runtime_create_kre(request, runner):
+    """Wizard creation for a KRE runtime — the katalon profile maps
+    onto the existing RuntimeConnection columns (executable_path,
+    credential_ref, legacy credential_file, concurrency), not
+    config_json."""
+    from ..execution import RuntimeConnection
+    exe = (request.form.get("cfg_exec_path") or "").strip()[:512]
+    if not exe:
+        flash("KRE requires the executable path on the selected "
+              "target (katalonc / katalonc.exe).", "error")
+        return redirect(url_for(
+            "system.add_runtime_wizard", framework="katalon"))
+    cred_ref = (request.form.get("cfg_credential_ref") or "").strip()
+    cred_err = _runtime_cred_ref_error(cred_ref)
+    if cred_err:
+        flash(f"Credential reference rejected — {cred_err}", "error")
+        return redirect(url_for(
+            "system.add_runtime_wizard", framework="katalon"))
+    try:
+        conc = int((request.form.get("cfg_concurrency") or "1").strip())
+        if conc < 1:
+            raise ValueError
+    except ValueError:
+        flash("Max parallel sessions must be an integer ≥ 1.",
+              "error")
+        return redirect(url_for(
+            "system.add_runtime_wizard", framework="katalon"))
+    rt = RuntimeConnection(
+        name=(request.form.get("name") or "").strip()[:128]
+            or f"KRE @ {runner.name}",
+        description=(request.form.get("description") or "")[:1024],
+        runner_id=runner.id,
+        transport=runner.target_type,
+        executable_path=exe,
+        workspace_root=(request.form.get("workspace_root")
+                        or "").strip()[:512],
+        credential_ref=cred_ref,
+        credential_file=(request.form.get("cfg_credential_file")
+                         or "").strip()[:512],
+        concurrency=conc,
+        runtime_kind="kre",
+        readiness_state="not-checked")
+    db.session.add(rt)
+    db.session.commit()
+    if cred_ref:
+        from ..secrets_store import record_pending_association
+        record_pending_association(cred_ref, rt.id, rt.runner_id)
+    record_audit(current_user.username, "runtime.wizard_created",
+                 f"{rt.id} katalon on {runner.name}")
+    flash(f"KRE runtime {rt.name!r} saved — run its Check to probe "
+          "the executable, launcher, and credential delivery on the "
+          "target before using it.", "info")
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/runtimes/<runtime_id>/projects", methods=["POST"])
+@role_required(Role.ADMIN)
+def runtime_projects(runtime_id):
+    """Manage project associations for a runtime profile. Also applies
+    to KRE: an admin can scope a KRE runtime (and therefore where its
+    managed credential may be delivered) to named projects; the
+    dispatch gate and the run-UI selectors honor the list for every
+    runtime kind."""
+    from ..execution import Project, RuntimeConnection
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    selected = request.form.getlist("project_ids")
+    known = {p.id for p in Project.query.all()}
+    rt.allowed_projects = json.dumps(
+        [s for s in selected if s in known])
+    from .. import execution_readiness
+    execution_readiness.prune_projects(rt)
+    db.session.commit()
+    record_audit(current_user.username, "runtime.projects_set",
+                 f"{rt.id} -> {len(selected)} project(s)")
+    flash("Project associations updated.", "info")
+    return redirect(url_for("system.infrastructure"))
+
+
+@system_bp.route("/runtimes/<runtime_id>/validate-project",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def runtime_validate_project(runtime_id):
+    """Execution-level readiness (M16 §5): toolchain readiness alone
+    is not execution readiness — this validates the (runtime,
+    project) pair and stamps durable evidence the dispatch gate
+    requires for non-KRE runtimes. No repository code is loaded onto
+    the target; all checks are server-side."""
+    from .. import execution_readiness
+    from ..execution import Project, RuntimeConnection
+    ApplyForm().validate_on_submit()
+    rt = db.session.get(RuntimeConnection, runtime_id)
+    if rt is None:
+        abort(404)
+    if (rt.runtime_kind or "kre") == "kre":
+        flash("KRE runtimes use the existing readiness flow.",
+              "error")
+        return redirect(url_for("system.infrastructure"))
+    project = db.session.get(
+        Project, request.form.get("project_id") or "")
+    if project is None:
+        flash("Select a project to validate against.", "error")
+        return redirect(url_for("system.infrastructure"))
+    failed = execution_readiness.validate_project(
+        rt, project, actor=current_user.username)
+    if failed:
+        flash(f"Execution readiness NOT ready for "
+              f"{project.name!r}: " + "; ".join(failed), "error")
+    else:
+        flash(f"Runtime is ready-execution for {project.name!r} — "
+              "toolchain and project checks passed.", "info")
+    return redirect(url_for("system.infrastructure"))

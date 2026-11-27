@@ -263,6 +263,7 @@ def _fixture_env(tmp_path):
     rt = RuntimeConnection(name="fx", runner_id=runner.id,
                            executable_path="/bin/true",
                            detected_version="9.0.0", enabled=True,
+                           licensing_mode="offline",
                            workspace_root=str(tmp_path / "ws"))
     db.session.add(rt); db.session.commit()
     return s
@@ -457,6 +458,7 @@ def test_cancel_kills_process_tree(app, tmp_path):
         db.session.add(RuntimeConnection(
             name="fx", runner_id=r.id, executable_path=str(fake),
             detected_version="9.0.0", enabled=True,
+            licensing_mode="offline",
             workspace_root=str(tmp_path / "ws")))
         db.session.commit()
         ex = dispatch.create_execution("m", s)
@@ -512,6 +514,7 @@ def test_timeout_kills_after_limit(app, tmp_path):
         db.session.add(RuntimeConnection(
             name="fx", runner_id=r.id, executable_path=str(fake),
             detected_version="9.0.0", enabled=True,
+            licensing_mode="offline",
             workspace_root=str(tmp_path / "ws")))
         db.session.commit()
         ex = dispatch.create_execution(
@@ -543,6 +546,7 @@ def test_capacity_race_one_slot(app, tmp_path):
         db.session.add(RuntimeConnection(
             name="fx", runner_id=r.id, executable_path=str(fake),
             detected_version="9.0.0", enabled=True,
+            licensing_mode="offline",
             workspace_root=str(tmp_path / "ws")))
         db.session.commit()
         e1 = dispatch.create_execution("m", s)
@@ -621,6 +625,7 @@ def _seed_dispatch_env(tmp_path, slots=1, license_slots=None, delay="3"):
         db.session.add(RuntimeConnection(
             name="fx", runner_id=r.id, executable_path=str(fake),
             detected_version="9.0.0", enabled=True,
+            licensing_mode="offline",
             workspace_root=str(tmp_path / "ws")))
         db.session.commit()
     return app, marker

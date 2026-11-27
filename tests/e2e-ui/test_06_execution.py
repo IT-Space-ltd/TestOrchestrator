@@ -10,7 +10,9 @@ import json
 import os
 import re
 import subprocess
+import shlex
 import time
+from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
@@ -18,6 +20,12 @@ VM_HOST = os.environ.get("TO_VM_HOST", "10.97.0.121")
 VM_USER = os.environ.get("TO_VM_USER", "ubuntu")
 VM_KEY = os.environ.get(
     "TO_VM_KEY", os.path.expanduser("~/.ssh/id_to_worker"))
+APP_HOST = os.environ.get("TO_APP_HOST", "")
+APP_USER = os.environ.get("TO_APP_USER", VM_USER)
+APP_KEY = os.environ.get("TO_APP_KEY", VM_KEY)
+APP_ENV_FILE = os.environ.get(
+    "TO_APP_ENV_FILE", "/opt/to-final/config/web.env")
+SEED_SCRIPT = Path(__file__).with_name("host_seed.py")
 
 # (name, kind, runner row text, executable on the VM, credential_file)
 RUNTIMES = [
@@ -42,7 +50,7 @@ ITEM_PATHS = {
     "pytest-fail": "pytest/test_fail.py",
     "smoke.robot": "tests/smoke.robot",
     "fail.robot": "tests/fail.robot",
-    "pw.spec.js": "tests/pw.spec.js",
+    "pw.spec.js": "playwright/smoke.spec.js",
     "cy.cy.js": "cypress/e2e/cy.cy.js",
 }
 
@@ -74,10 +82,10 @@ def _register_runtime(page, name, kind, runner_text, exe, cred_file):
     if name in page.inner_text("body"):
         return
     page.locator("summary",
-                 has_text="Register a test runtime").click()
+                 has_text="Add Runtime (Manual)").click()
     form = page.locator(
-        "details.block-details:has(summary:text('Register a test "
-        "runtime')) form")
+        "details.block-details:has(summary:text('Add Runtime "
+        "(Manual)')) form")
     form.locator("select[name=runtime_kind]").select_option(kind)
     form.locator("input[name=name]").fill(name)
     form.locator("input[name=exec_location][value=remote]").check()
@@ -121,22 +129,83 @@ def _probe(page, name):
 
 
 def _seed_items():
-    r = subprocess.run(
-        ["sudo", "env",
-         "PYTHONPATH=/opt/testorchestrator",
-         "/opt/testorchestrator/venv/bin/python",
-         "/home/szefi/vm-e2e-tmp/host-seed.py"],
-        capture_output=True, text=True, timeout=60)
+    """Seed framework inventory rows in the installed app database.
+
+    The original host-server topology ran this helper locally with sudo.
+    In the release VM topology the application itself is inside the
+    guest, so TO_APP_HOST/USER/KEY can point the helper at that remote
+    install. User actions remain browser-driven; this seeds test data
+    only (documented in the suite README).
+    """
+    if APP_HOST:
+        cp = subprocess.run(
+            ["scp", "-i", APP_KEY, "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=accept-new",
+             str(SEED_SCRIPT),
+             f"{APP_USER}@{APP_HOST}:/tmp/to-host-seed.py"],
+            capture_output=True, text=True, timeout=60)
+        assert cp.returncode == 0, cp.stdout + cp.stderr
+        remote = (
+            f"set -a; . {APP_ENV_FILE}; set +a; "
+            "cd /opt/testorchestrator; "
+            "runuser -u testorchestrator -- env "
+            "PYTHONPATH=/opt/testorchestrator "
+            "/opt/testorchestrator/venv/bin/python "
+            "/tmp/to-host-seed.py")
+        r = subprocess.run(
+            ["ssh", "-i", APP_KEY, "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=accept-new",
+             f"{APP_USER}@{APP_HOST}",
+             "sudo", "bash", "-lc", shlex.quote(remote)],
+            capture_output=True, text=True, timeout=60)
+    else:
+        r = subprocess.run(
+            ["sudo", "env",
+             "PYTHONPATH=/opt/testorchestrator",
+             "/opt/testorchestrator/venv/bin/python",
+             str(SEED_SCRIPT)],
+            capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "SEEDED-ITEMS" in r.stdout
 
 
+# framework item -> seeded framework project name (FP inventory
+# page carries the Run link; the Katalon inventory tab only links
+# suites/collections)
+_FP = {
+    "pytest-pass": "vm-e2e-pytest",
+    "pytest-fail": "vm-e2e-pytest",
+    "smoke.robot": "vm-e2e-robot",
+    "fail.robot": "vm-e2e-robot",
+    "pw.spec.js": "vm-e2e-playwright",
+    "cy.cy.js": "vm-e2e-cypress",
+}
+
+
 def _open_item(page, item_name):
-    """Open the discovered item detail via the project inventory tab."""
+    """Open the discovered item detail — framework items via their
+    framework project page, Katalon suites/collections via the
+    project inventory tab."""
+    path = ITEM_PATHS.get(item_name, item_name)
+    fp = _FP.get(item_name)
+    if fp:
+        page.goto("/projects")
+        page.locator("a", has_text="VM-E2E").first.click()
+        page.goto(page.url.split("?")[0] + "?tab=bindings")
+        page.locator("a[href^='/framework-projects/']",
+                     has_text=fp).first.click()
+        row = page.locator("tr", has_text=path).first
+        if row.count() == 0 or                 row.locator("a", has_text="Run").count() == 0:
+            _seed_items()
+            page.reload()
+            row = page.locator("tr", has_text=path).first
+        link = row.locator("a", has_text="Run").first
+        expect(link).to_be_visible()
+        page.goto(link.get_attribute("href"))
+        return
     page.goto("/projects")
     page.locator("a", has_text="VM-E2E").first.click()
     page.goto(page.url.split("?")[0] + "?tab=inventory")
-    path = ITEM_PATHS.get(item_name, item_name)
     link = page.locator(
         "a[href^='/discovered/']", has_text=path).first
     if link.count() == 0:
@@ -233,6 +302,34 @@ def test_seed_non_katalon_items():
     _seed_items()
 
 
+def test_validate_runtimes_for_project(admin_page):
+    """M16 readiness: non-KRE runtimes need per-project validation
+    before dispatch — exercised through the UI control."""
+    page = admin_page
+    page.goto("/system/infrastructure")
+    for name, kind, *_ in RUNTIMES:
+        if kind == "kre":
+            continue
+        row = page.locator("tr", has_text=name).first
+        d = row.locator("details",
+                        has_text="Validate for project")
+        if d.count() == 0:
+            continue  # no positive probe evidence yet — cannot validate
+        if "ready-execution" in row.inner_text().lower():
+            continue
+        d.locator("summary").click()
+        sel = d.locator("select[name=project_id]")
+        sel.select_option(
+            sel.locator("option", has_text="VM-E2E").first
+            .get_attribute("value"))
+        d.locator("button[type=submit]",
+                  has_text="Validate").click()
+        page.wait_for_load_state("load")
+        body = page.inner_text("body")
+        assert "NOT ready" not in body, body[-400:]
+        page.goto("/system/infrastructure")
+
+
 def test_katalon_items_discovered_by_sync(admin_page):
     """Real UI discovery: TS1 suite, TSC1 collection and the three
     .tc cases must appear in the inventory after Sync."""
@@ -258,11 +355,19 @@ def test_framework_cell(admin_page, item, runtime, want):
 def test_vm_exec_evidence(admin_page):
     """The cells above ran ON the VM: worker-side artifacts exist under
     the VM's worker dirs and nowhere on the host."""
-    r = _ssh("sudo find /var/lib/to-buildbot-worker /tmp/to-ssh "
+    find_roots = "/var/lib/to-buildbot-worker /tmp/to-ssh"
+    if APP_HOST == VM_HOST:
+        # Release acceptance uses one Linux guest for both portal and
+        # worker under the one-VM rule. Worker build dirs are cleaned
+        # after upload, so the retained evidence is in the master
+        # artifact store on that same guest.
+        find_roots += " /opt/to-final/data/buildbot/artifacts"
+    r = _ssh("sudo find " + find_roots + " "
              "-name 'junit*.xml' -o -name 'output.xml' 2>/dev/null | "
              "head -10; hostname")
     assert r.returncode == 0
-    assert "to-worker" in r.stdout
+    want_host = os.environ.get("TO_VM_NAME", "to-worker")
+    assert want_host in r.stdout
     assert re.search(r"junit.*xml|output\.xml", r.stdout), r.stdout
     # and the executions carry the vm-runner attribution in the UI
     admin_page.goto("/executions")

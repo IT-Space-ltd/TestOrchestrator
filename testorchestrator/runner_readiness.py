@@ -39,21 +39,55 @@ def submit(runtime, app_url: str = "",
            required_libs: str = "") -> tuple:
     """Stage + submit the probe. Returns (ok, message)."""
     kind = runtime.runtime_kind or "kre"
-    pyfw = kind in (robotfw.KIND, pytestfw.KIND)
-    kind = kind if pyfw or kind in nodefw.KINDS else "playwright"
+    kfw = kind == "kre"
+    pyfw = kind in (robotfw.KIND, pytestfw.KIND, "behave")
+    gtw = kind == "gtest"
+    shfw = kind in ("postman", "bruno")   # POSIX script probes
+    kind = kind if kfw or pyfw or gtw or shfw \
+        or kind in nodefw.KINDS else "playwright"
     runner = runtime.runner
     rid = _rid(runtime)
-    if kind == pytestfw.KIND:
+    if kfw:
+        from .adapters import kre as kre_adapter
+        scripts = kre_adapter.probe_scripts(
+            app_url.strip(),
+            helper_dir=buildbot_cfg.kre_cred_helper_source().parent)
+    elif kind == pytestfw.KIND:
         scripts = pytestfw.probe_scripts(app_url.strip())
+    elif kind == "behave":
+        from .adapters import behavefw
+        scripts = behavefw.probe_scripts(app_url.strip())
+    elif gtw:
+        from .adapters import gtestfw
+        scripts = gtestfw.probe_scripts(app_url.strip())
+    elif kind == "postman":
+        from .adapters import postmanfw
+        scripts = postmanfw.probe_scripts(app_url.strip())
+    elif kind == "bruno":
+        from .adapters import brunofw
+        scripts = brunofw.probe_scripts(app_url.strip())
     elif kind == robotfw.KIND:
         scripts = robotfw.probe_scripts(app_url.strip())
     else:
-        scripts = nodefw.probe_scripts(kind, app_url.strip())
+        scripts = nodefw.probe_scripts(
+            kind, app_url.strip(),
+            exe=(runtime.executable_path or "").strip())
     buildbot_cfg.stage_probe_source(rid, scripts)
     probe_env = {}
     if pyfw:
         probe_env["PYBIN"] = (runtime.executable_path or "").strip()
         probe_env["REQUIRED_LIBS"] = (required_libs or "").strip()
+    if kfw:
+        probe_env["KREBIN"] = (runtime.executable_path or "").strip()
+        # Licensing-mode awareness: the probe reports the actual
+        # execution identity + offline provisioning state — never
+        # attempts activation.
+        probe_env["TO_LIC_MODE"] = (
+            getattr(runtime, "licensing_mode", "") or "online")
+        _lrefs = (getattr(runtime, "license_ref_names", None)
+                  and runtime.license_ref_names()) or []
+        if _lrefs:
+            probe_env["TO_LIC_EXPECT"] = str(len(_lrefs))
     adapter = BuildbotAdapter.from_settings()
     try:
         if runner.target_type == "ssh":
@@ -88,11 +122,19 @@ def submit(runtime, app_url: str = "",
                     / "to_ssh_exec.py"),
                 spec_file=str(spec_file))
         else:
-            argv = (robotfw.probe_argv(runner.os_arch) if pyfw
+            argv = (kre_adapter.probe_argv(runner.os_arch) if kfw
+                    else robotfw.probe_argv(runner.os_arch) if pyfw
+                    else gtestfw.probe_argv(runner.os_arch) if gtw
+                    else postmanfw.probe_argv(runner.os_arch)
+                    if kind == "postman"
+                    else brunofw.probe_argv(runner.os_arch)
+                    if kind == "bruno"
                     else nodefw.probe_argv(runner.os_arch))
             spec = {"executable": argv[0], "args": argv[1:],
                     "exec_workdir": "build/src",
-                    "report_src": "src/Reports"}
+                    "report_src": "src/Reports",
+                    "posix": not (runner.os_arch or "")
+                    .lower().startswith("win")}
             if probe_env:
                 spec["env"] = probe_env
         builder = buildbot_cfg.builder_for(runner)
@@ -105,6 +147,8 @@ def submit(runtime, app_url: str = "",
         {"_probe": {"rid": rid, "brid": int(brid), "kind": kind,
                     "transport": runner.target_type or "",
                     "at": time.time()}})
+    if (runtime.runtime_kind or "kre") != "kre":
+        runtime.readiness_state = "checking"
     from .execution import utcnow
     runtime.last_check_at = utcnow()
     db.session.commit()
@@ -118,8 +162,20 @@ def _summarize(probe: dict, kind: str) -> str:
     if probe.get("npx", "missing") == "missing":
         problems.append("npx not on PATH for this account")
     if probe.get(kind, "missing").startswith("missing"):
-        problems.append(f"{kind} not resolvable — install it as a "
-                        "project dependency (npx) on the target")
+        # The probe runs BEFORE any install — for npx-resolved kinds the
+        # run-time prepare step (npm ci, default-on) installs project
+        # deps at run time, so a missing framework is NOT fatal when
+        # npm itself is present. The lockfile requirement is enforced
+        # as an early refusal at dispatch.
+        if probe.get("npm", "missing") == "missing":
+            problems.append(f"{kind} not resolvable and npm absent — "
+                            "install Node.js+npm on the target")
+        # else: informational — npm ci will provide it at run time
+    ei = probe.get("exec_invocation", "")
+    if ei.startswith("incompatible"):
+        problems.append("configured executable cannot run the "
+                        "npx-style invocation dispatch uses — " +
+                        ei.split("—", 1)[-1].strip()[:160])
     if kind == "cypress" and probe.get("cypress_binary", "ok") != "ok":
         problems.append("Cypress binary not available to the worker "
                         "account")
@@ -128,13 +184,13 @@ def _summarize(probe: dict, kind: str) -> str:
     if probe.get("app_url", "").startswith("UNREACHABLE"):
         problems.append("target/browser cannot reach the application "
                         "URL")
-    if kind in (robotfw.KIND, pytestfw.KIND):
+    if kind in (robotfw.KIND, pytestfw.KIND, "behave"):
         problems = []
         if probe.get("python", "missing").startswith("missing"):
             problems.append("configured Python interpreter not "
                             "runnable by this account")
         pkg = {"robot": "robotframework",
-               "pytest": "pytest"}[kind]
+               "pytest": "pytest", "behave": "behave"}[kind]
         if probe.get(kind, "missing").startswith("missing"):
             problems.append(f"{kind} not importable — install "
                             f"{pkg} in the configured "
@@ -153,6 +209,58 @@ def _summarize(probe: dict, kind: str) -> str:
             f"{k}={v}" for k, v in probe.items()
             if k in ("python", kind)
             and not v.startswith("missing"))
+    elif kind == "kre":
+        problems = []
+        if probe.get("kre", "missing").startswith("missing"):
+            problems.append("KRE executable not found/runnable at "
+                            "the configured executable_path on the "
+                            "target")
+        if probe.get("helper_exec") == "FAILED":
+            problems.append("staged credential launcher cannot run "
+                            "under the target-native shell "
+                            "(sh / powershell)")
+        if probe.get("workspace_write") not in (None, "ok"):
+            problems.append("workspace not writable for the run "
+                            "account")
+        if probe.get("app_url", "").startswith("UNREACHABLE"):
+            problems.append("target cannot reach the application "
+                            "URL")
+        # Offline licensing: report provisioning state under the
+        # ACTUAL execution account — file presence only; KRE's own
+        # acceptance can only be proven by a real run (and the probe
+        # never attempts activation).
+        if probe.get("licensing_mode") == "offline":
+            try:
+                lic_n = int(probe.get("license_files") or 0)
+            except ValueError:
+                lic_n = 0
+            lic_where = probe.get("license_dir", "")
+            if lic_where.startswith("missing") or lic_n == 0:
+                problems.append(
+                    "offline licensing: no .lic files under the "
+                    "execution account's ~/.katalon/license — "
+                    "provision managed licenses (license-kind "
+                    "secrets) or place operator files on the "
+                    "target")
+        versions = ", ".join(
+            f"{k}={v}" for k, v in probe.items()
+            if k in ("kre", "krever", "helper_launcher",
+                     "licensing_mode", "exec_user", "license_dir",
+                     "license_files")
+            and not v.startswith("missing")
+            and not v.startswith("unprobeable"))
+    elif kind == "gtest":
+        problems = []
+        if not any(probe.get(f"tool_{t}") == "present"
+                   for t in ("c++", "g++", "clang++")):
+            problems.append("no C++ toolchain on this target "
+                            "(g++/clang++ absent)")
+        if probe.get("workspace_write") not in (None, "ok"):
+            problems.append("workspace not writable for the run "
+                            "account")
+        versions = ", ".join(
+            f"{k[5:]}={v}" for k, v in probe.items()
+            if k.startswith("tool_") and v == "present")
     else:
         versions = ", ".join(
             f"{k}={v}" for k, v in probe.items()
@@ -214,10 +322,24 @@ def poll(runtime) -> bool:
         runtime.last_diagnostic = (
             f"{pend['kind']} readiness: probe finished but produced "
             "no markers — inspect the build log")
+        if (runtime.runtime_kind or "kre") != "kre":
+            runtime.readiness_state = "target-unavailable"
     else:
         runtime.last_diagnostic = _summarize(probe, pend["kind"])
         runtime.probe_json = json.dumps(
             {k: v for k, v in probe.items()})
+        # Structured state (M16): toolchain probe pass = ready for
+        # discovery; project-dependent validation is a separate step
+        # at collection/dispatch time. A fresh probe result revokes
+        # previously stamped per-project execution evidence — it was
+        # recorded against the prior toolchain.
+        if (runtime.runtime_kind or "kre") != "kre":
+            from . import execution_readiness
+            execution_readiness.clear_evidence(runtime)
+            runtime.readiness_state = (
+                "ready-discovery"
+                if "readiness: ready" in runtime.last_diagnostic
+                else "missing-dependency")
     from .execution import utcnow
     runtime.last_check_at = utcnow()
     db.session.commit()

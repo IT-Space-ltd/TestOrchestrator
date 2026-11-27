@@ -210,7 +210,7 @@ def create_app(config_object=Config) -> Flask:
             return "Too many attempts. Try again shortly.", 429
         form = LicenceActivationForm()
         if form.validate_on_submit() and not form.website.data:
-            ok, msg = licensing.add(form.licence_code.data)
+            ok, _msg = licensing.add(form.licence_code.data)
             record_audit("licence-activate",
                          "accepted" if ok else "rejected")
             if ok:

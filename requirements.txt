@@ -30,6 +30,16 @@ dulwich==1.2.21
 requests==2.34.2
 paramiko==3.5.1
 urllib3==2.8.0
+# S3-compatible durable artifact storage (server-side only — the storage
+# layer runs in the app process, not on workers). _S3Store capability-gates
+# on import; installs without these wheels keep the existing actionable
+# "S3 backend unavailable" readiness failure.
+boto3==1.44.10
+botocore==1.44.10
+s3transfer==0.19.3
+jmespath==1.1.0
+python-dateutil==2.9.0.post0
+six==1.17.0
 certifi==2026.10.23
 charset-normalizer==3.5.2
 idna==3.20

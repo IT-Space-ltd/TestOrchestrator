@@ -94,7 +94,7 @@ Section "Install TestOrchestrator" SecMain
     ; user-configured. The app loads this file itself on Windows
     ; (config.py reads %ProgramData%\TestOrchestrator\testorchestrator.env);
     ; real environment variables still win.
-    FileOpen $0 "$DATA_DIR\testorchestrator.env" w
+    FileOpen $0 "$DATA_DIR\testorchestrator.env.installer" w
     FileWrite $0 "TO_INSTANCE_DIR=$DATA_DIR\instance$\r$\n"
     FileWrite $0 "TO_DATABASE_URI=sqlite:///$DATA_DIR\instance\to.db$\r$\n"
     FileWrite $0 "TO_PUBLIC_ADDR=$PUBLIC_ADDR$\r$\n"
@@ -113,8 +113,9 @@ Section "Install TestOrchestrator" SecMain
     ; tee's into $DATA_DIR\logs\install.log (the details pane is
     ; ephemeral) and is exit-code checked — a provisioning failure must
     ; not produce a silently broken install.
-    nsExec::ExecToLog 'cmd /c ""$INSTDIR\python\python.exe" "$INSTDIR\scripts\init_env.py" --env-file "$DATA_DIR\testorchestrator.env" >> "$DATA_DIR\logs\install.log" 2>&1"'
+    nsExec::ExecToLog 'cmd /c ""$INSTDIR\python\python.exe" "$INSTDIR\scripts\init_env.py" --env-file "$DATA_DIR\testorchestrator.env" --merge-file "$DATA_DIR\testorchestrator.env.installer" >> "$DATA_DIR\logs\install.log" 2>&1"'
     Pop $0
+    Delete "$DATA_DIR\testorchestrator.env.installer"
     ${If} $0 != "0"
         MessageBox MB_ICONEXCLAMATION "Environment initialisation failed (code $0) — see $DATA_DIR\logs\install.log"
         Abort "init_env failed"

@@ -29,6 +29,7 @@ only — never inside the product runtime.
 - `TO_UI_ADMIN_PW` — throwaway replacement; never a real password.
 - `TO_UI_ADMIN_USER` — admin username (default `Admin`).
 - `TO_UI_STATE_DIR` — saved-login-state dir (default `/tmp/to-ui-state`).
+- `TO_APP_HOST` / `TO_APP_USER` / `TO_APP_KEY` — optional SSH endpoint of the machine running the installed portal; needed when the portal itself is inside a VM so framework inventory seeding runs there. `TO_APP_ENV_FILE` overrides the installer env-file path.
 - Traces/screenshots capture page content: keep artifacts out of git,
   use throwaway credentials only, delete artifacts after triage.
 - infra seeding (runner/runtime/item) is test DATA via app internals;

@@ -226,8 +226,8 @@ a { color: var(--accent); }
 .button.danger { background: #c0392b; color: #fff; }
 .button.primary { background: #2f6df0; color: #fff; }
 .btn-row .button { flex: 0 0 auto; }
-.field label { display: block; margin-bottom: 0.25rem; font-weight: 600; }
-.field input {
+.field label, .field .lbl { display: block; margin-bottom: 0.25rem; font-weight: 600; }
+.field input:not([type=radio]):not([type=checkbox]):not([type=file]) {
   width: 100%;
   padding: 0.5rem;
   border: 1px solid var(--border);
@@ -237,6 +237,47 @@ a { color: var(--accent); }
   font: inherit;
 }
 .form-error { color: #c81e1e; }
+
+/* Guided Add Runtime — framework tile selector (radio list as an
+ * aligned card grid; the whole tile is clickable). */
+.fw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: 0.6rem;
+}
+.fw-tile {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.65rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--panel);
+  cursor: pointer;
+  font-weight: 400;
+}
+.fw-tile:hover { border-color: var(--accent); }
+.fw-tile input[type=radio] {
+  flex: 0 0 auto;
+  width: auto;
+  margin: 0.2rem 0 0;
+}
+.fw-tile-body { display: flex; flex-direction: column; gap: 0.1rem; }
+.fw-tile-body small { font-weight: 400; }
+.fw-tile:has(input[type=radio]:checked) {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
+}
+.fw-tile input[type=radio] { accent-color: var(--accent); }
+
+/* Storage-type selector — same tile language, single column so the
+ * description lines read cleanly. */
+.store-kind-grid {
+  display: grid; grid-template-columns: 1fr;
+  gap: 0.55rem; margin-bottom: 1rem;
+}
+.store-kind-grid .fw-tile { padding: 0.7rem 0.9rem; }
 
 .changelog {
   background: var(--panel);
@@ -466,6 +507,7 @@ pre.example {
 .tab-bar label:hover, .tab-bar a.tsub:hover { color: #dfe7ee; }
 #tab-analytics:checked ~ .tab-bar a.tsub-analytics,
 #tab-bindings:checked ~ .tab-bar label[for=tab-bindings],
+#tab-storage:checked ~ .tab-bar label[for=tab-storage],
 #tab-access:checked ~ .tab-bar label[for=tab-access],
 #tab-dash:checked ~ .tab-bar label[for=tab-dash],
 #tab-test:checked ~ .tab-bar label[for=tab-test],
@@ -476,6 +518,7 @@ pre.example {
 .tab-panel { display: none; }
 #tab-analytics:checked ~ #panel-analytics,
 #tab-bindings:checked ~ #panel-bindings,
+#tab-storage:checked ~ #panel-storage,
 #tab-access:checked ~ #panel-access,
 #tab-dash:checked ~ #panel-dash,
 #tab-test:checked ~ #panel-test,
@@ -632,6 +675,9 @@ pre.example {
 }
 .audit-table { table-layout: auto; }
 .audit-table td:last-child { white-space: nowrap; }
+/* Prose tables inside collapsible help must wrap — nowrap on the
+   last column pushes the table outside the card. */
+.block-details .audit-table td:last-child { white-space: normal; }
 
 /* --- tabs polish --- */
 .tab-bar label, .tab-bar a.tsub {
@@ -777,7 +823,7 @@ html[data-theme="dark"] {
 
 /* project dashboard chart */
 .dash-chart { display: flex; align-items: flex-end; gap: 4px;
-  height: 90px; padding: .5rem 0; }
+  height: 90px; padding: .5rem 0; overflow: hidden; }
 .dash-chart .bar-col { display: flex; flex-direction: column;
   justify-content: flex-end; align-items: center; gap: 2px;
   flex: 1; }
@@ -1260,3 +1306,43 @@ details.adv-card ul { margin-top: .6rem; }
 .link-card.hub .hub-text, details.adv-card .hub-text { flex: 1 1 auto; }
 .link-card.hub .hub-text h2, details.adv-card .hub-text h2 { margin-top: 0; }
 .link-card.hub .hub-text p, details.adv-card .hub-text p { margin-bottom: 0; }
+
+/* --- log-table / audit-events: fit viewport, wrap long text --- */
+/* System → Audit: the shared audit-table rule nowraps the last cell
+   for action buttons elsewhere; the audit Detail column must wrap
+   instead, and a fixed layout keeps the table inside the page. */
+.audit-events { table-layout: fixed; }
+.audit-events th:nth-child(1), .audit-events td:nth-child(1) {
+  width: 11rem; }
+.audit-events th:nth-child(2), .audit-events td:nth-child(2) {
+  width: 9rem; }
+.audit-events th:nth-child(3), .audit-events td:nth-child(3) {
+  width: 21rem; }
+.audit-events td { overflow-wrap: anywhere; }
+.audit-events td:last-child { white-space: normal; }
+
+/* System → Operational Logs: fixed layout stops long messages and
+   unbroken context ids from pushing the table past the card. */
+#log-table { table-layout: fixed; }
+#log-table .col-time { width: 7.5rem; }
+#log-table .col-sev { width: 5.5rem; }
+#log-table .col-comp { width: 8.5rem; }
+#log-table .col-cat { width: 7.5rem; }
+#log-table .col-ctx { width: 12rem; }
+#log-table td { overflow-wrap: anywhere; }
+#log-table td.log-msg { min-width: 0; max-width: none; }
+#log-table td.log-ctx { word-break: break-all; }
+
+/* test tree */
+.tree-root { list-style: none; padding-left: 0; }
+.tree-root ul { list-style: none; padding-left: 1.4rem; }
+.tree-node { margin: 2px 0; }
+.tree-toggle { background: none; border: none; cursor: pointer;
+  padding: 2px 6px; font-size: 1em; color: inherit; }
+.tree-toggle:disabled { visibility: hidden; }
+.tree-leaf { padding-left: 1.7rem; display: inline-flex; gap: .5rem;
+  align-items: baseline; }
+.tree-name { font-weight: 600; margin-right: .4rem; }
+[role="treeitem"] { line-height: 1.7; }
+.tree-toggle:focus-visible, .tree-leaf:focus-visible {
+  outline: 2px solid var(--accent, #58a6ff); border-radius: 3px; }

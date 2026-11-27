@@ -238,3 +238,86 @@ def test_win_cleanup_uses_powershell_not_rm():
     assert argv[0] == "powershell"
     assert "Remove-Item" in argv[-1]
     assert "remote-artifacts" in argv[-1]
+
+
+def _factory_step_kwargs():
+    """Parse the addStep keyword arguments out of master.cfg — enough
+    structure to assert the halt-on-failure contract without importing
+    buildbot."""
+    import re
+    text = MASTER_CFG.read_text()
+    return text
+
+
+def test_prep_halts_build_on_failure():
+    """ISS-022: a failing prep step (retry block exit 70, workspace
+    corruption) MUST halt the build. ShellCommand defaults
+    haltOnFailure=False — without the explicit flag the blocked retry
+    still ran the test CLI to completion (verified live on Windows PB:
+    pytest re-executed 90s after TO_RETRY_BLOCKED fired)."""
+    text = _factory_step_kwargs()
+    # every prep step literal carries the halt flag
+    import re
+    preps = re.findall(
+        r"ShellCommand\(\s*command=_prep(?:_win)?_argv[^)]*\)", text)
+    assert len(preps) >= 3   # kre posix + kre win + ssh posix
+    for p in preps:
+        assert "haltOnFailure=True" in p, p[:120]
+
+
+def test_prerun_gates_halt_on_failure():
+    """unpack-source / install-licenses / deps are sequence gates —
+    continuing past their failure misclassifies infrastructure
+    problems as test outcomes."""
+    import re
+    text = _factory_step_kwargs()
+    for step_src in re.findall(r"ShellCommand\([^)]*\)", text):
+        for gate in ("unpack-source", "install-licenses", "deps"):
+            if f'name="{gate}"' in step_src:
+                assert "haltOnFailure=True" in step_src, \
+                    f"{gate} must halt: {step_src[:140]}"
+
+
+
+def test_retry_blocked_line_matches_windows_prep_step(monkeypatch):
+    """ISS-022 regression: on Windows the ACTIVE prep step renders as
+    ``prep_1`` — buildbot dedups the duplicate step name (posix prep
+    first). Scanning only ``prep`` matched the skipped posix step's
+    empty log, so a genuinely blocked retry misclassified as a plain
+    execution failure instead of UNKNOWN."""
+    from testorchestrator import dispatch
+
+    class FakeAdapter:
+        seen = []
+
+        def builds_for_request(self, brid):
+            return [{"buildid": 9}]
+
+        def run_log(self, buildid, step_names=("run",)):
+            self.seen.append(tuple(step_names))
+            return "hprep script echo\noTO_RETRY_BLOCKED: attempt 2 - x\n"
+
+    adapter = FakeAdapter()
+    ex = type("Ex", (), {"dispatch_id": "bb:1",
+                         "snapshot": lambda self: {}})()
+    line = dispatch._retry_blocked_line(adapter, ex)
+    assert line is not None and line.startswith("TO_RETRY_BLOCKED:")
+    assert not line.startswith("o"), "stream channel prefix must be stripped"
+    assert "prep_1" in adapter.seen[0] and "prep" in adapter.seen[0]
+
+
+def test_retry_blocked_line_ignores_script_echo_header():
+    """The prep script embeds the marker in echo statements; header
+    channel lines echoing the script must not count as the marker."""
+    from testorchestrator import dispatch
+
+    class FakeAdapter:
+        def builds_for_request(self, brid):
+            return [{"buildid": 9}]
+
+        def run_log(self, buildid, step_names=("run",)):
+            return 'hecho "TO_RETRY_BLOCKED: attempt 2"\nosome other output\n'
+
+    ex = type("Ex", (), {"dispatch_id": "bb:1",
+                         "snapshot": lambda self: {}})()
+    assert dispatch._retry_blocked_line(FakeAdapter(), ex) is None

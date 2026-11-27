@@ -9,30 +9,37 @@ and log streams.
 """
 
 import hashlib
+import io
 import json
 import re
 import mimetypes
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import os
-from flask import (abort, flash, redirect, render_template, request,
-                   Response, send_file, session, url_for)
+from flask import (abort, current_app, flash,
+                   redirect, render_template, request, Response,
+                   send_file, session, url_for)
 from flask_login import current_user, login_required
 
 from .. import dispatch, gitsync
-from ..execution import (DiscoveredItem, Execution, ExecutionState,
+from ..capture import CAPTURE_CATEGORIES
+from ..execution import (ArtifactStore, DiscoveredItem, Execution,
+                         ExecutionState, FrameworkProject,
                          ReleaseItem, RuntimeConnection,
                        GitBinding, OutboxEvent,
-                         Outcome, Project, Release,
+                         Outcome, Plan, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)
 from ..extensions import db
 from ..models import Role, User, record_audit
 from ..security import role_required
 from . import portal_bp
 from .. import results as results_mod
-from .forms import (BindingForm, PlainForm, ProjectForm,
-                    ScheduleForm, SuiteForm)
+from ..discovery import FRAMEWORK_CHOICES, discover
+from .forms import (BindingForm, FrameworkProjectForm, PlainForm,
+                    ProjectForm, ScheduleForm, SuiteForm,
+                    reject_url_password)
 
 EDIT_ROLES = (Role.ADMIN, Role.TEST_MANAGER)
 RUN_ROLES = (Role.ADMIN, Role.TEST_MANAGER, Role.TESTER)
@@ -200,7 +207,7 @@ def project_detail(project_id):
         project_id=project.id)}
 
     # ---- Test tab: read-only Git-discovered cases + suites/collections
-    test_subtab = request.args.get("subtab") or "case"
+    test_subtab = request.args.get("subtab") or "tree"
     test_repo = request.args.get("repo") or ""
     test_q = (request.args.get("q") or "").strip().lower()
     bindings_nav = GitBinding.query.filter_by(
@@ -240,6 +247,11 @@ def project_detail(project_id):
     def _in_q(i):
         return (not test_q) or test_q in (i.name or "").lower() \
             or test_q in (i.path or "").lower()
+    from .testtree import build_tree, rollup_last_results
+    _all_items = DiscoveredItem.query.join(GitBinding).filter(
+        GitBinding.project_id == project.id).all()
+    test_tree = build_tree(_all_items,
+                           rollup_last_results(db, Execution, project.id))
     test_cases = [{"item": i, "stats": _cstats(i.name),
                    "repo": bind_names.get(i.binding_id, "?")}
                   for i in case_defs if _in_repo(i) and _in_q(i)]
@@ -265,12 +277,22 @@ def project_detail(project_id):
         {"v": f"repo:{d.id}",
          "l": f"{d.name or d.path.split('/')[-1].rsplit('.', 1)[0]} "
              f"({d.kind}) · {bind_names.get(d.binding_id, '?')} · "
-             f"{d.path}"} for d in repo_defs]
+             f"{d.path}",
+         "fw": d.framework or "katalon",
+         "kind": d.kind,
+         "members": json.loads(d.members_json or "[]"),
+         "runmode": next((t[8:] for t in (d.tags or "").split(";")
+                          if t.startswith("runmode:")), "")}
+        for d in repo_defs]
+    from ..execution import Plan as _Plan
     schedule_form.target_id.choices = (
         [(f"repo:{d.id}", f"{bind_names.get(d.binding_id, '?')} · "
           f"{d.kind} · {d.path}") for d in repo_defs] +
         [(f"app:{s.id}", f"app-side suite · {s.name}")
-         for s in project.suites])
+         for s in project.suites] +
+        [(f"plan:{pl.id}", f"plan · {pl.name}")
+         for pl in _Plan.query.filter_by(project_id=project.id).all()])
+    schedule_form.framework.choices = _schedule_fw_choices(project)
     from ..execution import Runner, RuntimeConnection
     _runners = [x for x in Runner.query.filter_by(enabled=True).all()
                 if not x.draining]
@@ -306,6 +328,9 @@ def project_detail(project_id):
                 status="failed").count(),
             "recent": _qs.order_by(
                 Execution.created_at.desc()).limit(8).all()}
+    dash["trend_peak"] = max(
+        (d["passed"] + d["failed"] for d in dash["trend"]),
+        default=0)
     # per-release testing progress: latest outcome per scoped target
     # (path+kind+binding+config), not all history.
     progress = {}
@@ -396,6 +421,11 @@ def project_detail(project_id):
                          kind='suite').all()],
         suite_form=suite_form, plain_form=PlainForm(),
         schedule_form=schedule_form, can_edit=can_edit, can_run=can_run,
+        artifact_stores=ArtifactStore.query.filter_by(
+            project_id=project.id).order_by(ArtifactStore.name).all(),
+        capture_categories=CAPTURE_CATEGORIES,
+        capture_policy=project.capture_policy(),
+        retention_eff=_retention_context(project),
         users=(User.query.order_by(User.username).all()
                if current_user.role.value == "admin" else []),
         executions=Execution.query.filter_by(project_id=project_id)
@@ -405,6 +435,7 @@ def project_detail(project_id):
                         for p in project.plans},
         state_labels=results_mod.STATE_LABELS,
         test_subtab=test_subtab, test_repo=test_repo, test_q=test_q,
+        test_tree=test_tree,
         bindings_nav=bindings_nav, test_cases=test_cases,
         test_suites=test_suites, test_colls=test_colls,
         suite_exec=suite_exec,
@@ -664,6 +695,11 @@ def create_binding(project_id):
     project = _project_or_404(project_id)
     form = BindingForm()
     if form.validate_on_submit():
+        url_err = reject_url_password(form.url.data.strip())
+        if url_err:
+            session["_bind_err"] = url_err
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
         binding = GitBinding(
             authoring_writable=form.authoring_writable.data,
             report_writable=form.report_writable.data,
@@ -701,6 +737,12 @@ def edit_binding(binding_id):
     _project_or_404(binding.project_id)
     form = BindingForm()
     if form.validate_on_submit():
+        url_err = reject_url_password(form.url.data.strip())
+        if url_err:
+            flash(url_err, "error")
+            return redirect(url_for(
+                "portal.project_detail",
+                project_id=binding.project_id))
         binding.name = form.name.data.strip()
         binding.url = form.url.data.strip()
         binding.ref = form.ref.data.strip() or "main"
@@ -731,6 +773,725 @@ def sync_binding(binding_id):
     record_audit(current_user.username, "binding.sync_queued", binding.id)
     return redirect(url_for("portal.project_detail",
                           project_id=binding.project_id))
+
+
+# ---------- framework projects (2.7.0 onboarding) ----------
+
+def _lines(text):
+    return [l.strip() for l in (text or "").splitlines() if l.strip()]
+
+
+def _fp_from_form(form, fp=None):
+    fp = fp or FrameworkProject()
+    fp.name = form.name.data.strip()
+    fp.framework = form.framework.data
+    fp.project_root = (form.project_root.data or "").strip().strip("/")
+    if fp.project_root == ".":
+        fp.project_root = ""
+    fp.workdir = (form.workdir.data or "").strip().strip("/")
+    fp.config_file = (form.config_file.data or "").strip()
+    fp.test_roots_json = json.dumps(_lines(form.test_roots.data))
+    fp.include_json = json.dumps(_lines(form.include.data))
+    fp.exclude_json = json.dumps(_lines(form.exclude.data))
+    fp.feature_roots_json = json.dumps(_lines(form.feature_roots.data))
+    fp.stepdef_roots_json = json.dumps(_lines(form.stepdef_roots.data))
+    fp.support_roots_json = json.dumps(_lines(form.support_roots.data))
+    return fp
+
+
+def _fp_form(fp=None):
+    form = FrameworkProjectForm()
+    form.framework.choices = FRAMEWORK_CHOICES
+    if fp is not None and request.method == "GET":
+        form.name.data = fp.name
+        form.framework.data = fp.framework
+        form.project_root.data = fp.project_root
+        form.workdir.data = fp.workdir
+        form.config_file.data = fp.config_file
+        form.test_roots.data = "\n".join(fp.test_roots())
+        form.include.data = "\n".join(fp.include())
+        form.exclude.data = "\n".join(fp.exclude())
+        form.feature_roots.data = "\n".join(fp.feature_roots())
+        form.stepdef_roots.data = "\n".join(fp.stepdef_roots())
+        form.support_roots.data = "\n".join(fp.support_roots())
+    return form
+
+
+def _binding_or_404(bid):
+    b = db.session.get(GitBinding, bid)
+    if b is None:
+        abort(404)
+    _project_or_404(b.project_id)
+    return b
+
+
+@portal_bp.route("/bindings/<binding_id>/framework-projects/new",
+                 methods=["GET", "POST"])
+@role_required(*EDIT_ROLES)
+def fp_new(binding_id):
+    """Onboard a framework project: select framework → locations →
+    optional preview → save. `action=preview` runs static discovery
+    WITHOUT saving; `action=save` persists as draft."""
+    binding = _binding_or_404(binding_id)
+    form = _fp_form()
+    if form.validate_on_submit():
+        fp = _fp_from_form(form)
+        if request.form.get("action") == "preview":
+            fp.binding_id = binding.id
+            fp.project_id = binding.project_id
+            res = discover(fp, binding)   # static only, not persisted
+            return render_template(
+                "portal/framework_project.html", form=form,
+                binding=binding, fp=fp, preview=res, saved=False,
+                items=None, plain_form=PlainForm(),
+                can_edit=True)
+        fp.binding_id = binding.id
+        fp.project_id = binding.project_id
+        fp.discovery_status = "draft"
+        db.session.add(fp)
+        db.session.commit()
+        record_audit(current_user.username,
+                     "framework_project.created", fp.id)
+        flash(f"Framework project {fp.name!r} saved as draft — "
+              "run discovery to validate before executing.", "info")
+        return redirect(url_for("portal.fp_detail", fp_id=fp.id))
+    for errs in form.errors.values():
+        for e in errs:
+            flash(e, "error")
+    return render_template("portal/framework_project.html",
+                           form=form, binding=binding, fp=None,
+                           preview=None, saved=False, items=None,
+                           plain_form=PlainForm(), can_edit=True)
+
+
+@portal_bp.route("/framework-projects/<fp_id>",
+                 methods=["GET"])
+@login_required
+def fp_detail(fp_id):
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    items = DiscoveredItem.query.filter_by(
+        framework_project_id=fp.id).order_by(
+        DiscoveredItem.kind, DiscoveredItem.path).all()
+    form = _fp_form(fp)
+    return render_template(
+        "portal/framework_project.html", form=form, binding=binding,
+        fp=fp, preview=None, saved=True, items=items,
+        plain_form=PlainForm(),
+        can_edit=current_user.role.value in
+        ("admin", "test_manager"))
+
+
+@portal_bp.route("/framework-projects/<fp_id>/edit",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def fp_edit(fp_id):
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    _binding_or_404(fp.binding_id)
+    form = _fp_form()
+    if form.validate_on_submit():
+        fp = _fp_from_form(form, fp)
+        # Config changed → validated inventory is stale until the
+        # new fingerprint is confirmed by a discovery run.
+        from ..discovery import fingerprint
+        if fp.discovery_status == "ok" and \
+                fp.discovery_fingerprint != fingerprint(fp):
+            fp.discovery_status = "stale"
+        db.session.commit()
+        record_audit(current_user.username,
+                     "framework_project.edited", fp.id)
+        flash("Framework project updated "
+              + ("— discovery is stale, re-run to validate."
+                 if fp.discovery_status == "stale" else "."), "info")
+    else:
+        for errs in form.errors.values():
+            for e in errs:
+                flash(e, "error")
+    return redirect(url_for("portal.fp_detail", fp_id=fp.id))
+
+
+@portal_bp.route("/framework-projects/<fp_id>/preview",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def fp_preview(fp_id):
+    """Static discovery preview for a saved project — does not
+    persist the inventory."""
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    PlainForm().validate_on_submit()
+    res = discover(fp, binding)
+    items = DiscoveredItem.query.filter_by(
+        framework_project_id=fp.id).all()
+    return render_template(
+        "portal/framework_project.html", form=_fp_form(fp),
+        binding=binding, fp=fp, preview=res, saved=True,
+        items=items, plain_form=PlainForm(), can_edit=True)
+
+
+@portal_bp.route("/framework-projects/<fp_id>/discover",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def fp_discover(fp_id):
+    """Validate + persist the inventory — sets the project to 'ok'
+    (validated) or 'failed' (last good kept)."""
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    PlainForm().validate_on_submit()
+    out = gitsync.sync_framework_project(fp, binding)
+    record_audit(current_user.username,
+                 "framework_project.discovered", fp.id)
+    if out.get("error"):
+        flash(f"Discovery failed: {out['error']}", "error")
+    else:
+        msg = (f"Discovery validated — {out['items']} items "
+               f"({out['added']} added, {out['removed']} removed).")
+        if out.get("needs_native"):
+            msg += (" Some items need native collection on a worker "
+                    "to become selectable.")
+        flash(msg, "info")
+    return redirect(url_for("portal.fp_detail", fp_id=fp.id))
+
+
+@portal_bp.route("/framework-projects/<fp_id>/collect",
+                 methods=["GET", "POST"])
+@role_required(*EDIT_ROLES)
+def fp_collect(fp_id):
+    """Discover-on-worker: queues a native collection run. GET shows
+    the code-execution notice + compatible target list; POST requires
+    the `ack` checkbox (repository code may execute) and creates an
+    Execution whose collector writes Reports/collect.json — the
+    standard collect pipeline then reconciles validated identities
+    into the inventory. A still-valid inventory (same sha + config
+    fingerprint) needs no new approval — reading it is not a rerun."""
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    runtimes = _native_collect_targets(fp)
+    if request.method == "POST":
+        PlainForm().validate_on_submit()
+        runtime = next(
+            (r for r in runtimes
+             if r.id == (request.form.get("runtime_id") or "")),
+            None)
+        if not request.form.get("ack"):
+            flash("Native collection needs the approval checkbox — "
+                  "repository code may execute on the target.",
+                  "error")
+        elif runtime is None:
+            flash("Select a compatible worker/SSH target.", "error")
+        else:
+            try:
+                from ..gitsync import request_native_collection
+                ex = request_native_collection(
+                    fp, binding, runtime, current_user.username)
+            except Exception as exc:
+                flash(f"Collection queue failed: {exc}", "error")
+            else:
+                record_audit(
+                    current_user.username,
+                    "framework_project.native_collect",
+                    f"{fp.id} on {runtime.name} -> {ex.id}")
+                flash(
+                    f"Native collection queued (execution {ex.id}) — "
+                    "inventory reconciles when collect.json returns.",
+                    "info")
+                return redirect(url_for(
+                    "portal.execution_detail", execution_id=ex.id))
+    return render_template(
+        "portal/fp_collect.html", fp=fp, binding=binding,
+        runtimes=runtimes, plain_form=PlainForm())
+
+
+def _native_collect_targets(fp) -> list:
+    """Enabled runtimes whose kind can host this framework's native
+    collector (server-side gate — the UI list is a convenience)."""
+    from ..dispatch import FRAMEWORK_RUNTIME
+    from ..models import RunnerInstance
+    want = FRAMEWORK_RUNTIME.get(fp.framework, "")
+    return [r for r in RunnerInstance.query.filter_by(
+        enabled=True).order_by(RunnerInstance.name).all()
+        if getattr(r, "runtime_kind", "") == want]
+
+
+# ---------- Results & Artifacts storage (M9–M11) ----------
+
+def _store_form_fields(project_id, existing_ref: str = ""):
+    """Parse the Add-Storage form. Only fields relevant to the
+    selected kind/provider are read — hidden incompatible settings
+    are never persisted even if submitted (§Storage UI 9).
+    ``existing_ref`` is the already-saved credential on an edit —
+    credential-required providers accept a blank field as 'keep the
+    saved reference'. Returns (kind, name, cfg, credential_ref,
+    error)."""
+    kind = (request.form.get("kind") or "local").strip()
+    name = (request.form.get("name") or "").strip() or kind
+    # credential_ref only exists for object stores — dropped for
+    # other kinds even if a hidden field was forcibly submitted.
+    credential_ref = ""
+    cfg = {}
+    err = None
+    if kind in ("local", "mounted"):
+        cfg = {"root": (request.form.get("root") or "").strip(),
+               "subdir": (request.form.get("subdir") or "").strip()}
+        if not cfg["root"]:
+            err = "A root path is required."
+    elif kind in ("s3", "object"):
+        provider = (request.form.get("provider")
+                    or "manual").strip() or "manual"
+        credential_ref = (request.form.get("credential_ref")
+                          or "").strip()
+        if provider == "amazon":
+            kind = "s3"
+            cfg = {k: (request.form.get(k) or "").strip()
+                   for k in ("bucket", "prefix", "region",
+                             "ca_bundle")}
+            # Advanced endpoint override stays available (private
+            # link, GovCloud-style endpoints) but defaults to AWS.
+            cfg["endpoint_url"] = (
+                request.form.get("endpoint_url") or "").strip()
+            cfg["provider"] = "amazon"
+            if not cfg["bucket"]:
+                err = "Amazon S3 requires a bucket."
+        elif provider == "azure":
+            kind = "azure"
+            cfg = {k: (request.form.get(k) or "").strip()
+                   for k in ("account_url", "container", "prefix",
+                             "auth_mode")}
+            cfg["provider"] = "azure"
+            if not cfg["account_url"] or not cfg["container"]:
+                err = ("Azure Blob requires a service endpoint and "
+                       "a container.")
+            elif cfg["auth_mode"] not in ("account_key", "sas"):
+                err = "Azure requires a supported auth method."
+            elif not credential_ref and not existing_ref:
+                err = ("Azure requires a credential reference "
+                       "(account key or SAS token).")
+        elif provider == "google":
+            kind = "gcs"
+            cfg = {k: (request.form.get(k) or "").strip()
+                   for k in ("bucket", "prefix")}
+            cfg["provider"] = "gcs"
+            if not cfg["bucket"]:
+                err = "Google Cloud Storage requires a bucket."
+            elif not credential_ref and not existing_ref:
+                err = ("GCS interoperability requires a credential "
+                       "reference holding 'access_key:secret_key' "
+                       "HMAC credentials.")
+        elif provider == "manual":
+            kind = "s3"
+            cfg = {k: (request.form.get(k) or "").strip()
+                   for k in ("bucket", "prefix", "region",
+                             "endpoint_url", "ca_bundle")}
+            cfg["path_style"] = bool(request.form.get("path_style"))
+            cfg["provider"] = "manual"
+            if not cfg["bucket"]:
+                err = "S3-compatible storage requires a bucket."
+        else:
+            err = f"unknown storage provider {provider!r}"
+    else:
+        err = f"unknown store kind {kind!r}"
+    return kind, name, cfg, credential_ref, err
+
+
+def _flash_probe_steps(steps):
+    """Render a connection-test checklist as flash lines — one row
+    per check (§Storage UI 3)."""
+    for label, ok, detail in steps:
+        mark = "✓" if ok else "✗"
+        flash(f"{mark} {label}" + (f" — {detail}" if detail else ""),
+              "info" if ok else "error")
+
+
+@portal_bp.route("/projects/<project_id>/artifact-stores/test",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_test(project_id):
+    """Test Connection — run the probe against an UNSAVED store so
+    the user can verify the destination before saving. The probe
+    only creates/reads/deletes a small temporary object (§3)."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    kind, name, cfg, credential_ref, err = _store_form_fields(
+        project.id)
+    if err:
+        flash(err, "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project.id, tab="storage"))
+    store = ArtifactStore(
+        project_id=project.id, name=name[:128], kind=kind,
+        config_json=json.dumps(cfg), credential_ref=credential_ref)
+    try:
+        from ..storage import backend_for, run_bounded
+        steps = run_bounded(backend_for(store).probe_steps)
+    except Exception as exc:
+        steps = [("destination configuration", False, str(exc))]
+    _flash_probe_steps(steps)
+    ok = all(s[1] for s in steps)
+    record_audit(current_user.username, "artifact_store.test",
+                 f"{project.id} {kind} -> {'ok' if ok else 'FAIL'}")
+    flash(("Connection test passed — the destination can be saved."
+           if ok else "Connection test FAILED — fix the destination "
+           "or ask an administrator for access, then test again."),
+          "info" if ok else "error")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/capture-policy",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def capture_policy_update(project_id):
+    """Save the project's artifact-collection permissions
+    (§storage-5). These are COLLECTION permissions — they do not
+    prevent a framework from generating the files. Snapshotted per
+    execution at dispatch; enforcement is server-side in _collect."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    from ..capture import CAPTURE_CATEGORIES, normalize_policy
+    raw = {k: bool(request.form.get(f"cat_{k}"))
+           for k, _, req, _ in CAPTURE_CATEGORIES if not req}
+    project.capture_policy_json = json.dumps(normalize_policy(raw))
+    db.session.commit()
+    record_audit(current_user.username,
+                 "capture_policy.updated",
+                 f"{project.id}: {project.capture_policy()}")
+    flash("Capture policy saved — applies to NEW executions; "
+          "recorded policy on past runs is unchanged.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/retention",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def retention_update(project_id):
+    """Per-project retention overrides — empty field = inherit the
+    global default. Applies to ALL eligible records at the next
+    cleanup run, not only new executions (§storage-7)."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    from .. import retention
+    try:
+        a_days = retention.parse_days(
+            request.form.get("artifact_days"))
+        m_days = retention.parse_days(
+            request.form.get("metadata_days"))
+    except ValueError as exc:
+        flash(f"Retention days must be a whole number ≥ 0. {exc}",
+              "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project.id, tab="storage"))
+    pol = {}
+    if a_days is not None:
+        pol["artifact_days"] = a_days
+    if m_days is not None:
+        pol["metadata_days"] = m_days
+    project.retention_json = json.dumps(pol)
+    db.session.commit()
+    record_audit(current_user.username, "retention.policy",
+                 f"{project.id}: {pol}")
+    flash("Retention policy saved — it applies to existing eligible "
+          "records at the next cleanup run, not only new runs. "
+          "Saving a policy never deletes anything by itself.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/retention/preview",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def retention_preview(project_id):
+    """Non-destructive count of what the CURRENT policy would expire —
+    required before the destructive run is enabled."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    from .. import retention
+    out = retention.preview(project_id=project.id)
+    session[f"retention_preview_ok_{project.id}"] = \
+        datetime.now().timestamp()
+    a, m = out["artifacts"], out["metadata"]
+    flash(f"Retention preview: {a['files']} artifact file(s) "
+          f"({a['bytes']} bytes) across {a['executions']} execution(s) "
+          f"would expire; {m['executions']} execution(s) including "
+          "their summaries would be deleted. Nothing has been "
+          "removed.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/retention/run",
+                 methods=["POST"])
+@role_required(Role.ADMIN)
+def retention_run(project_id):
+    """Destructive sweep — allowed only right after a preview so the
+    operator saw the affected scope first (§storage-7)."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    key = f"retention_preview_ok_{project.id}"
+    when = session.pop(key, 0)
+    if datetime.now().timestamp() - when > 600:
+        flash("Run the preview first — the affected scope must be "
+              "shown before deletion is allowed.", "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project.id, tab="storage"))
+    from .. import retention
+    out = retention.sweep(project_id=project.id,
+                          actor=current_user.username)
+    if out["artifact_errors"]:
+        flash(f"Cleanup finished with PARTIAL failures: "
+              f"{out['artifacts_expired']} artifact file(s) expired, "
+              f"{out['artifact_errors']} deletion error(s) (left in "
+              "place for retry), "
+              f"{out['executions_removed']} execution record(s) "
+              "removed.", "error")
+    else:
+        flash(f"Cleanup complete: {out['artifacts_expired']} artifact "
+              f"file(s) expired, {out['executions_removed']} "
+              "execution record(s) removed.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/projects/<project_id>/artifact-stores/new",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_new(project_id):
+    """Create a durable artifact store. local/mounted roots must sit
+    inside the administrator-approved root lists — enforced again at
+    every use, not just save. Credentials stay referenced, never in
+    config_json/URLs/logs."""
+    project = _project_or_404(project_id)
+    PlainForm().validate_on_submit()
+    kind, name, cfg, credential_ref, err = _store_form_fields(
+        project.id)
+    if err:
+        flash(err, "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project.id, tab="storage"))
+    store = ArtifactStore(
+        project_id=project.id, name=name[:128], kind=kind,
+        config_json=json.dumps(cfg),
+        credential_ref=credential_ref)
+    try:
+        from ..storage import backend_for
+        ok, msg = backend_for(store).probe()
+    except Exception as exc:
+        ok, msg = False, str(exc)
+    store.validated_at = utcnow() if ok else None
+    store.last_error = "" if ok else msg[:512]
+    db.session.add(store)
+    db.session.commit()
+    record_audit(current_user.username, "artifact_store.created",
+                 f"{store.id} {kind} probe={'ok' if ok else 'FAIL'}")
+    flash(f"Store {name!r} saved — probe "
+          f"{'passed' if ok else 'FAILED: ' + msg}.", "info" if ok
+          else "error")
+    return redirect(url_for("portal.project_detail",
+                            project_id=project.id, tab="storage"))
+
+
+@portal_bp.route("/artifact-stores/<store_id>/probe",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_probe(store_id):
+    """Explicit write/read/delete validation of a saved store."""
+    store = db.session.get(ArtifactStore, store_id)
+    if store is None:
+        abort(404)
+    PlainForm().validate_on_submit()
+    try:
+        from ..storage import backend_for, run_bounded
+        steps = run_bounded(backend_for(store).probe_steps)
+    except Exception as exc:
+        steps = [("destination configuration", False, str(exc))]
+    ok = all(s[1] for s in steps)
+    msg = "; ".join(f"{l}: {d}" for l, o, d in steps if not o) or \
+        "write/read/delete verified"
+    store.validated_at = utcnow() if ok else None
+    store.last_error = "" if ok else msg[:512]
+    db.session.commit()
+    record_audit(current_user.username, "artifact_store.probed",
+                 f"{store.id} -> {'ok' if ok else 'FAIL'}")
+    _flash_probe_steps(steps)
+    flash(f"Connection test {'passed' if ok else 'FAILED'}.",
+          "info" if ok else "error")
+    return redirect(url_for("portal.project_detail",
+                            project_id=store.project_id,
+                            tab="storage"))
+
+
+@portal_bp.route("/artifact-stores/<store_id>/edit",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_edit(store_id):
+    """Edit a saved destination — same per-provider validation as
+    creation. Kind/provider are immutable: a destination's API
+    protocol cannot silently change under existing artifact refs.
+    Location changes (bucket/container/prefix) apply to new objects;
+    existing artifact refs stay byte-identical keys."""
+    store = db.session.get(ArtifactStore, store_id)
+    if store is None:
+        abort(404)
+    PlainForm().validate_on_submit()
+    kind, name, cfg, _cred_ref, err = _store_form_fields(
+        store.project_id, existing_ref=store.credential_ref)
+    if kind != store.kind:
+        flash("A destination's provider cannot be changed — create "
+              "a new destination instead.", "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=store.project_id,
+                                tab="storage"))
+    saved_provider = (store.config().get("provider")
+                      or ("manual" if store.kind == "s3"
+                          else store.kind))
+    if err:
+        flash(err, "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=store.project_id,
+                                tab="storage"))
+    store.name = (name or store.name)[:128]
+    store.config_json = json.dumps(cfg)
+    # credential_ref is preserved when the field is left blank —
+    # masking means an empty submit is 'unchanged', not 'cleared'.
+    submitted = request.form.get("credential_ref")
+    if submitted is not None and submitted.strip():
+        store.credential_ref = submitted.strip()
+    db.session.commit()
+    record_audit(current_user.username, "artifact_store.edited",
+                 f"{store.id} {store.kind}/{saved_provider}")
+    flash(f"Store {store.name!r} updated — run Test connection to "
+          "re-verify. Changes apply to new objects; existing "
+          "artifacts keep their recorded keys.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=store.project_id,
+                            tab="storage"))
+
+
+@portal_bp.route("/artifact-stores/<store_id>/toggle",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_toggle(store_id):
+    """Active flag applies to NEW executions only — historical
+    artifacts keep their store_id/ref and stay retrievable. Retired
+    destinations cannot be re-activated (retirement is final —
+    create a new destination instead)."""
+    store = db.session.get(ArtifactStore, store_id)
+    if store is None:
+        abort(404)
+    PlainForm().validate_on_submit()
+    if store.retired:
+        flash("Retired destinations cannot be re-activated — create "
+              "a new destination instead.", "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=store.project_id,
+                                tab="storage"))
+    store.active = not store.active
+    db.session.commit()
+    record_audit(current_user.username, "artifact_store.toggled",
+                 f"{store.id} active={store.active}")
+    return redirect(url_for("portal.project_detail",
+                            project_id=store.project_id,
+                            tab="storage"))
+
+
+@portal_bp.route("/artifact-stores/<store_id>/delete",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def store_delete(store_id):
+    """Retire a destination that stored artifacts still reference —
+    the config is kept so historical files stay retrievable, but it
+    can never receive new writes. Only an unreferenced store is
+    actually deleted (§Storage UI 4)."""
+    store = db.session.get(ArtifactStore, store_id)
+    if store is None:
+        abort(404)
+    PlainForm().validate_on_submit()
+    from ..execution import Artifact
+    in_use = Artifact.query.filter_by(
+        store_id=store.id, storage_state="stored").count()
+    if in_use:
+        store.retired = True
+        store.active = False
+        db.session.commit()
+        record_audit(current_user.username, "artifact_store.retired",
+                     f"{store.id} ({in_use} stored artifacts keep "
+                     "retrieval access)")
+        flash(f"Destination retired — {in_use} stored artifact(s) "
+              "keep retrieval access through its saved "
+              "configuration; it will not receive new files.",
+              "info")
+    else:
+        db.session.delete(store)
+        db.session.commit()
+        record_audit(current_user.username, "artifact_store.deleted",
+                     store_id)
+        flash("Destination removed — no stored artifacts referenced "
+              "it.", "info")
+    return redirect(url_for("portal.project_detail",
+                            project_id=store.project_id,
+                            tab="storage"))
+
+
+@portal_bp.route("/framework-projects/<fp_id>/delete",
+                 methods=["POST"])
+@role_required(*EDIT_ROLES)
+def fp_delete(fp_id):
+    fp = db.session.get(FrameworkProject, fp_id)
+    if fp is None:
+        abort(404)
+    binding = _binding_or_404(fp.binding_id)
+    PlainForm().validate_on_submit()
+    DiscoveredItem.query.filter_by(framework_project_id=fp.id).delete()
+    db.session.delete(fp)
+    db.session.commit()
+    record_audit(current_user.username,
+                 "framework_project.deleted", fp_id)
+    return redirect(url_for("portal.project_detail",
+                            project_id=binding.project_id,
+                            tab="bindings"))
+
+
+@portal_bp.route("/bindings/<binding_id>/browse")
+@role_required(*EDIT_ROLES)
+def binding_browse(binding_id):
+    """Directory browser for onboarding — bounded, contained JSON
+    listing inside the checkout. Never executes or installs."""
+    from ..discovery.base import SKIP_DIRS, safe_under
+    binding = _binding_or_404(binding_id)
+    base = (Path(binding.worktree_path or "") /
+            (binding.subdirectory or ""))
+    base = base.resolve()
+    rel = (request.args.get("path") or "").strip().strip("/")
+    target = (base / rel).resolve()
+    out = {"path": rel, "dirs": [], "files": [], "truncated": False}
+    if not binding.worktree_path or not base.is_dir() or \
+            not safe_under(target, base):
+        return out
+    if not target.is_dir():
+        return out
+    try:
+        for e in sorted(target.iterdir())[:500]:
+            if e.name.startswith(".") or e.name in SKIP_DIRS:
+                continue
+            if e.is_dir() and not e.is_symlink():
+                out["dirs"].append(e.name)
+            elif e.is_file():
+                out["files"].append(e.name)
+            if len(out["dirs"]) + len(out["files"]) >= 400:
+                out["truncated"] = True
+                break
+    except OSError:
+        pass
+    return out
 
 
 # ---------- suites ----------
@@ -1028,7 +1789,16 @@ def discovered_detail(item_id):
 def run_discovered(item_id):
     from ..execution import DiscoveredItem
     item = db.session.get(DiscoveredItem, item_id)
-    if item is None or item.kind not in ("suite", "collection"):
+    if item is None:
+        abort(404)
+    # Dispatch gate: legacy suite/collection items, plus any
+    # framework-project item the adapter marked selectable
+    # (file/test/scenario). Candidate items (selectable=False) and
+    # invalidated configs are rejected server-side in
+    # create_execution via _fp_item_gate.
+    _dispatchable = (item.kind in ("suite", "collection") or
+                     (item.framework_project_id and item.selectable))
+    if not _dispatchable:
         abort(404)
     _project_or_404(item.project_id)
     PlainForm().validate_on_submit()
@@ -2219,12 +2989,50 @@ def execution_detail(execution_id):
             1 for u in units if u.state in active)
     parent = (db.session.get(Execution, ex.parent_id)
               if ex.parent_id else None)
+    store_active = ArtifactStore.query.filter_by(
+        project_id=ex.project_id, active=True, retired=False
+    ).first() is not None
     return render_template(
         "portal/execution_detail.html", ex=ex, counts=counts,
         plain_form=PlainForm(), can_edit=can_edit,
         unresolved=unresolved, units=units, parent=parent,
         actual_concurrency=actual_concurrency,
+        store_active=store_active,
         rl_enabled=settings_mod.get("reportinglabs_enabled", True))
+
+
+@portal_bp.route("/artifacts/<artifact_id>/retry", methods=["POST"])
+@role_required(*EDIT_ROLES)
+def artifact_retry(artifact_id):
+    """Idempotent durable-storage retry for one artifact — re-runs
+    the same transfer (same key), never the tests."""
+    from ..execution import Artifact
+    a = db.session.get(Artifact, artifact_id)
+    if a is None:
+        abort(404)
+    ex = _execution_or_404(a.execution_id)
+    PlainForm().validate_on_submit()
+    from ..storage import store_execution_artifacts, run_bounded, \
+        StoreError
+    try:
+        out = run_bounded(
+            lambda: store_execution_artifacts(
+                ex, Path(ex.report_dir or "")), timeout=120)
+    except StoreError as exc:
+        flash(f"Storage retry could not run: {exc}", "error")
+        return redirect(url_for("portal.execution_detail",
+                                execution_id=ex.id))
+    record_audit(current_user.username, "artifact.store_retry",
+                 f"{a.id} -> {out}")
+    if out["skipped"]:
+        flash(f"{out['skipped']} file(s) are no longer present in "
+              "staging — recovery is unavailable for them; only a "
+              "new run can regenerate them.", "error")
+    flash(f"Storage retry: {out['stored']} stored, "
+          f"{out['failed']} failed.", "info" if not out["failed"]
+          else "error")
+    return redirect(url_for("portal.execution_detail",
+                            execution_id=ex.id))
 
 
 @portal_bp.route("/executions/<execution_id>/cancel", methods=["POST"])
@@ -2319,6 +3127,104 @@ def retry_execution(execution_id):
                           execution_id=new_ex.id))
 
 
+def _retention_context(project) -> dict:
+    """Effective retention for display: per-domain days +
+    which source (project override vs global default) applies."""
+    from .. import retention, settings as _s
+    eff = retention.effective_policy(project)
+    raw = project.retention()
+    return {
+        "artifact_days": eff["artifact_days"],
+        "metadata_days": eff["metadata_days"],
+        "artifact_source": ("project" if raw.get("artifact_days")
+                            is not None else "global"),
+        "metadata_source": ("project" if raw.get("metadata_days")
+                            is not None else "global"),
+        "global_artifact_days": int(_s.get(
+            "retention_artifact_days", 0) or 0),
+        "global_metadata_days": int(_s.get(
+            "retention_metadata_days", 0) or 0),
+        "project_raw": raw,
+        "logs_days": int(_s.get("logs_retention_days", 30) or 30),
+    }
+
+
+_DL_STAGE_SEM = threading.BoundedSemaphore(4)
+_DL_STAGE_MAX_AGE_S = 3600
+
+
+def _dl_staging_dir() -> Path:
+    """Staging dir for object-store downloads: lives in the instance
+    dir — never under a report dir or an approved storage root, so a
+    staged file can neither be collected as an artifact nor reached
+    through another project's path space."""
+    d = Path(current_app.instance_path) / ".dl-staging"
+    d.mkdir(mode=0o700, parents=True, exist_ok=True)
+    return d
+
+
+def _stage_object_download(backend, artifact):
+    """Object-store durable copy → bounded temp file for checksum
+    verification; returns (path, reader-factory). The reader deletes
+    the file on iterator close; error paths unlink eagerly.
+
+    Safeguards (§storage-5): concurrency cap so downloads can't eat
+    all worker threads; size cap at the registered artifact size
+    (an oversized object is refused, not trusted); ENOSPC maps to a
+    clean 503; any staging error removes the partial file; a stale
+    sweep removes files abandoned by process termination."""
+    import errno
+    import time
+    if not _DL_STAGE_SEM.acquire(timeout=30):
+        abort(503)
+    tmp_path = None
+    try:
+        d = _dl_staging_dir()
+        # Crash cleanup: staged files are response-ephemeral; anything
+        # older than the bound is abandoned by definition.
+        now = time.time()
+        for f in d.iterdir():
+            try:
+                if f.stat().st_mtime < now - _DL_STAGE_MAX_AGE_S:
+                    f.unlink(missing_ok=True)
+            except OSError:
+                pass
+        try:
+            body = backend.open(artifact.storage_ref)
+        except Exception:                                # noqa: BLE001
+            abort(404)
+        import tempfile
+        fd, tmp_path = tempfile.mkstemp(dir=d, prefix=".dl-")
+        try:
+            with os.fdopen(fd, "wb") as out:
+                remaining = (artifact.size or 0) + 1
+                while remaining > 0:
+                    chunk = body.read(min(65536, remaining))
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    remaining -= len(chunk)
+            oversize = bool(body.read(1))
+        except OSError as exc:
+            Path(tmp_path).unlink(missing_ok=True)
+            tmp_path = None
+            if exc.errno == errno.ENOSPC:
+                abort(503)
+            abort(500)
+        except Exception:                                # noqa: BLE001
+            Path(tmp_path).unlink(missing_ok=True)
+            tmp_path = None
+            abort(503)
+        if oversize:
+            # Object exceeds the registered size — refuse, never
+            # buffer unbounded content.
+            Path(tmp_path).unlink(missing_ok=True)
+            abort(409)
+        return Path(tmp_path)
+    finally:
+        _DL_STAGE_SEM.release()
+
+
 @portal_bp.route("/executions/<execution_id>/artifacts/<artifact_id>")
 @login_required
 def download_artifact(execution_id, artifact_id):
@@ -2331,19 +3237,77 @@ def download_artifact(execution_id, artifact_id):
         abort(404)
     root = Path(ex.report_dir or "")
     target = (root / artifact.rel_path).resolve()
-    if not str(target).startswith(str(root.resolve()) + "/") or not target.is_file():
-        abort(404)
+    staged_ok = str(target).startswith(
+        str(root.resolve()) + "/") and target.is_file()
+    staged_temp = None
+    st = None
+    if not staged_ok:
+        # Staging may be gone after cleanup — serve the durable copy
+        # when the artifact reached `stored` state (§8 historical
+        # access after workspace removal).
+        from ..storage import backend_for, StoreError
+        from ..execution import ArtifactStore
+        st = db.session.get(ArtifactStore, artifact.store_id or "")
+        if artifact.storage_state != "stored" or st is None:
+            abort(404)
+        try:
+            backend = backend_for(st)
+        except StoreError:
+            abort(404)
+        try:
+            target = backend.path(artifact.storage_ref)
+        except AttributeError:
+            target = _stage_object_download(backend, artifact)
+            staged_temp = target
+        # A mounted share can block stat/read uninterruptibly — the
+        # verify ops run under the bounded storage-I/O pool so a dead
+        # share can't occupy request capacity indefinitely (§storage-4).
+        if st.kind == "mounted":
+            from ..storage import run_bounded
+            try:
+                exists_ok = run_bounded(
+                    lambda t=target: t.is_file())
+            except StoreError:
+                abort(503)
+        else:
+            exists_ok = target.is_file()
+        if not exists_ok:
+            abort(404)
     # Checksum re-verified on every download — stale evidence is refused.
     from ..results import sha256_file
-    if sha256_file(target) != artifact.sha256:
+    if (staged_temp is None and st is not None
+            and st.kind == "mounted"):
+        from ..storage import run_bounded
+        try:
+            ok_sum = run_bounded(
+                lambda: sha256_file(target) == artifact.sha256)
+        except StoreError:
+            abort(503)
+        if not ok_sum:
+            abort(409)
+    elif sha256_file(target) != artifact.sha256:
+        if staged_temp is not None:
+            staged_temp.unlink(missing_ok=True)
         abort(409)
     record_audit(current_user.username, "artifact.download", artifact.id)
     mime = artifact.mime or "application/octet-stream"
+    download_name = (artifact.rel_path.replace("\\", "/").rpartition("/")[-1]
+                     or artifact.rel_path)
+    if staged_temp is not None:
+        # Bounded (== verified artifact size): serve from memory and
+        # remove the staged copy deterministically — no reliance on
+        # iterator-close ordering; the stale sweep stays as the
+        # crash path for files abandoned mid-staging.
+        data = staged_temp.read_bytes()
+        staged_temp.unlink(missing_ok=True)
+        return send_file(io.BytesIO(data), mimetype=mime,
+                         download_name=download_name,
+                         as_attachment=True)
     if artifact.mime in ("text/html", "image/svg+xml"):
         return send_file(target, as_attachment=True,
-                         download_name=target.name)
+                         download_name=download_name)
     return send_file(target, mimetype=mime,
-                     download_name=target.name, as_attachment=True)
+                     download_name=download_name, as_attachment=True)
 
 
 @portal_bp.route("/executions/<execution_id>/report")
@@ -2594,6 +3558,61 @@ def view_log(execution_id, name):
 
 
 
+
+# Framework-specific schedule fields (create/edit) — must mirror the
+# run form's per-framework options exactly, never invent new ones.
+# Frameworks without run-form fields get common fields only.
+SCHED_FW_FIELDS = {
+    "katalon": {"execution_profile", "browser_type",
+                "remote_webdriver_url", "remote_webdriver_type",
+                "runtime_id"},
+    "cypress": {"browser_type"},
+    "playwright": {"browser_type"},
+    "pytest": {"pytest_keyword", "pytest_markers"},
+    "pytest-bdd": {"pytest_keyword", "pytest_markers"},
+    "behave": set(),
+    "robot": {"robot_test", "robot_include", "robot_exclude"},
+    "gtest": set(),
+    "jest": {"jest_test_path", "jest_test_name"},
+    "postman": {"postman_collection", "postman_environment",
+                "postman_folder", "postman_iterations"},
+    "bruno": {"bruno_collection", "bruno_environment", "bruno_tags"},
+}
+SCHED_FW_LABELS = {
+    "katalon": "Katalon", "cypress": "Cypress",
+    "playwright": "Playwright", "pytest": "pytest",
+    "pytest-bdd": "pytest-bdd", "behave": "behave",
+    "robot": "Robot", "gtest": "GoogleTest",
+    "jest": "Jest", "postman": "Postman/Newman", "bruno": "Bruno",
+}
+SCHED_FW_ORDER = ["katalon", "cypress", "playwright", "pytest",
+                  "pytest-bdd", "behave", "robot", "gtest",
+                  "jest", "postman", "bruno"]
+
+
+def project_frameworks(project) -> list:
+    """Frameworks this project actually has, in canonical order —
+    framework projects by their adapter kind, plus 'katalon' when
+    legacy (framework-less) items or app suites exist. Falls back to
+    katalon for an empty project so the form stays usable."""
+    from ..execution import FrameworkProject
+    have = {fp.framework for fp in
+            FrameworkProject.query.filter_by(project_id=project.id)
+            .all() if fp.framework in SCHED_FW_FIELDS}
+    legacy = DiscoveredItem.query.join(GitBinding).filter(
+        GitBinding.project_id == project.id,
+        DiscoveredItem.framework == "").first()
+    if project.suites or legacy:
+        have.add("katalon")
+    if not have:
+        have.add("katalon")
+    return [f for f in SCHED_FW_ORDER if f in have]
+
+
+def _schedule_fw_choices(project):
+    return [(f, SCHED_FW_LABELS[f]) for f in project_frameworks(project)]
+
+
 @portal_bp.route("/projects/<project_id>/schedules", methods=["POST"])
 @role_required(*EDIT_ROLES)
 def create_schedule(project_id):
@@ -2603,11 +3622,17 @@ def create_schedule(project_id):
     # Same choices the GET offers: discovered repo items + app suites —
     # a repo:<id> value must be a valid choice or validation rejects it
     # before the target can be persisted.
+    from ..execution import Plan as _Plan
     form.target_id.choices = [
+        ("", "— select via the target picker —")] + [
         (f"repo:{d.id}", f"{d.kind} · {d.path}") for d in
         DiscoveredItem.query.join(GitBinding).filter(
             GitBinding.project_id == project.id).all()] + [
-        (s.id, f"Suite: {s.name}") for s in project.suites]
+        (s.id, f"Suite: {s.name}") for s in project.suites] + [
+        (f"plan:{pl.id}", f"plan · {pl.name}") for pl in
+        _Plan.query.filter_by(project_id=project.id).all()] + [
+        (f"app:{s.id}", f"app-side suite · {s.name}")
+        for s in project.suites]
     # runner/runtime pins must be valid choices or SelectField
     # validation rejects the submission silently — same population
     # the GET uses.
@@ -2617,6 +3642,18 @@ def create_schedule(project_id):
             enabled=True).all() if not r.draining]
     form.runtime_id.choices = [("", "Auto")] + [
         (x.id, x.name) for x in _RT.query.filter_by(enabled=True).all()]
+    form.framework.choices = _schedule_fw_choices(project)
+    # Plan targets are Katalon-only today. Check from the raw submission
+    # BEFORE choice validation — a framework the project doesn't offer
+    # would otherwise fail validation silently and hide this clearer
+    # message.
+    _tid_raw = (request.form.get("target_id") or "").strip()
+    _fw_raw = (request.form.get("framework") or "").strip()
+    if _tid_raw.startswith("plan:") and _fw_raw not in ("", "katalon"):
+        flash(f"Framework mismatch — plans group Katalon suites, not "
+              f"{SCHED_FW_LABELS.get(_fw_raw, _fw_raw)}.", "error")
+        return redirect(url_for("portal.project_detail",
+                                project_id=project_id))
     if form.validate_on_submit():
         kind = form.kind.data
         run_at = _parse_run_at(form.run_at.data)
@@ -2635,7 +3672,19 @@ def create_schedule(project_id):
         tid = form.target_id.data or ""
         targets = []
         suite_id = tid
-        if tid.startswith("repo:"):
+        plan_id = None
+        item_fw = ""
+        if tid.startswith("plan:"):
+            pl = db.session.get(_Plan, tid[5:])
+            if pl is None or pl.project_id != project.id:
+                flash("Selected plan is unavailable for this project.",
+                      "error")
+                return redirect(url_for("portal.project_detail",
+                                        project_id=project_id))
+            plan_id = pl.id
+            suite_id = None
+            item_fw = "katalon"     # plans group Katalon suites
+        elif tid.startswith("repo:"):
             d = db.session.get(DiscoveredItem, tid[5:])
             if d is None or d.project_id != project.id:
                 flash("Selected repository target is unavailable for "
@@ -2646,30 +3695,179 @@ def create_schedule(project_id):
                         "source_item_id": d.id,
                         "binding_id": d.binding_id}]
             suite_id = None
+            item_fw = d.framework or "katalon"
+        else:
+            item_fw = "katalon"        # app-side suite
+        # Multi-target picker: case_refs[] posted by the case-selector
+        # widget. Plans own their suites — picker values are ignored
+        # for them. The target-kind selector constrains which item
+        # kinds are valid; a mismatch is rejected, never coerced.
+        target_kind = (request.form.get("target_kind") or "").strip()
+        refs = [x for x in request.form.getlist("case_refs")
+                if x.startswith("repo:")]
+        if refs and not plan_id:
+            targets = []
+            bad_kind, missing = [], []
+            for ref in refs:
+                d = db.session.get(DiscoveredItem, ref[5:])
+                if d is None or d.project_id != project.id:
+                    missing.append(ref)
+                    continue
+                if target_kind == "collection" \
+                        and d.kind != "collection":
+                    bad_kind.append(d.path)
+                    continue
+                if target_kind in ("suite", "selection") \
+                        and d.kind == "collection":
+                    bad_kind.append(d.path)
+                    continue
+                targets.append({"kind": d.kind, "path": d.path,
+                                "source_item_id": d.id,
+                                "binding_id": d.binding_id})
+                if not item_fw or item_fw == "katalon":
+                    item_fw = d.framework or item_fw
+            if missing:
+                flash("Selected repository target is unavailable for "
+                      "this project.", "error")
+                return redirect(url_for("portal.project_detail",
+                                        project_id=project_id))
+            if bad_kind:
+                want = ("test suite collections" if
+                        target_kind == "collection" else
+                        "test suites / discovery selections")
+                flash(f"Target type mismatch — the picker is set to "
+                      f"{want}, but these do not fit: "
+                      f"{', '.join(sorted(bad_kind))}.", "error")
+                return redirect(url_for("portal.project_detail",
+                                        project_id=project_id))
+            if targets:
+                suite_id = None
+        # Framework: explicit pick wins, else inferred from the target.
+        # A pick that contradicts the target's framework is rejected —
+        # the schedule would otherwise store a config its target can
+        # never use.
+        fw = (form.framework.data or "").strip() or item_fw
+        if fw not in SCHED_FW_FIELDS:
+            flash(f"Unknown framework {fw!r}.", "error")
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
+        if tid.startswith("repo:") and item_fw and fw != item_fw \
+                or (tid.startswith("plan:") and fw != "katalon"):
+            flash(f"Framework mismatch — the selected target is "
+                  f"{SCHED_FW_LABELS.get(item_fw, item_fw)}, not "
+                  f"{SCHED_FW_LABELS.get(fw, fw)}.", "error")
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
+        # Type-specific values that don't belong to the chosen
+        # framework are REJECTED with a clear message — never silently
+        # dropped, never carried over from a hidden field.
+        allowed = SCHED_FW_FIELDS[fw]
+        foreign = []
+        submitted = {
+            "execution_profile": form.execution_profile.data,
+            "browser_type": form.browser_type.data,
+            "remote_webdriver_url": form.remote_webdriver_url.data,
+            "remote_webdriver_type": form.remote_webdriver_type.data,
+            "pytest_keyword": form.pytest_keyword.data,
+            "pytest_markers": form.pytest_markers.data,
+            "robot_test": form.robot_test.data,
+            "robot_include": form.robot_include.data,
+            "robot_exclude": form.robot_exclude.data,
+            "jest_test_path": form.jest_test_path.data,
+            "jest_test_name": form.jest_test_name.data,
+            "postman_collection": form.postman_collection.data,
+            "postman_environment": form.postman_environment.data,
+            "postman_folder": form.postman_folder.data,
+            "postman_iterations":
+                str(form.postman_iterations.data or ""),
+            "bruno_collection": form.bruno_collection.data,
+            "bruno_environment": form.bruno_environment.data,
+            "bruno_tags": form.bruno_tags.data,
+        }
+        for fname, val in submitted.items():
+            if fname in allowed:
+                continue
+            # browser_type's default is a real value — only an
+            # explicit non-default counts as a foreign submission;
+            # the same applies to execution_profile's 'default'.
+            if fname == "browser_type" and val in ("", "Chrome (headless)"):
+                continue
+            if fname == "execution_profile" and val in ("", "default"):
+                continue
+            if (val or "").strip():
+                foreign.append(fname)
+        if foreign:
+            flash(f"Fields not applicable to "
+                  f"{SCHED_FW_LABELS.get(fw, fw)}: "
+                  f"{', '.join(sorted(foreign))} — clear them or "
+                  "switch the framework.", "error")
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
+        rc = {
+            "timeout_seconds": form.timeout_seconds.data or 3600,
+            "runner_id": form.runner_id.data or "",
+        }
+        if (form.deps_prepare.data or "") == "false":
+            rc["deps_prepare"] = False
+        if "execution_profile" in allowed:
+            rc["profile"] = form.execution_profile.data or "default"
+        if "browser_type" in allowed:
+            rc["browser"] = form.browser_type.data or ""
+        if "remote_webdriver_url" in allowed:
+            rc["remote_webdriver_url"] = \
+                (form.remote_webdriver_url.data or "").strip()
+        if "remote_webdriver_type" in allowed:
+            rc["remote_webdriver_type"] = \
+                (form.remote_webdriver_type.data or "").strip()
+        if "runtime_id" in allowed:
+            rc["runtime_id"] = form.runtime_id.data or ""
+        for f in ("pytest_keyword", "pytest_markers", "robot_test",
+                  "robot_include", "robot_exclude"):
+            if f in allowed:
+                rc[f] = (submitted[f] or "").strip()
+        # jest/postman/bruno form fields map onto the execution-native
+        # run-config keys the dispatch layer already consumes.
+        if "jest_test_path" in allowed:
+            rc["jest_path_pattern"] = \
+                (submitted["jest_test_path"] or "").strip()
+        if "jest_test_name" in allowed:
+            rc["test_pattern"] = \
+                (submitted["jest_test_name"] or "").strip()
+        for f in ("postman_collection", "postman_environment",
+                  "postman_folder", "bruno_collection",
+                  "bruno_environment", "bruno_tags"):
+            if f in allowed:
+                rc[f] = (submitted[f] or "").strip()
+        if "postman_iterations" in allowed:
+            try:
+                rc["postman_iterations"] = \
+                    int(submitted["postman_iterations"] or 0)
+            except (TypeError, ValueError):
+                rc["postman_iterations"] = 0
+        if not targets and not plan_id and not (suite_id or "").strip():
+            flash("No target — pick suites, collections or a plan.",
+                  "error")
+            return redirect(url_for("portal.project_detail",
+                                    project_id=project_id))
         db.session.add(Schedule(
             project_id=project.id, name=form.name.data.strip(),
             description=form.description.data or "",
-            target_type="suite", suite_id=suite_id,
-            plan_id=None,
+            target_type="plan" if plan_id else "suite",
+            suite_id=suite_id,
+            plan_id=plan_id,
             targets_json=json.dumps(targets), kind=kind,
             interval_minutes=interval if kind == "interval" else None,
             next_run_at=run_at, enabled=True,
             overlap_policy=form.overlap_policy.data or "allow",
             misfire_policy=form.misfire_policy.data or "late",
-            run_config_json=json.dumps({
-                "profile": form.execution_profile.data or "default",
-                "browser": form.browser_type.data or "",
-                "remote_webdriver_url":
-                    (form.remote_webdriver_url.data or "").strip(),
-                "remote_webdriver_type":
-                    (form.remote_webdriver_type.data or "").strip(),
-                "timeout_seconds": form.timeout_seconds.data or 3600,
-                "runner_id": form.runner_id.data or "",
-                "runtime_id": form.runtime_id.data or "",
-            }),
+            run_config_json=json.dumps(rc),
             created_by=current_user.username))
         db.session.commit()
         record_audit(current_user.username, "schedule.created", project.id)
+    elif form.errors:
+        errs = "; ".join(f"{k}: {', '.join(v[:2])}"
+                         for k, v in form.errors.items())
+        flash(f"Schedule not saved — {errs}", "error")
     return redirect(url_for("portal.project_detail",
                           project_id=project_id))
 
@@ -2700,6 +3898,18 @@ def edit_schedule(schedule_id):
         abort(404)
     _project_or_404(sched.project_id)
     form = ScheduleForm()
+    # Choice lists must be populated before validation — an empty
+    # SelectField raises rather than validates (pre-existing defect
+    # surfaced by legacy-schedule editing). The edit path reads only
+    # raw request.form values; the form object exists for CSRF.
+    form.target_id.choices = [
+        (f"repo:{d.id}", "x") for d in
+        DiscoveredItem.query.join(GitBinding).filter(
+            GitBinding.project_id == sched.project_id).all()]
+    form.runner_id.choices = [("", "Auto")]
+    form.runtime_id.choices = [("", "Auto")]
+    form.framework.choices = _schedule_fw_choices(
+        db.session.get(Project, sched.project_id))
     form.validate_on_submit()
     if request.form.get("name"):
         sched.name = request.form["name"].strip()
@@ -2786,7 +3996,7 @@ def run_schedule_now(schedule_id):
                 current_user.username, suite, binding=binding,
                 source_sha=sha, run_config=cfg, schedule_id=sched.id)
         elif sched.target_type == "plan" and sched.plan_id:
-            plan = None
+            plan = db.session.get(Plan, sched.plan_id)
             if plan is None:
                 raise dispatch.DispatchError("scheduled plan no longer exists")
             _, exs = dispatch.queue_plan_executions(

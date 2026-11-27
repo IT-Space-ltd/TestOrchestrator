@@ -1,14 +1,14 @@
-# TestOrchestrator 2.6.0 — Administrator Manual
+# TestOrchestrator 2.7.0 — Administrator Manual
 
-Applies to **TestOrchestrator 2.6.0** (release tag `2.6`).
+Applies to **TestOrchestrator 2.6.0** (release 2.7.0).
 
 **How to read the validation markers** — every procedure carries one:
 
-| Marker | Means |
+| Marker | What it means — example |
 |---|---|
-| **[verified]** | Executed against the release install package — details in `docs/acceptance-2.5.0.md` / `docs/acceptance-2.6.0.md` |
-| **[code/CI]** | Documented from installer source and CI evidence; not interactively validated here |
-| **[doc-env]** | Demonstrated on the isolated documentation environment (fixture data) — procedure is real, values are not |
+| **[verified]** | Someone really executed this against the release install package. Example: the evidence is in `docs/acceptance-2.5.0.md` or `docs/acceptance-2.6.0.md`. |
+| **[code/CI]** | This is documented from installer source and CI evidence, but not interactively validated in this manual. Treat it as checked logic, not a click-by-click witness. |
+| **[doc-env]** | This was demonstrated on the isolated documentation environment with fixture data. The procedure is real; the names and values are examples. |
 
 Screenshots were captured from the 2.6.0 codebase — the
 index lists each frame's provenance.
@@ -18,80 +18,30 @@ index lists each frame's provenance.
 ## Contents
 
 - [1. Architecture and components](#1-architecture-and-components)
-  - [What an install places on the host](#what-an-install-places-on-the-host)
-  - [Data flow](#data-flow)
 - [2. Platforms and prerequisites](#2-platforms-and-prerequisites)
-  - [2.1 Linux](#21-linux)
-  - [2.2 Windows](#22-windows)
 - [3. Package selection and verification](#3-package-selection-and-verification)
 - [4. Linux installation](#4-linux-installation)
-  - [4.1 Requirements](#41-requirements)
-  - [4.2 Tarball install — step by step **[verified]**](#42-tarball-install--step-by-step-verified)
-  - [4.3 The `.run` self-extracting package](#43-the-run-self-extracting-package)
-  - [4.4 First startup and bootstrap **[verified]**](#44-first-startup-and-bootstrap-verified)
-  - [4.5 Directory layout **[verified]**](#45-directory-layout-verified)
-  - [4.6 Ports and network flows](#46-ports-and-network-flows)
-  - [4.7 Service management and logs](#47-service-management-and-logs)
-  - [4.8 Uninstall](#48-uninstall)
-  - [4.9 HTTPS frontend — Cheroot](#49-https-frontend--cheroot)
 - [5. Windows installation **[verified]**](#5-windows-installation-verified)
-  - [5.1 Windows controller](#51-windows-controller)
-  - [5.2 Windows execution hosts](#52-windows-execution-hosts)
 - [6. Execution targets — installation and operation](#6-execution-targets--installation-and-operation)
-  - [6.1 Windows Buildbot worker](#61-windows-buildbot-worker)
-  - [6.2 Native Linux Buildbot worker](#62-native-linux-buildbot-worker)
-  - [6.3 Agentless Linux SSH target](#63-agentless-linux-ssh-target)
-  - [6.4 Register a KRE installation on a target](#64-register-a-kre-installation-on-a-target)
-  - [6.5 Worker authentication and secrets](#65-worker-authentication-and-secrets)
-  - [6.6 Node.js browser runtimes (Playwright / Cypress)](#66-nodejs-browser-runtimes-playwright--cypress)
-  - [6.7 Robot Framework runtime](#67-robot-framework-runtime)
-  - [6.8 pytest runtime](#68-pytest-runtime)
-  - [6.9 KRE licensing](#69-kre-licensing)
 - [7. Security and administration](#7-security-and-administration)
-  - [7.1 Users and roles **[verified]**](#71-users-and-roles-verified)
-  - [7.2 Secrets **[verified]**](#72-secrets-verified)
-  - [7.3 Worker authentication](#73-worker-authentication)
-  - [7.4 File permissions and TLS](#74-file-permissions-and-tls)
-  - [7.5 Logging and sensitive data](#75-logging-and-sensitive-data)
 - [8. Backup, restore, and upgrades](#8-backup-restore-and-upgrades)
-  - [8.1 What to back up](#81-what-to-back-up)
-  - [8.2 Upgrades](#82-upgrades)
 - [9. Evidence and storage maintenance](#9-evidence-and-storage-maintenance)
-  - [9.1 Ownership](#91-ownership)
-  - [9.2 What deletion removes](#92-what-deletion-removes)
-  - [9.3 Evidence export (optional)](#93-evidence-export-optional)
-  - [9.4 Import staging](#94-import-staging)
-  - [9.5 `toctl evidence-prune` **[verified]**](#95-toctl-evidence-prune-verified)
 - [10. Troubleshooting](#10-troubleshooting)
 - [11. Demonstrated worker flow used for these docs](#11-demonstrated-worker-flow-used-for-these-docs)
 - [12. Runbooks — step by step](#12-runbooks--step-by-step)
-  - [12.1 Add an execution target](#121-add-an-execution-target)
-  - [12.2 Register a KRE installation (runtime connection)](#122-register-a-kre-installation-runtime-connection)
-  - [12.3 Add a user and assign a role](#123-add-a-user-and-assign-a-role)
-  - [12.4 Licence status (informational)](#124-licence-status-informational)
-  - [12.5 Connect Robot Framework — step by step (worker + SSH)](#125-connect-robot-framework--step-by-step-worker--ssh)
-  - [12.6 Connect pytest — step by step (worker + SSH)](#126-connect-pytest--step-by-step-worker--ssh)
-  - [12.7 Connect Playwright — step by step (worker + SSH)](#127-connect-playwright--step-by-step-worker--ssh)
-  - [12.8 Connect Cypress — step by step (worker + SSH)](#128-connect-cypress--step-by-step-worker--ssh)
 - [13. Production deployment checklist](#13-production-deployment-checklist)
 - [14. Configuration reference](#14-configuration-reference)
-  - [14.1 Environment variables (set in `web.env` / service unit)](#141-environment-variables-set-in-webenv--service-unit)
-  - [14.2 Persisted settings (DB — edited in the Admin UI)](#142-persisted-settings-db--edited-in-the-admin-ui)
-  - [14.3 Installer flags (one-time — `install.sh`)](#143-installer-flags-one-time--installsh)
 - [15. Network and authentication matrix](#15-network-and-authentication-matrix)
 - [16. Disaster recovery — full restore](#16-disaster-recovery--full-restore)
-  - [16.1 What to capture](#161-what-to-capture)
-  - [16.2 Consistency](#162-consistency)
-  - [16.3 Restore procedure (tested)](#163-restore-procedure-tested)
-  - [16.4 Verified restore evidence](#164-verified-restore-evidence)
 - [17. Storage lifecycle and capacity](#17-storage-lifecycle-and-capacity)
 - [18. Worker maintenance and failure recovery](#18-worker-maintenance-and-failure-recovery)
 - [19. Credential and certificate lifecycle](#19-credential-and-certificate-lifecycle)
-  - [19.1 Private-repository access — three separate auth contexts](#191-private-repository-access--three-separate-auth-contexts)
 - [20. Version and upgrade matrix](#20-version-and-upgrade-matrix)
 - [21. Incident runbooks](#21-incident-runbooks)
-
----
+- [22. Secrets, credentials and scope settings](#22-secrets-credentials-and-scope-settings)
+- [23. Dependency preparation (`deps_prepare`) — security and operation](#23-dependency-preparation-deps_prepare--security-and-operation)
+- [24. KRE licensing modes — and the licensed-key exposure statement](#24-kre-licensing-modes--and-the-licensed-key-exposure-statement)
+- [25. System operations pages — control reference](#25-system-operations-pages--control-reference)
 
 ## 1. Architecture and components
 
@@ -163,25 +113,25 @@ amber = **not shipped** — KRE and worker-side files you install and
 licence yourself; blue = external services and agentless SSH hosts.
 
 
-| Piece | Ships as | Notes |
+| Piece | Do we install it? | What it does — example |
 |---|---|---|
-| Portal | Python 3.12 payload + offline venv | Flask/Waitress app behind in-process **Cheroot** HTTPS; SQLite (Alembic-migrated) in the instance dir |
-| Buildbot master + controller workers | Bundled Python packages **4.3.0** (`buildbot`, `buildbot-worker`, `buildbot-www`, `paramiko`) | Master REST is loopback-only (`127.0.0.1:8010`); workers authenticate per-worker passwords over PB `:9989` |
-| Remote workers | `buildbot-worker` via the bundled offline installers (Windows `.exe`, Linux script) | Outbound-only PB connection; created and credentialed in Admin → Infrastructure |
-| Agentless SSH path | Controller-side `paramiko` (bundled) on the `to-ssh-dispatcher` worker | Remote host needs **only** `sshd` + KRE — no installed worker or agent |
-| reportingLabs | Vendored package `reporting_labs` (MIT) | Generates per-execution HTML reports |
-| KRE | **Not shipped** | Install/license it on each execution host yourself |
+| Portal | **Yes** — Python 3.12 payload + offline venv | Serves the web UI. Flask/Waitress sits behind in-process **Cheroot** HTTPS; the SQLite database lives in the instance directory and is migrated by Alembic. Example: an admin opens `https://localhost:8443`. |
+| Buildbot master + controller workers | **Yes** — bundled Python packages **4.3.0** (`buildbot`, `buildbot-worker`, `buildbot-www`, `paramiko`) | Accepts jobs from the portal and runs them on the selected target. The master REST API is loopback-only (`127.0.0.1:8010`); workers use their own passwords over PB `:9989`. |
+| Remote workers | **Yes, as installers** — Windows `.exe` and Linux offline script | A machine you choose connects outward to PB and runs jobs. Example: a Windows QA PC connects to the controller; no inbound port is needed on that PC. Workers are created and credentialed in Admin → Infrastructure. |
+| Agentless SSH path | **Yes** — controller-side `paramiko` on the `to-ssh-dispatcher` worker | The controller connects to a host over SSH and runs there. The remote host needs **only** `sshd` + KRE — no installed worker or agent. |
+| reportingLabs | **Yes** — vendored `reporting_labs` (MIT) | Builds the static HTML report you open from an execution. |
+| KRE | **No — not shipped** | Install and license it on each execution host yourself. Example: install Katalon Runtime Engine on the Windows worker before registering that runtime. |
 
 ### What an install places on the host
 
 A supported install (tarball `install.sh` / `.run`, or the Windows
 installer) creates three trees plus service definitions:
 
-| Location | Contents |
+| Location | What lives there — example |
 |---|---|
-| **Payload** (`--payload`, default under the install root) | Application source (`testorchestrator/`, `wsgi.py`), `3rdparty/` (bundled `python-runtime`, `python-wheels` — including Buildbot wheels — `git`, `reporting_labs`), the app `venv/` built offline from the bundled wheels, `requirements.txt`, licences |
-| **Config** (`--config`) | `web.env` (service settings — not secrets), `buildbot/` master+worker config and `secrets.json` (0600), staged systemd units (`testorchestrator-web`, `-worker`, `-buildbot-master`, `-buildbot-local`, `-buildbot-ssh`) |
-| **Data** (`--data`) | SQLite instance DB (Alembic-migrated on upgrade), `buildbot/` runtime state (master + workers, PB :9989, REST :8010), `evidence/` per-execution artifacts, `certs/`, `logs/`, `workspaces/` per-run checkouts |
+| **Payload** (`--payload`, default under the install root) | The replaceable program files: application source (`testorchestrator/`, `wsgi.py`), `3rdparty/` (`python-runtime`, `python-wheels` including Buildbot wheels, `git`, `reporting_labs`), the offline-built app `venv/`, `requirements.txt`, and licences. Example: this is the tree an upgrade may replace. |
+| **Config** (`--config`) | The files that tell services how to start: `web.env` (settings, not secrets), Buildbot master/worker config, `secrets.json` (0600), and the systemd unit files (`testorchestrator-web`, `-worker`, `-buildbot-master`, `-buildbot-local`, `-buildbot-ssh`). Example: edit `web.env` only when the manual tells you to. |
+| **Data** (`--data`) | The state you must back up: SQLite instance DB, Buildbot runtime state, per-execution `evidence/`, `certs/`, `logs/`, and per-run `workspaces/`. Example: if you restore only the payload, your history and credentials are still missing. |
 
 Services: `testorchestrator-web` (Waitress :18080 loopback),
 `testorchestrator-buildbot-master` (REST + PB), `testorchestrator-buildbot-local`/`...-ssh` (controller workers), `testorchestrator-worker` (dispatch worker
@@ -328,14 +278,14 @@ them. Evidence that never reached the repository cannot be recreated
 
 Download from the GitHub release `2.5`:
 
-| Asset | Use |
+| Asset | What you use it for — example |
 |---|---|
-| `testorchestrator-2.6.0-linux-x86_64.tar.gz` | Linux payload + installer |
-| `testorchestrator-2.6.0-linux-x86_64.run` | Self-extracting variant of the same payload |
-| `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` | Windows controller installer (§5.1) |
-| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | Corresponding sources for the bundled GPL components |
-| `SHA256SUMS.txt` | Checksums — also covers the bundled worker `.exe` |
-| `build-manifest.json` | Provenance: source commit, `dirty` flag, tool versions |
+| `testorchestrator-2.6.0-linux-x86_64.tar.gz` | The normal Linux installer package. Example: extract it, then run `install.sh`. |
+| `testorchestrator-2.6.0-linux-x86_64.run` | The same Linux payload in one self-extracting file. Example: use it when you want one executable download. |
+| `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` | The Windows controller installer (§5.1). Example: run it on a Windows Server that hosts the portal. |
+| `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | The corresponding source code for the bundled GPL components. Keep it with the release for license compliance. |
+| `SHA256SUMS.txt` | The checksum list. Example: `sha256sum -c SHA256SUMS.txt --ignore-missing` proves the download was not corrupted or swapped. It also covers the bundled worker `.exe`. |
+| `build-manifest.json` | The build receipt: source commit, dirty flag, tool versions. Example: use it to prove exactly which commit produced the package. |
 
 The Windows Buildbot worker installer
 (`TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`) is
@@ -511,12 +461,12 @@ available, and the Health & services page.
 
 ### 4.5 Directory layout **[verified]**
 
-| Path (default / this doc install) | Contents |
+| Path (default / this doc install) | What lives there — example |
 |---|---|
-| `--payload` `/opt/testorchestrator` | Code, bundled runtime/wheels, `release/` (version, pubkey), `venv/`. Replaceable wholesale on upgrade. |
-| `--data` `/var/lib/testorchestrator` | Instance dir: `testorchestrator.db`, `certs/`, `licence.json`, `bindings/` (worktrees), `imported-evidence/`, `import-staging/`, `remote-runs/`, `buildbot/` (master+worker state). **This is the state — back it up.** |
-| `--config` `/etc/testorchestrator` | `web.env`, `buildbot/` (master.cfg, secrets.json, units), staged systemd units. |
-| `data/buildbot` vs `config/buildbot` | Runtime state vs provisioned config+credentials. |
+| `--payload` `/opt/testorchestrator` | The replaceable program: code, bundled runtime/wheels, `release/` (version, pubkey), and `venv/`. Example: an upgrade can replace this tree without touching your history. |
+| `--data` `/var/lib/testorchestrator` | The state you must not lose: `testorchestrator.db`, `certs/`, `licence.json`, `bindings/` worktrees, `imported-evidence/`, `import-staging/`, `remote-runs/`, and Buildbot runtime state. **Back this up.** |
+| `--config` `/etc/testorchestrator` | The service wiring: `web.env`, Buildbot `master.cfg` and `secrets.json`, plus staged systemd units. Example: change a port in `web.env`, then restart the service. |
+| `data/buildbot` vs `config/buildbot` | `data/buildbot` is what happened at runtime; `config/buildbot` is how the workers are meant to start, including credentials. |
 
 `TO_INSTANCE_DIR` points the app at the data dir; `TO_DATABASE_URI`,
 `TO_CERT_DIR` overrides
@@ -524,14 +474,14 @@ individual locations.
 
 ### 4.6 Ports and network flows
 
-| Flow | Default | Configure |
-|---|---|---|
-| Browser → Cheroot | 443 / http 8080 | `--https-port`/`--http-port`; **Admin → Network & certificates** manages listeners + TLS (staged apply + `previous_good` rollback) |
-| Cheroot → Waitress | `127.0.0.1:18080` | same process; `waitress-serve` loopback |
-| Portal → Buildbot REST | `http://127.0.0.1:8010` | setting `buildbot_endpoint` — **loopback only** |
-| Worker → master PB | `<host>:9989` | setting `buildbot_pb_port`; per-worker password |
-| Portal/worker → SSH host | `22` (per target) | `ssh_port` on the target record |
-| Worker health | `:8092` | `--worker.health-port` (`0` disables) |
+| Who talks to whom | Default port, in plain words | Example | How to change it |
+|---|---|---|---|
+| Browser → front end (Cheroot) | the public HTTPS port people type in their browser | `https://portal.example.com` uses `443` | `--https-port`/`--http-port` at install; **Admin → Network & certificates** afterwards |
+| Front end → application (Waitress) | an internal, machine-local port — users never see it | `127.0.0.1:18080` | same process; rarely changed |
+| Portal → job runner REST | internal channel the portal uses to submit jobs | `http://127.0.0.1:8010` | setting `buildbot_endpoint` — **loopback only** |
+| Worker → job runner | the port a worker collects jobs from | `9989` on the master host | setting `buildbot_pb_port`; per-worker password |
+| Portal/worker → SSH target | the SSH port of each remote execution host | `22` | `ssh_port` on the target record |
+| Worker health | a small status port on each worker | `8092` | `--worker.health-port` (`0` disables) |
 
 Access gates (bootstrap.py): every request must arrive under a
 configured host alias (403 otherwise); until setup is complete **and**
@@ -564,7 +514,7 @@ journalctl -u testorchestrator-web -u testorchestrator-worker \
 
 Stops to take, in order:
 
-1. `systemctl disable --now testorchestrator-web …` (all four units),
+1. `systemctl disable --now testorchestrator-web …` (all five units: web, worker, buildbot master, buildbot local, buildbot ssh),
    remove the unit files; stop any manually started
    coordinator/worker processes.
 2. Remove the **payload** directory — that removes the application
@@ -693,11 +643,11 @@ All execution targets are managed in **System → Infrastructure →
 Execution targets** — add, edit, test, enable, disable, drain, and
 remove without controller files, commands, or restarts. Three types:
 
-| Type | What it is | Where the job runs |
+| Type | What it is, in plain words | Where the job runs — example |
 |---|---|---|
-| `local` | The controller's own `to-local` Buildbot worker | This portal host |
-| `buildbot-worker` | Remote Windows or Linux Buildbot worker | The remote host, outbound PB |
-| `ssh` | Agentless SSH target | Remote host over SSH/SFTP — nothing TO-side installed there |
+| `local` | The worker built into the controller itself (`to-local`). | On the portal host — useful for small or trusted jobs. |
+| `buildbot-worker` | A Windows or Linux machine with the worker installer on it. It connects outward to the controller over PB. | On that remote machine — for example the Windows QA PC in the test lab. |
+| `ssh` | A host the controller reaches over SSH/SFTP. No TestOrchestrator worker is installed there. | On the SSH host — for example a Linux machine that already has KRE installed. |
 
 Remote workers dial **outbound** to the controller's Buildbot PB
 listener — nothing needs to be reachable *inbound* on the worker
@@ -1009,30 +959,47 @@ on port 443 to Katalon.
 
 **TestOrchestrator's side.**
 
-- **Where the key lives:** on the execution host only, in a
-  **credential file** — a regular `0600` file owned by the account
-  that runs KRE. The runtime's `credential_file` field carries the
-  *path*; the key value is never stored in the portal database on
-  remote topologies, never appears in Buildbot properties, specs,
-  logs or argv — only the file path travels.
-- **Three topologies:** on a *controller-local* runner the portal
-  may resolve a `credential_ref` secret-store entry into a per-run
-  `0600` file (cleaned after the run); on *remote Buildbot workers*
-  and *SSH targets* `credential_ref` is **rejected** (portal-side
-  only) — the administrator places the credential file on the
-  worker/remote host and sets `credential_file` to its path.
-- **How it reaches KRE:** the execution spec invokes
-  `kre_cred_exec.py` (shipped with the product; staged to the remote
-  workdir on SSH targets) with the credential-file path. The wrapper
-  validates the file (regular file, no symlink, owner-only mode,
-  no group/other bits, narrowly-shaped key — our VM acceptance saw
-  it refuse a `0644` file), then execs KRE with `-apiKey=<value>` in
-  the child's argv — the only command-line mechanism KRE offers —
-  and byte-scrubs the value out of the child's stdout/stderr at the
-  source, before Buildbot step capture or portal collection can see
-  it. A pre-supplied `-apiKey` in run flags is rejected: exactly one
-  credential source. `run_invocation` additionally scrubs a
-  `user:pass@` embedded in a remote WebDriver URL the same way.
+- **Supported setup (all topologies):** store the KRE API key as a
+  `runtime`-kind secret under **System → Secrets**, then select it as
+  the runtime's **Credential reference**. The value is held encrypted
+  in the secrets store, is never displayed back, and never travels in
+  Buildbot properties, run specs, logs, argv (except KRE's own
+  invocation — see the residual-risk note), reports, or exports.
+- **How the key reaches the target:** per execution the portal
+  resolves the reference into a per-run `0600` staging file and
+  delivers it over the transport already in use — Buildbot
+  `FileDownload` as `.to_kre_cred` at the build root on remote PB
+  workers (a step-removed path from the exec workdir), SFTP as
+  `run.cred` inside the per-run workdir on SSH targets, and a direct
+  staged file on controller-local workers. Each delivery is isolated
+  per execution id, outside the source archive and artifact
+  collection, and removed by the cleanup path on success, failure,
+  timeout, and cancel — the SSH kill batch wipes it even when the
+  remote process group is being terminated. Nothing needs to be
+  copied to a worker or SSH host by hand, and replacing a disposable
+  worker requires no credential re-provisioning.
+- **How it reaches KRE:** the run argv invokes a target-native
+  launcher staged per execution — `kre_cred_exec.sh` under `sh`
+  (POSIX) or `.to_kre_cred_exec.ps1` under `powershell -File`
+  (Windows) — so no helper-specific Python is required on any
+  target. The launcher validates the file (regular non-symlink file,
+  owner-only, no group/other bits, narrowly-shaped token), rejects a
+  pre-supplied `-apiKey` (exactly one credential source), starts KRE
+  with `-apiKey=<value>` in the child's argv — the only mechanism
+  KRE offers — and byte-scrubs the value out of the child's merged
+  output before step capture or portal collection can see it. On
+  POSIX, KRE shares the launcher's process group so Buildbot's step
+  kill and the SSH group kill both terminate the whole engine tree
+  (and a pid-directed signal kills the tree recursively); on
+  Windows a kill-on-close Job Object plus `taskkill /T` removes it.
+  The staged launcher's sha256 is recorded per run as provenance.
+  `run_invocation` additionally scrubs a `user:pass@` embedded in a
+  remote WebDriver URL the same way.
+- **Legacy mode:** the runtime's `credential_file` field — an
+  operator-placed `0600` file on the target — remains supported for
+  compatibility. It is no longer required on any topology; prefer
+  `credential_ref`, which needs no manual file placement and
+  survives worker replacement.
 - **Concurrency rule:** per execution target,
   `capacity_limit = min(max_slots, license_slots)` — the declared
   hardware slots and the **License slots** field set on the runner
@@ -1040,19 +1007,53 @@ on port 443 to Katalon.
   per concurrent session, so dispatch never exceeds the declared
   seat count *on that runner*. This is per-runner: there is no
   cross-machine licence pool and no global seat ledger.
-- **Failure handling:** stdout containing `license` / `licence` /
-  `activation` classifies the run as `error_kind='license'` — the
-  run reports as a normal **failure** with that kind recorded.
-  TestOrchestrator shows it; it does not retry around it and cannot
-  repair the Katalon side.
+- **Failure handling:** failures classify by actual cause — a real
+  KRE activation/licence rejection is `error_kind='license'`; the
+  credential helper's own failures (missing credential file, missing
+  KRE executable, bad file mode — its `kre_cred_exec:` messages) are
+  `error_kind='config'`, never a licence verdict, because the licence
+  was never reached; missing helper/interpreter or staging problems
+  are `infrastructure`; KRE project/suite complaints ("Test suite
+  '…' not found", "cannot find project") are `config`; timeouts and
+  kills are `infrastructure`. The run reports as a normal **failure**
+  with that kind recorded. TestOrchestrator shows it; it does not
+  retry around it and cannot repair the Katalon side.
 
-**Offline licenses.** Katalon also supports an offline licence
-file under the `.katalon/license` folder of the user account that
-runs KRE (see the Katalon activation docs above). TestOrchestrator
-has no code path that installs or manages that file — placing it
-is the operator's job on each execution host, under the account
-the worker runs as. **Offline KRE execution was not tested** in
-this release's evidence set.
+**Licensing modes (2.7.0).** A KRE runtime now declares a
+**Licensing mode** — `online` (default; everything above applies),
+`offline`, or `private`:
+
+- **offline** needs no API key. KRE verifies machine-bound `.lic`
+  files under the *execution account's* `~/.katalon/license`
+  (Linux `/home/<u>/`, Windows `%USERPROFILE%`) on every run —
+  remember the account matters: Katalon's machine ID binds to the
+  OS user (a Windows worker running as SYSTEM has a different
+  machine ID than an interactive admin). Two provisioning options:
+  - **Managed:** store each genuine Katalon-issued `.lic` file's
+    contents as a `license`-kind secret, list the names in the
+    runtime's **Offline license secrets** field. Per run, TO
+    delivers a restricted pack and installs each file as
+    `to-<sha>.lic` `0600` — we only ever write `to-*` names (your
+    own `.lic` files are never overwritten or removed), record them
+    in a `.to_managed` ledger, and they persist across runs. Scope
+    grants apply to license secrets exactly like runtime secrets.
+    One `.lic` = one concurrent offline session: n parallel runs
+    need n license secrets listed.
+  - **Operator-provisioned:** leave the list empty and place the
+    `.lic` files on the target yourself. The readiness probe
+    reports what is actually present (`license_dir`,
+    `license_files`, `exec_user`) without attempting activation.
+- **private** is online activation against your own license server:
+  credential required plus the **Private license server URL** field,
+  emitted as `-serverUrl=<url>` (KRE v8.3.5+). An empty URL fails
+  config — it never silently falls back to the public service.
+- **No hybrid execution mode:** a runtime uses exactly one
+  mechanism; hybrid *deployments* run online- and
+  offline-configured runtimes side by side. Delivery failures carry
+  `to_license:` markers (transport/permissions → `infrastructure`,
+  content/ownership → `config`); KRE's own offline verdict ("no
+  Katalon Runtime Engine … license available") classifies
+  `license`. Design detail: `docs/kre-licensing-modes.md`.
 
 **Separate from TestOrchestrator's own licence.** The
 TestOrchestrator licence is an offline Ed25519-signed code checked
@@ -1170,6 +1171,28 @@ needed) for them.
   empty scope after upgrade until an Administrator assigns
   projects — nothing is silently re-granted.
 
+### 7.1a Roles in detail (2.7.0)
+
+| Role | Label in the UI | What they can do — example |
+|---|---|---|
+| `admin` | Admin | Everything, including users, secrets, runtimes, and system settings. Example: add a worker or reset a password. |
+| `test_manager` | Test Manager | Manage projects, plans, suites, and schedules; run tests; set `deps_prepare`. They cannot administer users, secrets, or system settings. Example: create a nightly regression schedule. |
+| `tester` | Tester | Run tests, view results, and manage their own assignments. Example: start a suite and read its report. |
+| `po` | PO (product owner) | Mostly read-only project visibility, reports, and evidence. Example: check whether release coverage is green. |
+
+All four roles may open the About page. Role checks are enforced
+server-side on every request — hiding a button in the UI is never
+the enforcement. The check reads the role from the authenticated
+session, never from a form field or a parameter, so crafted input
+cannot bypass it. Every administrative mutation writes an audit
+event (who, what, when).
+
+Operational rules: users are never hard-deleted while they own
+history — deactivate instead, preserving the audit trail. There is
+no self-service password reset in 2.7.0 (no mail integration); an
+admin performs resets. Every person must have their own account —
+the audit trail is only meaningful when actions map to individuals.
+
 ### 7.2 Secrets **[verified]**
 
 **Admin → Credentials** stores `git` (HTTPS token / SSH key) and
@@ -1239,15 +1262,24 @@ hide audit records, and never affect test dispatch. Raw framework
 stdout/stderr is not forwarded — execution output stays in the run
 evidence download.
 
+
+### 7.5 User administration actions
+
+**Reset password** on the users page issues a new initial password
+for the account — communicate it out of band; the user must replace
+it at first sign-in. **Save project access** on the user-access page
+applies the per-project grants for the selected user — project
+visibility updates immediately.
+
 ## 8. Backup, restore, and upgrades
 
 ### 8.1 What to back up
 
-| Path | Why |
+| Path | Why you need it — example |
 |---|---|
-| `data/testorchestrator.db` | Executions, results, users, settings, import bookkeeping |
-| `data/` (rest) | Evidence (`imported-evidence/`, `remote-runs/`), `licence.json`, `certs/`, `secret.key`, bindings worktrees |
-| `config/` | `web.env`, `buildbot/` credentials + master.cfg |
+| `data/testorchestrator.db` | The database: executions, results, users, settings, and import bookkeeping. Without it, history is gone. |
+| `data/` (the rest) | Evidence files (`imported-evidence/`, `remote-runs/`), `licence.json`, `certs/`, `secret.key`, and binding worktrees. Example: without `secret.key`, stored credentials cannot be decrypted. |
+| `config/` | `web.env`, Buildbot credentials, and `master.cfg`. Example: without these, services cannot start with the same wiring after a restore. |
 
 `toctl backup --to <dir>` produces `backup-<timestamp>.tar.gz` of the
 instance dir + cert dir (atomic: `.part` renamed on success; newest
@@ -1285,6 +1317,107 @@ and replacing binaries does not roll the schema back. Upgrades never
 delete executions, evidence, settings, or credentials; if a
 post-upgrade check shows missing history, stop and restore rather
 than re-migrating.
+
+### 8.4 Upgrade from 2.6.0 to 2.7.0 — step by step
+
+An upgrade replaces the program files and migrates the database. Your
+data — projects, results, secrets, users — stays where it is. Read the
+whole sequence once before you start; the first time, plan an hour.
+
+**Step 0 — backup first.** Stop the services and take a backup
+(§8.1). Do not skip this. If anything below surprises you, the backup
+is the way back.
+
+```bash
+sudo systemctl stop testorchestrator-web testorchestrator-worker \
+    testorchestrator-buildbot-master testorchestrator-buildbot-local \
+    testorchestrator-buildbot-ssh
+# check nothing survived — the list must be empty:
+systemctl list-units --type=service --state=active 'testorchestrator-*'
+toctl backup --to /var/backups/testorchestrator
+```
+
+![Terminal showing the backup command completing with the archive name](shots/ad-upgrade-01-backup.png)
+
+**Step 1 — verify the new package.** Download the 2.7.0 tarball and
+`SHA256SUMS.txt` next to it. Check before anything runs:
+
+```bash
+sha256sum -c SHA256SUMS.txt
+# testorchestrator-2.7.0-linux-x86_64.tar.gz: OK
+```
+
+**Step 2 — extract and install over the existing directories.** Use
+the **same** payload, data and config directories as the running
+install. The installer detects the existing installation, keeps your
+data and secrets, and stages the new program files:
+
+```bash
+tar -xzf testorchestrator-2.7.0-linux-x86_64.tar.gz
+cd testorchestrator-2.7.0-linux-x86_64
+sudo bash install.sh --yes \
+    --data /var/lib/testorchestrator \
+    --config /etc/testorchestrator
+```
+
+![Terminal showing the upgrade install completing](shots/ad-upgrade-02-install.png)
+
+The installer protects you here: before it copies anything it stops
+every running `testorchestrator-*` service itself, and if any process
+still uses the program directory afterwards, it refuses to install and
+tells you exactly which process to stop. Nothing is written in that
+case — re-run the same command after stopping the process it names.
+Stopping the services yourself in step 0 is still the right procedure:
+the installer's stop is the safety net, not the plan.
+
+You should see the installer finish without errors, and the release
+file shows the new build:
+
+```bash
+cat /opt/testorchestrator/release/release.json
+```
+
+**Step 3 — check for leftover processes.** Before starting the new
+services, make sure nothing from the old install is still running —
+an old process sharing the job queue is a data-integrity risk:
+
+```bash
+ps aux | grep -iE 'testorchestrator|buildbot' | grep -v grep
+```
+
+Expected: **no output** — everything stopped in step 0. If anything is
+listed, stop it before continuing.
+
+**Step 4 — start the services.**
+
+```bash
+sudo systemctl start testorchestrator-buildbot-master \
+    testorchestrator-buildbot-local testorchestrator-buildbot-ssh \
+    testorchestrator-worker testorchestrator-web
+```
+
+**Step 5 — verify the migration.** Open the portal and sign in. Check
+the things that matter to you: projects present, runtimes listed,
+execution history visible. The database migrates automatically on
+first start — the first start can take a minute longer than usual.
+
+![The portal dashboard after upgrade with existing projects visible](shots/ad-upgrade-03-portal.png)
+
+**Step 6 — re-probe the runtimes.** Open **System → Infrastructure**.
+Runtimes re-check themselves; watch the states return to
+`ready-execution`. If one stays `missing-dependency`, open it — the
+message names what changed.
+
+> **Common mistakes — upgrading**
+>
+> - Skipping the backup because "it is a small upgrade". The backup
+>   takes minutes; a broken database takes days.
+> - Installing into **different** directories: that creates a second,
+>   empty installation instead of upgrading the first. Use the same
+>   paths as the running install — check the existing service unit
+>   files if unsure.
+> - Starting services before old processes are gone (step 3): two
+>   generations sharing one queue corrupts run state.
 
 ## 9. Evidence and storage maintenance
 
@@ -1347,7 +1480,7 @@ inspection is otherwise plain `du`/`find` under the managed roots.
 Quick-reference symptoms; the fuller incident matrix with
 diagnostic commands is §21.
 
-| Symptom | Check |
+| What you see | First check — with an example |
 |---|---|
 | `403` immediately after install | Host allowlist — browse the configured alias, not a bare IP; or loopback-only gate still on (setup incomplete / `external_enabled` unset). |
 | `licence … warn` at install | Code expired/not-yet-valid (UTC dates), wrong product, or corrupted paste — the code is `TO1.<payload>.<signature>`. Warning only; the install still completes and the app is fully usable. |
@@ -1357,6 +1490,96 @@ diagnostic commands is §21.
 | Execution `failed` with `Activation failed` in the run log | KRE licence/API key missing on the worker — environment problem, fix on the worker. Full licensing checklist + diagnosis order: §6.9. |
 | `rl_status=failed`, log shows `No module named 'reporting_labs'` | The vendored package is missing from the installed payload — reinstall the package (the installer copies `3rdparty/reporting_labs` and aborts loudly if any required payload file is absent), then **Regenerate**; original artifacts are untouched. |
 | Import says `staging checkout expired` | Staging was cleaned — rerun the preview; pending candidates were not committed. |
+| Node-framework run ends `no result data`, step log shows `bad option: --no-install` or `unrecognized option` | The runtime's executable path points at `node` instead of `npx`. Node-framework runtimes (Jest, Cypress, Playwright) must name **npx** (or the platform shim `npx.cmd`) because dispatch invokes `<exe> --no-install <framework> …` — `node` does not understand `--no-install`. Fix the runtime's executable path; the readiness probe tests this exact invocation shape and reports `exec_invocation=incompatible` when misconfigured. |
+
+## 10A. Status screens — what healthy and unhealthy look like
+
+Every screen below names what you should see, what it means, and what
+to do when it differs. Screenshots come from the reference install;
+the unhealthy states are staged deliberately.
+
+### 10A.1 The infrastructure page
+
+**System → Infrastructure** is the machine room overview: execution
+targets on top, runtimes below, worker installers at the bottom.
+
+![The infrastructure page with one healthy target and its runtimes](shots/ad-status-infra-ok.png)
+
+Healthy looks like this: every target shows **online** in green, every
+runtime shows a readiness state. If a target shows **offline** in grey,
+the worker machine is down or cannot reach the controller — check that
+the host is up and that TCP 9989 is open on the controller (§6).
+
+![The infrastructure page with one target offline](shots/ad-status-infra-offline.png)
+
+### 10A.2 Runtime probe states
+
+Each runtime carries one state. Read them like traffic lights:
+
+| State | What it means, in plain words | Example of what you see | What to do |
+|---|---|---|---|
+| `checking` | the server is testing the runtime right now | a spinner next to the runtime | wait a minute, reload |
+| `ready-discovery` | the tools exist, so tests can be listed — but running them is not yet proven | a Jest runtime that can scan but has not run a proof test | for node frameworks: everything is fine except the final execution proof |
+| `ready-execution` | the probe passed and a small proof run really worked | green state in the runtime list | nothing — this is the good state |
+| `missing-dependency` | a tool the framework needs is not installed | "npx not found — install Node.js" | read the message on the runtime — it names exactly what is missing and how to install it |
+| `failed` | the probe itself could not even run | a red state with a probe log | open the runtime detail — the probe log is attached |
+
+![A runtime in the ready-execution state](shots/ad-status-runtime-ready.png)
+
+![A runtime in the missing-dependency state with the message visible](shots/ad-status-runtime-missing.png)
+
+A common one: `exec_invocation=incompatible` on a node framework means
+the runtime executable points at `node` instead of `npx` — see §10.
+
+### 10A.3 Worker online and offline
+
+A **buildbot-worker** target is online when its worker process on the
+remote host is connected. The connection is outbound from the worker,
+so online does not prove anything about inbound firewalls on the
+worker — it proves the worker service runs and can reach the
+controller.
+
+![Worker target online with the connected-since time](shots/ad-status-worker-online.png)
+
+![Worker target offline](shots/ad-status-worker-offline.png)
+
+Offline checklist, in order:
+
+1. Is the host up? (ping / remote console)
+2. Is the worker service running? (`systemctl status` on Linux,
+   Services on Windows)
+3. Can the host reach the controller on TCP 9989?
+4. Did the controller restart with a different PB port or address?
+
+### 10A.4 Service status on Linux
+
+```bash
+systemctl status testorchestrator-web testorchestrator-worker \
+    testorchestrator-buildbot-master testorchestrator-buildbot-local
+```
+
+![Terminal showing all four services active and green](shots/ad-status-systemd-ok.png)
+
+Healthy: all four `active (running)`. If one is `inactive` or
+`failed`, `journalctl -u <name> -n 50` shows why.
+
+### 10A.5 Service status on Windows
+
+On Windows, TestOrchestrator runs through **Scheduled Tasks**. Open
+**Task Scheduler** (type `taskschd.msc` in Start) and look in **Task
+Scheduler Library**. The task names start with `TestOrchestrator`.
+
+Healthy: `TestOrchestratorWeb`, `TestOrchestratorWorker`, and
+`TestOrchestratorBuildbotMaster` show **Running**. The two Buildbot
+worker launcher tasks may show **Ready** after they have started their
+background worker processes. You can also check the same state in
+PowerShell:
+
+![PowerShell showing the TestOrchestrator tasks, listening ports, and portal ping](shots/ad-status-winsvc-ok.png)
+
+If a task is stopped, right-click it → **Run**. If it stops again,
+open **Event Viewer → Windows Logs → Application** and look for the
+task or service name.
 
 ## 11. Demonstrated worker flow used for these docs
 
@@ -1421,12 +1644,12 @@ card):
 
 Role capability summary (enforced server-side on every route):
 
-| Role | Projects/bindings/suites/releases/schedules | Run & cancel | Users, infra, secrets, network, licence |
+| Role | What they can author | Can they run and cancel? | Can they administer the system? |
 |---|---|---|---|
-| **Admin** | create / edit / delete | yes | yes — full access |
-| **Test Manager** | create / edit | yes | no |
-| **Tester** | view | yes | no |
-| **PO** | view | no | no |
+| **Admin** | create / edit / delete — for example, delete a stale binding | yes | yes — full access |
+| **Test Manager** | create / edit — for example, build a release plan | yes | no |
+| **Tester** | view — for example, open a suite before running it | yes | no |
+| **PO** | view — for example, read release status | no | no |
 
 ### 12.4 Licence status (informational)
 
@@ -1559,7 +1782,7 @@ target, once, before registering.
 6. **Execution location** = *On another machine* → pick your worker
    in **Remote runner** (e.g. `ci-worker-01`).
 
-   ![Register a test runtime — remote runner picker](Screenshot-Doc/admin/runtime-new-remote.png)
+   ![Add Runtime (Manual) — remote runner picker](Screenshot-Doc/admin/runtime-new-remote.png)
 
 7. **Executable location** — the interpreter path *as it exists on
    the worker*, e.g. `/opt/robot-venv/bin/python` or
@@ -1589,7 +1812,7 @@ target, once, before registering.
    /opt/robot-venv/bin/python -m robot --version
    ```
 
-3. Portal: **Admin → Infrastructure → Register a test runtime** →
+3. Portal: **Admin → Infrastructure → Add Runtime (Manual)** →
    Runner type `Robot Framework (Python)`, name (e.g. `robot-ssh01`),
    **On another machine** → pick the SSH target in **Remote runner**.
 4. **Executable location** = `/opt/robot-venv/bin/python` — the path
@@ -1646,7 +1869,7 @@ Only what you install and register differs.
    C:\to\pytest-venv\Scripts\python.exe -m pytest --version
    ```
 
-2. Portal → **Admin → Infrastructure → Register a test runtime**.
+2. Portal → **Admin → Infrastructure → Add Runtime (Manual)**.
 3. **Runner type** = `pytest (Python)`; **Name** e.g.
    `pytest-ci01`; **On another machine** → your worker.
 4. **Executable location** = `/opt/pytest-venv/bin/python` (or the
@@ -1664,7 +1887,7 @@ Only what you install and register differs.
    /opt/pytest-venv/bin/python -m pytest --version
    ```
 
-2. **Register a test runtime** → `pytest (Python)` → **On another
+2. **Add Runtime (Manual)** → `pytest (Python)` → **On another
    machine** → pick the SSH target → **Executable location** =
    `/opt/pytest-venv/bin/python` on *that* host → Apply →
    **Check runner readiness** over SSH.
@@ -1714,7 +1937,7 @@ browsers: you provision all three on the target first (§6.6).
    Windows worker: same commands in PowerShell;
    `npx playwright install` (no `--with-deps` needed on Windows).
 
-2. Portal → **Admin → Infrastructure → Register a test runtime**.
+2. Portal → **Admin → Infrastructure → Add Runtime (Manual)**.
 3. **Runner type** = `Playwright Test (Node.js)`; **Name** e.g.
    `pw-ci01`; **On another machine** → your worker.
 4. **Executable location** — the `npx` binary *on the worker*
@@ -1741,7 +1964,7 @@ browsers: you provision all three on the target first (§6.6).
    for the system packages — run it once with sudo, browsers stay
    usable for the account afterwards.
 
-2. **Register a test runtime** → `Playwright Test (Node.js)` →
+2. **Add Runtime (Manual)** → `Playwright Test (Node.js)` →
    **On another machine** → the SSH target → executable = the
    host's `npx` path (empty = PATH lookup) → Apply →
    **Check runner readiness** over SSH/SFTP.
@@ -1788,7 +2011,7 @@ different browser set.
    npx cypress version
    ```
 
-2. **Admin → Infrastructure → Register a test runtime** →
+2. **Admin → Infrastructure → Add Runtime (Manual)** →
    `Cypress E2E (Node.js)` → name e.g. `cy-ci01` → **On another
    machine** → your worker → executable = worker's `npx` path
    (empty = PATH) → Apply → **Check runner readiness**.
@@ -1797,7 +2020,7 @@ different browser set.
 
 1. As the SSH account: the same `node`/`npx`/`npm ci`/`npx cypress
    verify` sequence on the SSH host.
-2. **Register a test runtime** → `Cypress E2E (Node.js)` → **On
+2. **Add Runtime (Manual)** → `Cypress E2E (Node.js)` → **On
    another machine** → the SSH target → `npx` path on that host →
    Apply → **Check runner readiness**.
 
@@ -1853,44 +2076,52 @@ flags (one-time, at `install.sh`).
 
 ### 14.1 Environment variables (set in `web.env` / service unit)
 
-| Variable | Purpose | Default | Secret | Restart |
-|---|---|---|---|---|
-| `TO_INSTANCE_DIR` | Instance data dir — the state root | `<payload>/instance` | no | yes |
-| `TO_SECRET_KEY` | Flask session/CSRF signing key — **must be stable across restarts** or sessions invalidate | ephemeral per process | **yes** | yes |
-| `TO_SECRET_KEY_FILE` | Path of the key file protecting stored secrets (`secret.key` in the data dir) | `$TO_INSTANCE_DIR/secret.key` | no (file is 0600) | yes |
-| `TO_DATABASE_URI` | SQLAlchemy URI | `sqlite:///<instance>/testorchestrator.db` | may contain creds | yes |
-| `TO_ADMIN_PASSWORD` | Bootstrap password used **once** at first provisioning (≥12 chars) — replaces `Admin`/`Admin` | unset → `Admin`/`Admin` + forced change | yes | first start only |
-| `TO_SECURE_COOKIES` | `Secure` cookie flag (`1`/`0`) — `0` only for plain-HTTP dev | `1` | no | yes |
-| `TO_SESSION_LIFETIME_HOURS` | Session lifetime | `8` | no | yes |
-| `TO_WAITRESS_LISTEN` | Waitress bind (`host:port`) | `127.0.0.1:18080` | no | yes |
-| `TO_TRUSTED_PROXIES` | Comma-separated peers whose forwarding headers are honoured | `127.0.0.1,::1` | no | yes |
-| `TO_CERT_DIR` | Protected key/cert store (0700/0600) | `$TO_INSTANCE_DIR/certs` | no | yes |
-| `TO_INSTALL_ID` | Install identity — written by the installer; `toctl` refuses to service a foreign install | generated | no | yes |
-| `TO_UPDATE_KEY` | Trusted public key path for signed update packages (`toctl update`) | unset | no | per-invocation |
-| `TO_SERVICE_UNITS` / `TO_SERVICE_SCOPE` | Unit names + `--user`/system scope used by **Health → Restart services** | `testorchestrator-*` / `system` | no | yes |
-| `TO_LICENCE_CODE` | Licence code for the installer (never logged) | required at install | yes | n/a |
-| `TO_GIT_BACKEND` | `dulwich` \| `cli` git engine | `dulwich` | no | yes |
+These are the settings the service reads when it starts. You edit them
+in `/etc/testorchestrator/web.env`, then restart the web service. Each
+row says what the setting is for in plain words, and shows a real
+example value you could type.
 
-| `TO_SEED_<ROLE>_PASSWORD` | Test/demo account seeding | unset | yes | first start |
+| Variable | What it does, in plain words | Example value | Secret | Restart needed |
+|---|---|---|---|---|
+| `TO_INSTANCE_DIR` | The folder where the server keeps all its data (database, uploads, certificates) | `/var/lib/testorchestrator` | no | yes |
+| `TO_SECRET_KEY` | The secret stamp the server uses to sign login sessions. If it changes, everyone is logged out. Never share it | `TO_SECRET_KEY=9f2c...` (64 random letters) | **yes** | yes |
+| `TO_SECRET_KEY_FILE` | The file that holds the key protecting your stored credentials | `/var/lib/testorchestrator/secret.key` | no (file is 0600) | yes |
+| `TO_DATABASE_URI` | Where the database lives. You almost never change this | `sqlite:////var/lib/testorchestrator/testorchestrator.db` | may contain creds | yes |
+| `TO_ADMIN_PASSWORD` | The very first admin password, used once at install time. After first login you must pick your own | `TO_ADMIN_PASSWORD=correct-horse-29!` | yes | first start only |
+| `TO_SECURE_COOKIES` | Whether login cookies are only sent over encrypted HTTPS. Keep it `1`; use `0` only on a throwaway dev box | `1` | no | yes |
+| `TO_SESSION_LIFETIME_HOURS` | How many hours a login stays valid before you must sign in again | `8` — sign in once per workday | no | yes |
+| `TO_WAITRESS_LISTEN` | The internal address the application server listens on, behind the HTTPS front end | `127.0.0.1:18080` | no | yes |
+| `TO_TRUSTED_PROXIES` | Which machines are allowed to pass on visitor addresses — usually just the server itself | `127.0.0.1,::1` | no | yes |
+| `TO_CERT_DIR` | The folder where the TLS certificate and its private key are stored | `/var/lib/testorchestrator/certs` | no | yes |
+| `TO_INSTALL_ID` | A fingerprint the installer writes so the tools can recognise this exact installation | generated — looks like `7f3a…` | no | yes |
+| `TO_UPDATE_KEY` | The public key used to check that an update package is genuine | `/etc/testorchestrator/update.pub` | no | per-invocation |
+| `TO_SERVICE_UNITS` / `TO_SERVICE_SCOPE` | Which systemd services the **Health → Restart services** button restarts | `testorchestrator-*` / `system` | no | yes |
+| `TO_LICENCE_CODE` | Your licence code, given once to the installer. It is never written to logs | `TO-LIC-…` | yes | n/a |
+| `TO_GIT_BACKEND` | Which git engine the server uses to read repositories. Leave at `dulwich` unless support tells you otherwise | `dulwich` | no | yes |
+| `TO_SEED_<ROLE>_PASSWORD` | Passwords for demo accounts on test installs. Never use in production | unset | yes | first start |
 
 ### 14.2 Persisted settings (DB — edited in the Admin UI)
 
-| Key | Purpose | Default | Where |
+These settings live in the database. You change them in the Admin UI —
+no file editing, no restart. Each row says what the setting does in
+plain words and shows a real example.
+
+| Key | What it does, in plain words | Example value | Where in the UI |
 |---|---|---|---|
-| `setup_completed` | Bootstrap gate — loopback-only until true | `false` | set by first-password flow |
-| `local_host` / `external_host` / `external_enabled` | Access aliases; external traffic is refused until enabled | `localhost` / `""` / `false` | **Network & certificates** |
-| `bind_addresses` / `allowed_hosts` | Listeners + host allowlist (403 outside it) | loopback + `localhost` | **Network & certificates** |
-| `advertised_base_url` | Public URL used in generated links/launchers | `https://localhost` | **Network & certificates** |
-| `https_port` / `http_port` / `http_mode` | Public ports; `http_mode` = `redirect` \| `disabled` \| `development-insecure` | `443` / `8080` / `redirect` | **Network & certificates** |
-| `internal_app_host` / `internal_app_port` | Waitress side of the proxy | `127.0.0.1` / `18080` | **Network & certificates** |
-| `certificate_mode` / `certificate_reference` / `certificate_public_metadata` | TLS material selection (`""`/`local`/`imported`) — paths + public fields only, never key bytes | unset | **Network & certificates** |
-| `previous_good_config` / `network_config_version` | Last-good network snapshot + apply counter — powers rollback | `{}` / `0` | automatic |
-| `buildbot_endpoint` | Portal → Buildbot REST URL (loopback) | `http://127.0.0.1:8010` | install-provisioned |
-| `buildbot_credential_ref` / `buildbot_username` | Credential reference (secret name) + API user — value lives in **Credentials**, not here | `buildbot-api` / `to-api` | install-provisioned |
-| `buildbot_pb_port` | Worker-facing PB port | `9989` | install-provisioned |
-| `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `true` | **Reporting** |
-| `logs_retention_days` / `logs_max_rows` | Operational-log pruning bounds | `30` / `20000` | **Reporting** / logs |
-| `logs_export_inline_max` / `logs_export_max_rows` / `logs_export_ttl_minutes` | CSV export: stream-vs-job threshold, hard cap (refused beyond), temp-file lifetime | `10000` / `250000` / `60` | **System** / logs |
+| `setup_completed` | Marks that the first-run setup is finished. Until then, only the server machine itself can open the portal | `true` after setup | set by the first-password flow |
+| `local_host` / `external_host` / `external_enabled` | The names the server answers to, and whether people outside the machine may connect at all | `localhost` / `portal.example.com` / `true` | **Network & certificates** |
+| `bind_addresses` / `allowed_hosts` | Which network addresses the server listens on, and which host names it accepts in requests | `127.0.0.1` + `portal.example.com` | **Network & certificates** |
+| `advertised_base_url` | The public address written into links the server generates (launchers, exports) | `https://portal.example.com` | **Network & certificates** |
+| `https_port` / `http_port` / `http_mode` | The ports people use, and what happens to plain-HTTP visits — normally redirected to HTTPS | `443` / `8080` / `redirect` | **Network & certificates** |
+| `internal_app_host` / `internal_app_port` | The internal corner where the real application runs, behind the public front end | `127.0.0.1` / `18080` | **Network & certificates** |
+| `certificate_mode` / `certificate_reference` / `certificate_public_metadata` | Which TLS certificate the server uses — its own generated one or one you imported. Only public details are stored here, never the private key | `local` | **Network & certificates** |
+| `previous_good_config` / `network_config_version` | The last working network setup, so a broken change can be rolled back. Written automatically — do not edit | `{}` / `3` | automatic |
+| `buildbot_endpoint` | Where the portal talks to the job runner, on the same machine | `http://127.0.0.1:8010` | written at install |
+| `buildbot_credential_ref` / `buildbot_username` | Which stored credential the portal uses for the job runner. The secret value itself lives in **Credentials**, never here | `buildbot-api` / `to-api` | written at install |
+| `buildbot_pb_port` | The port workers use to collect their jobs | `9989` | written at install |
+| `reportinglabs_enabled` | Whether executions produce the enhanced report format | `true` | **Reporting** |
+| `logs_retention_days` / `logs_max_rows` | How long operational logs are kept and how many rows at most | `30` days / `20000` rows | **Reporting** / logs |
+| `logs_export_inline_max` / `logs_export_max_rows` / `logs_export_ttl_minutes` | CSV log exports: small ones download at once (up to 10000 rows), big ones become a background job (hard limit 250000), and the file is kept for 60 minutes | `10000` / `250000` / `60` | **System** / logs |
 | `logs_json_enabled` / `logs_json_dir` / `logs_json_max_bytes` / `logs_json_max_files` / `logs_stdout_enabled` | Optional structured NDJSON output for external collectors — off until configured | `false` / `""` / `10485760` / `5` / `false` | env `TO_LOGS_JSON_*` / settings |
 | `git_export_repo` / `git_export_credential_ref` / `git_export_ref` | Optional evidence-export target repo + credential ref + branch | `""` / `""` / `main` | **Reporting** |
 
@@ -1909,16 +2140,20 @@ fresh install. §4.2.
 
 ## 15. Network and authentication matrix
 
-| Flow | Initiator → destination | Port (default) | Protocol | AuthN | Expose beyond localhost? | Verify |
-|---|---|---|---|---|---|---|
-| Browser → portal | Browser → **Cheroot** (in-process, §4.9) | 443 (+8080 redirect) | HTTPS | session cookie (CSRF per form — HTTPS posts need a matching `Referer`) | **yes** — the public edge | `curl -Ik https://<host>` |
-| App loopback | Cheroot → **Waitress** (same process; Waitress stays loopback) | 127.0.0.1:18080 | HTTP | none — loopback + host allowlist | never | `curl -s 127.0.0.1:18080/login` |
-| Portal → master | Flask → **Buildbot REST** | 8010/`buildbot_endpoint` | HTTP | per-install API credential via `buildbot_credential_ref` | **loopback only** | `curl -u <u>:<p> 127.0.0.1:8010/api/v2/masters` → 200/401 |
-| Worker → master | `buildbot-worker` → master PB | 9989/`buildbot_pb_port` | **PB/TCP** | per-worker password (SecretRef) provisioned in Admin UI | worker-reachable hosts | worker log: `connected`; portal shows registration |
-| Portal → repositories | app → git remote | 22 or 443 | SSH/HTTPS | deploy key or token from **Credentials** | no (outbound) | binding **Sync**; check fetched SHA |
-| Worker → KRE | worker → KRE binary | n/a (local exec) | process exec | KRE licence on the worker host | never | probe (local installs) or a smoke suite |
-| App → evidence export | app → `git_export_repo` | 22/443 | git | `git_export_credential_ref` | no (outbound) | Reporting settings test/export |
-| Agent → portal | worker agent → portal API | portal port | HTTP | one-time agent token (SHA-256 stored, shown once) | portal-reachable | runner row shows agent heartbeat |
+Every connection the system makes, in plain words: who calls whom,
+on which port, how they prove themselves, and whether the port must
+be reachable from other machines. Example checks included.
+
+| Who talks to whom | Port (default) | How they authenticate | Must other machines reach it? | How to check it |
+|---|---|---|---|---|
+| people's browsers → the portal | `443` (plus `8080` redirecting) | login session cookie; forms carry a CSRF token | **yes** — this is the one public door | `curl -Ik https://portal.example.com` answers |
+| the public front end → the application itself | `127.0.0.1:18080` | none needed — it only listens on the machine itself | never | `curl -s 127.0.0.1:18080/login` on the server |
+| portal → the job runner's API | `8010` | a per-install API credential created at install time | **loopback only** — never open it | `curl -u <user>:<pass> 127.0.0.1:8010/api/v2/masters` |
+| workers → the job runner | `9989` | each worker has its own password, issued in the Admin UI | yes, but only from your worker machines | the worker log shows `connected` |
+| portal → your git repositories | `22` or `443` outbound | a deploy key or token stored in **Credentials** | no — outbound only | press **Sync** on a binding and check the fetched SHA |
+| worker → the Katalon engine | none — a local program start | the Katalon licence living on the worker machine | never | run a small smoke suite |
+| portal → the evidence export repository | `22`/`443` outbound | the export credential from **Credentials** | no — outbound only | the test button in Reporting settings |
+| worker agent → the portal API | the portal's own port | a one-time token shown once at creation — only its fingerprint is stored | yes, from agent machines | the runner row shows a fresh heartbeat |
 
 Rules of thumb: only the HTTPS port(s) and the PB port
 must be reachable by *other machines*; everything else is loopback
@@ -2016,18 +2251,22 @@ when only the directory location changed**.
 
 ## 17. Storage lifecycle and capacity
 
-| Data dir entry | Class | Grows with | Cleanup |
+Every folder in the data directory has a different job. Some you must
+never touch, some the server can rebuild by itself, and some are
+temporary. This table tells you which is which, in plain words.
+
+| Folder or file | What it is, in plain words | Can I delete it? | How it is cleaned up |
 |---|---|---|---|
-| `testorchestrator.db` | required state | history, imports, audit | never delete manually — vacuum via backup |
-| `licence.json`, `secret.key`, `certs/` | required state | never | never — losing `secret.key` orphans every stored credential |
-| `bindings/` | derived state | repo size × bindings | re-sync rebuilds; safe to rebuild, wasteful to delete |
-| `imported-evidence/` | required state | imported runs | `toctl evidence-prune` (orphans only) |
-| `remote-runs/` | required state | live executions | evidence-prune for orphans; keep referenced dirs |
-| `import-staging/` | **transient** | in-flight imports | abandoned candidates expire — safe to prune per §9.4 |
-| `buildbot/` | required state | master db + worker state | managed by master |
-| `workspaces/` (on worker) | **transient** | concurrent runs | worker-side; safe to clear stopped run dirs |
-| `payload/reporting-labs/gen-*/` | derived output | report regenerations | older generations pruned per §9 |
-| service logs (`journald`, `data/*.log`) | diagnostic | traffic | journald rotation; `logs_retention_days`/`logs_max_rows` bound the in-app operational log |
+| `testorchestrator.db` | the database — everything the server knows: projects, runs, users | **never** — deleting it loses everything | shrinks only through the backup/vacuum flow |
+| `licence.json`, `secret.key`, `certs/` | the licence, the master key, and the certificates. Example of the worst loss: without `secret.key` every stored password becomes unreadable forever | **never** | does not grow; needs no cleanup |
+| `bindings/` | local copies of the connected git repositories | you can — the server re-downloads them on the next sync — but it wastes time | rebuilt by re-sync |
+| `imported-evidence/` | result files you imported from outside | only through the prune tool | `toctl evidence-prune` removes orphans only |
+| `remote-runs/` | the working files of executions | only through the prune tool | evidence-prune for orphans; folders a run still uses are kept |
+| `import-staging/` | half-finished imports — temporary by design | yes, abandoned ones expire on their own | automatic expiry, see §9.4 |
+| `buildbot/` | the job runner's own bookkeeping | no — managed by the job runner itself | managed by master |
+| `workspaces/` (on worker) | scratch folders for runs in progress — temporary | yes, but only folders of runs that already stopped | worker-side housekeeping |
+| `payload/reporting-labs/gen-*/` | regenerated report output — a new folder per regeneration | old generations only | automatic pruning, see §9 |
+| service logs (`journald`, `data/*.log`) | diagnostic logs — what the services did | rotate, don't delete the active one | journald rotation; `logs_retention_days`/`logs_max_rows` bound the in-app log |
 
 Automatic: operational-log bounds (`logs_retention_days`,
 `logs_max_rows`), report-generation pruning, import-staging expiry.
@@ -2044,16 +2283,16 @@ restore; export publishes selected evidence to a repo; pruning
 
 ## 18. Worker maintenance and failure recovery
 
-| Task | Supported procedure |
+| You want to… | Supported procedure — example |
 |---|---|
-| Take a worker offline safely | **Drain** on its runner row — stops new claims; in-flight executions finish. Then stop the process. |
-| Active execution during worker restart | The portal holds the lease; heartbeats renew it. If the lease **expires**, the execution is reconciled to **`UNKNOWN`** — never silently re-dispatched or double-run. Inspect it and rerun manually. `UNKNOWN` still consumes the runner's capacity slot until resolved. |
-| Coordinator restart | Queued work is durable (outbox). Workers reconnect and resume claiming; running executions follow the lease rule above. |
-| Stale registration | A stopped worker shows its last-seen heartbeat (>~2 min = not live). No auto-purge — **Edit**/**delete** the runner record deliberately. |
-| Interrupted result transfer | The worker keeps the run directory; results stay `UNKNOWN`/`running` until transfer completes or the lease expires — never partially marked passed. |
-| Replace a worker host | Drain → decommission → register the new runner (§12.1) reusing the `kre=<label>` so runtimes rebind automatically. |
-| Update the worker | Re-run the bundled installer of the new version over the existing install — identity and credentials are preserved (no duplicate target). |
-| Decommission | Drain → stop → delete the runner record → remove the host's credentials file and `workspaces/` — token re-issue revokes the old one (§12.1 step 2). |
+| take a worker offline safely | Click **Drain** on its runner row. New work stops; work already running finishes. Then stop the worker process. Example: drain before patching Windows. |
+| restart a worker during an active execution | The portal holds the lease while heartbeats continue. If the lease expires, the execution becomes **`UNKNOWN`** — it is never silently run twice. Inspect it and rerun manually. `UNKNOWN` still holds the runner capacity slot until resolved. |
+| restart the coordinator | Queued work is durable in the outbox. Workers reconnect and continue; running executions follow the same lease rule. |
+| clean up a stale registration | A stopped worker shows an old last-seen heartbeat (over about two minutes means not live). Nothing is auto-purged — edit or delete the runner record deliberately. |
+| recover from interrupted result transfer | The worker keeps the run directory. Results stay `UNKNOWN` or `running` until transfer finishes or the lease expires — a partial transfer is never marked passed. |
+| replace a worker host | Drain → decommission → register the new runner (§12.1), reusing `kre=<label>` so runtimes rebind automatically. |
+| update the worker | Run the new bundled installer over the existing install. Identity and credentials are preserved, so no duplicate target appears. |
+| decommission a worker | Drain → stop → delete the runner record → remove the host's credentials file and `workspaces/`. Re-issuing the token revokes the old one (§12.1 step 2). |
 
 Not implemented: automatic worker updates, auto-drain on version
 mismatch, re-dispatch of `UNKNOWN` executions — each is a manual,
@@ -2104,15 +2343,18 @@ deliberate fail-closed choice, not a missing feature.
 
 ## 19. Credential and certificate lifecycle
 
-| Secret | Lives | Replace/rotate | Restart needed |
+Every secret the system uses, where it lives, and what replacing it
+looks like — in plain words, with examples.
+
+| Secret | Where it lives | How you replace it | Does anything need a restart |
 |---|---|---|---|
-| Repository deploy key/token | **Credentials** (encrypted under `secret.key`) | Edit the credential; bindings pick it up next sync | no |
-| Worker agent token | runner record — SHA-256 only | **Issue token** re-generates; old token revoked | worker restart with new token |
-| Buildbot credentials | `config/buildbot/secrets.json` (0600) + portal `buildbot_credential_ref` + per-worker SecretRefs | installer reruns **preserve** provisioned credentials; rotate per-worker secrets with **Issue secret** in Admin UI | buildbot + web |
-| KRE licence/API key | **worker host only** (never the portal — `credential_file` carries just a path) | on the worker per Katalon's docs | worker executions pick it up next run |
-| TLS certificate | `data/certs/` + `certificate_*` settings | **Network & certificates** → generate/import → Apply (`previous_good` rollback if the new config breaks) | via staged apply |
-| `TO_SECRET_KEY` | `web.env` | rotate only if you're willing to invalidate all sessions | web |
-| `secret.key` | `data/secret.key` (0600) — **master key for stored secrets** | no rotation supported — losing it = re-enter every credential | n/a |
+| Repository deploy key or token | in **Credentials**, encrypted under the master key | edit the credential; repositories pick it up at the next sync — example: rotate a leaked git token in one place and every binding heals | no |
+| Worker agent token | on the runner record — only its fingerprint is stored | press **Issue token** — the old token dies the moment the new one is generated | the worker restarts with the new token |
+| Job-runner credentials | `config/buildbot/secrets.json` plus internal references | reinstalling **keeps** them; rotate worker secrets with **Issue secret** in the Admin UI | job runner + web |
+| Katalon licence / API key | **only on the worker machine** — the portal never holds it, just the file path | replace it on the worker following Katalon's own documentation | the next run picks it up |
+| TLS certificate | `data/certs/` plus the certificate settings | **Network & certificates** → generate or import → Apply — if the new setup breaks, it rolls back to the last working one by itself | applies in stages, no manual restart |
+| `TO_SECRET_KEY` | `web.env` | only if you accept that everyone is logged out at once — example: after a suspected leak | web |
+| `secret.key` | `data/secret.key` — **the master key for every stored secret** | there is no rotation — losing it means typing every credential in again, so it must be in every backup | n/a |
 
 After a restore: every stored secret returns intact **only if**
 `secret.key` was backed up — the DB alone cannot decrypt them.
@@ -2121,11 +2363,11 @@ After a restore: every stored secret returns intact **only if**
 
 Each is configured and consumed separately — do not conflate them:
 
-| Stage | Where auth is configured | How it is consumed |
+| Stage | Where you configure it | How it is used — example |
 |---|---|---|
-| Portal-side git ops (binding sync, case/suite listing) | stored `user:token` SecretRef (HTTPS) or host ssh | portal backend only |
-| Worker-side source checkout | `git_ssh_key_path` on the runtime — a path **on the worker** | worker's git SSH checkout; key material never crosses the wire |
-| Evidence publishing | `publish_repo_url` + publish credential (portal-side) | portal export write + read-back + delete probe |
+| Portal-side git operations (binding sync, case/suite listing) | a stored `user:token` SecretRef for HTTPS, or host SSH configuration | Only the portal backend uses it. Example: press **Sync** and the portal fetches the repository. |
+| Worker-side source checkout | `git_ssh_key_path` on the runtime — a path **on the worker** | The worker uses that local key for its SSH checkout. The key material never crosses the wire. |
+| Evidence publishing | `publish_repo_url` plus the publish credential on the portal | The portal writes, reads back, and deletes a probe before publishing real evidence. |
 
 Worker-side prerequisites — the portal cannot provision the deploy
 key. The administrator must:
@@ -2151,11 +2393,16 @@ execution's evidence export is a different, later operation.
 
 ## 20. Version and upgrade matrix
 
-| Path | Platform | Evidence | Migrations | Notes |
+Each row is one upgrade path that was really tested, not just planned.
+"Verified" means the exact steps were executed against the release
+package and the outcome was recorded.
+
+| Upgrade path | Platform | How it was proven | What the database migration did | What you should know |
 |---|---|---|---|---|
-| — → 2.5.1 | Linux | **[verified]** fresh install, same-version reruns, network listener apply/rollback | `db-upgrade` applies; idempotent | reruns preserve Buildbot credentials, `web.env` secrets, certs, and network settings |
-| 2.5.1 → 2.6.0 | Linux | **[verified]** representative upgrade — real 2.5.x data, `flask db upgrade` (the same path the installer's ExecStartPre runs): 7 migrations applied, all pre-existing data preserved | `runtime_kind`, `users.timezone`, resource/queue/CI-API columns created | `notified_at` backfill bug found and fixed during verification (`docs/acceptance-2.6.0.md`) |
-| 2.6.0 → 2.6.0 | Linux | **[verified]** same-version reinstall: stop units → rerun package; payload replaced, data/secrets/certs/units preserved | none | standard patch/refresh path |
+| fresh → 2.5.1 | Linux | **[verified]** fresh install plus same-version reruns, network listener apply and rollback | migrations apply cleanly; running them twice is safe | re-running the installer keeps your job-runner credentials, `web.env` secrets, certificates and network settings |
+| 2.5.1 → 2.6.0 | Linux | **[verified]** real 2.5.x data upgraded: 7 migrations applied, every pre-existing row preserved | new columns for runtime kinds, user timezones, resource/queue/CI-API | a backfill bug (`notified_at`) was found and fixed during this verification (`docs/acceptance-2.6.0.md`) |
+| 2.6.0 → 2.6.0 | Linux | **[verified]** same-version reinstall: services stopped, package re-run; program files replaced, everything else preserved | none needed | the standard patch/refresh path |
+| 2.6.0 → 2.7.0 | Linux | **[verified]** production-like cell, real seeded data: users, projects, credentials and repository bindings all preserved, stored secrets decrypt after the upgrade, zero stray processes. The first pass caught and fixed a real defect: a service missing from the documented stop list survived and blocked the copy — the installer now defends itself | schema migrates automatically on first start | the installer stops services itself and refuses to write while anything still uses the program folder — see §8.4 |
 
 Rules for future upgrades: **back up `data/` first** (§16).
 Re-running the installer on the same directories performs the
@@ -2167,16 +2414,298 @@ pre-upgrade backup; there are no downgrade migrations.
 
 Symptom → first checks. Exact commands/paths, no database surgery.
 
-| Symptom | Investigation path |
+Each row is one problem. Read the steps left to right — each arrow is
+the next thing to check when the one before looks fine.
+
+| What you see | What to check, step by step |
 |---|---|
-| Portal unavailable | `systemctl status testorchestrator-web` → `journalctl -u testorchestrator-web -n 50` → listener (`TO_HTTPS_PORT`/`TO_HTTP_PORT`) → cert validity under `data/certs` |
-| Worker absent | process on host → coordinator reachability (`--worker.coordinators` host:port) → credentials file (0600) → runner row heartbeat (>~2 min stale) → worker log |
-| Job stays `queued` | licence state (**System → Licence** — held queue needs licence + **Resume dispatch**) → live worker with matching `kre=<label>` → free slots (concurrency on runner + runtime) → overlap policy on schedules |
-| KRE exits before tests | executable path **on the worker** → file permissions → `Activation failed` = worker-side KRE licence → remote run log for the exact exit |
-| Execution done, results missing | worker run dir → transfer errors in coordinator/worker logs → `remote-runs/` evidence dir → execution row state (`UNKNOWN` = transfer/lease gap) |
-| reportingLabs generation fails | `report_status` on the execution → generation log → `import reporting_labs` resolves from `payload/3rdparty/` → `reportinglabs_enabled` setting → input JUnit/evidence present |
-| Import can't be confirmed | candidate row state → staging checkout expiry → per-item match decision (duplicate/ambiguous) → importer errors in operational log |
-| Disk filling | `du -sh data/*/` → `import-staging/` (expired candidates) → workspaces on workers → `reporting-labs/gen-*` generations → journald size → `toctl evidence-prune` dry-run |
-| `403` for everyone | host alias vs bare IP — `allowed_hosts`; loopback gate until `setup_completed` + `external_enabled` |
-| Sessions drop on restart | `TO_SECRET_KEY` unset/changed — pin it in `web.env` |
-| `UNKNOWN` executions | lease expired mid-run — inspect run log, verify results on the worker, rerun deliberately; the slot frees on resolution |
+| The portal does not open at all | is the web service running: `systemctl status testorchestrator-web` → its recent log: `journalctl -u testorchestrator-web -n 50` → is the port it should listen on free → are the certificates in `data/certs` still valid |
+| A worker does not appear in the list | is its process alive on the worker machine → can it reach the coordinator (`--worker.coordinators` host:port) → is its credentials file present and readable only by its user (0600) → is the runner row heartbeat stale (older than about 2 minutes) → read the worker log |
+| A job sits in `queued` forever | is dispatch held for licensing (**System → Licence** — the held queue needs a licence plus **Resume dispatch**) → is there a live worker whose label matches, for example `kre=<label>` → are the worker's slots full (concurrency on runner + runtime) → does the schedule's overlap policy block it |
+| Katalon stops before any test runs | is the executable path correct **on the worker** → are file permissions right → `Activation failed` means the worker's own Katalon licence is missing → the remote run log shows the exact exit |
+| Run finished but results are missing | look in the worker's run directory → transfer errors in coordinator/worker logs → the `remote-runs/` evidence folder → the execution row state (`UNKNOWN` means the transfer chain broke) |
+| reportingLabs report generation fails | `report_status` on the execution → the generation log → does `import reporting_labs` resolve from `payload/3rdparty/` → is the `reportinglabs_enabled` setting on → is the input evidence actually present |
+| An import cannot be confirmed | the candidate row's state → has the staging checkout expired → is a per-item decision waiting (duplicate/ambiguous) → importer errors in the operational log |
+| The disk is filling up | measure first: `du -sh data/*/` → expired candidates in `import-staging/` → workspaces on workers → old report generations `reporting-labs/gen-*` → journald size → `toctl evidence-prune` dry-run before any real prune |
+| Everyone gets `403` | are people browsing the configured host name instead of a bare IP — `allowed_hosts`; the loopback-only gate is on until `setup_completed` + `external_enabled` |
+| Everyone is logged out after each restart | `TO_SECRET_KEY` is unset or changed — pin one fixed value in `web.env` |
+| Executions show `UNKNOWN` | the run outlived its lease — read the run log, verify what happened on the worker, then rerun deliberately; the slot frees once you resolve it |
+
+## 22. Secrets, credentials and scope settings
+
+### 22.1 What the secret store is
+
+Credentials — API keys, passwords, tokens — live in the **secret
+store**, encrypted at rest, never written to logs, never returned to
+the browser after saving. Forms that reference a secret store only
+the secret's **name**; the value is write-only through the UI.
+
+### 22.2 Scope settings
+
+*New in 2.7.0.* Each secret carries a **scope** declaring where it
+may be used — for example only for git repository access, or only
+for SSH dispatch. Scope enforcement happens **at association time**:
+when you attach a secret to a binding, runtime or target, the product
+checks the secret's scope allows that use and refuses mismatches with
+a clear message.
+
+Secrets created before 2.7.0 carry a `migration_pending` marker until
+an admin reviews and saves their scope. They keep working meanwhile —
+migration never breaks existing associations — but the admin UI lists
+them for review.
+
+### 22.3 Operating rules
+
+1. **Never** paste secrets into test data, environment files, or any
+   repository content — artifacts collect repository content and the
+   exposure scan treats secret-shaped strings as fatal.
+2. Rotate credentials by editing the secret in place — associations
+   follow automatically, no re-wiring needed.
+3. Prefer separate secrets per purpose over one powerful secret —
+   scopes make misuse structurally impossible.
+4. Audit events cover secret creation, edit and association — review
+   them periodically.
+
+---
+
+## 23. Dependency preparation (`deps_prepare`) — security and operation
+
+*New in 2.7.0.*
+
+### 23.1 What it is
+
+Node.js framework tests (Jest, Postman/Newman, Bruno) usually need
+their npm dependencies installed before the test tool can run.
+**deps_prepare** is the controlled step that installs them with
+`npm ci` on the execution target, before the test tool starts.
+
+### 23.2 The security trade-off — read this first
+
+`npm ci` runs **without** `--ignore-scripts`. Dependency install
+scripts (`preinstall`/`postinstall` and friends) execute on the
+target with the worker's privileges. This is deliberate — many
+legitimate packages require their install scripts — and it means:
+
+> **Enabling deps_prepare for a repository means trusting that
+> repository's entire dependency tree with code execution on the
+> runner.**
+
+The controls around that risk:
+
+| Control | What it does, in plain words — example |
+|---|---|
+| Role gate | Only a **test manager or admin** can set or change `deps_prepare`. Example: a tester cannot turn dependency installation on for a run. |
+| Audit event | Every preparation writes an audit event **including the lockfile hash**. Example: you can prove afterwards exactly which dependency tree was installed. |
+| Lockfile required | Preparation is refused without `package-lock.json`; npm ci without a lockfile is never attempted. Example: commit the lockfile, then rerun. |
+| Timeouts | The step is bounded — default 600 seconds, adjustable per run as `deps_timeout`; the ssh/buildbot hard caps still win. |
+| Explicit failure | If preparation is off and dependencies are not vendored, the run fails with a clear message instead of a confusing downstream error. |
+| Vendored exception | If `node_modules` is committed in the repository, no install runs at all. This is deliberate: vendored dependencies are reviewed repository content. |
+| Schedule visibility | The schedule form shows the deps_prepare state, so a scheduled run does not hide whether installation will happen. |
+
+### 23.3 Where it applies
+
+- **Dispatch (running tests):** deps_prepare defaults ON for node
+  framework runs — the 2.7.0 behaviour existing users expect.
+  `deps_prepare=false` in the run config turns it off for that run.
+- **Native Jest collection:** runs the same preparation, because the
+  collection executes the framework tool which needs the dependencies.
+  Collection is already the approved repo-code execution path — but
+  note it runs **only on an explicit admin action** from the framework
+  project page, never on automatic rediscovery and never from a
+  schedule. The same role gate, audit event, timeout and lockfile
+  controls apply.
+- **Static discovery and import preview:** never prepare, never
+  install, never execute — they are parse-only, always.
+
+### 23.4 Operating guidance
+
+1. **Prefer vendored `node_modules`** for high-assurance environments:
+   commit the dependencies, disable deps_prepare, and no install
+   scripts ever run.
+2. **Pin your lockfile review** into the repository workflow — the
+   audited lockfile hash is only useful if lockfile changes are
+   reviewed before merging.
+3. **Treat runner hosts as exposed** to the dependency tree: keep
+   them isolated, without access to production systems or
+   credentials. See the hardening chapter.
+4. **Watch the audit log** for `deps_prepare` events; an unexpected
+   lockfile hash means the dependency tree changed.
+
+### 23.5 Troubleshooting
+
+| What you see | Why it happened | What you do — example |
+|---|---|---|
+| `deps_prepare requires a lockfile` | The repository has no `package-lock.json`. | Commit the lockfile (`npm install` writes it) or vendor `node_modules`. |
+| `deps_prepare is off` failure | Preparation is disabled and the repository does not vendor dependencies. | Enable it for the run as a test manager/admin, or vendor dependencies. |
+| preparation timeout | The dependency tree is large or the network is slow. | Raise `deps_timeout` for the run, or vendor dependencies. |
+| audit event shows wrong lockfile hash | The lockfile changed upstream. | Review the lockfile diff before allowing further runs. |
+
+---
+
+## 24. KRE licensing modes — and the licensed-key exposure statement
+
+### 24.1 The three modes
+
+A Katalon Runtime Engine (KRE) runtime declares its licensing mode
+explicitly. The mode is set on the runtime connection and cannot be
+left ambiguous:
+
+| Mode | What it means, in plain words | What you configure — example |
+|---|---|---|
+| `online` | Katalon checks the licence over the internet, against Katalon's own server | the API-key credential stored in **Credentials** — same as before 2.7.0 |
+| `offline` — shown in the UI as **offline — machine-bound .lic** | the engine uses real licence files Katalon issued for that machine — no internet needed | the `.lic` files placed on the runner itself — no API key at all |
+| `private` — shown in the UI as **private — API key + private license server** | the engine asks *your own* licence server instead of Katalon's | the server address, e.g. `https://licenses.example.com`, plus its credential |
+
+Existing runtimes created before 2.7.0 migrate to `online` unchanged
+— their behaviour is identical.
+
+### 24.2 Licensed-key exposure statement
+
+> **Security notice — read before deploying licensed cells.**
+>
+> During the 2.7.0 acceptance cycle a Katalon license key was exposed:
+> it appeared in test artifacts processed by the pipeline. The key is a
+> **floating license** and could not be rotated — rotating it would
+> invalidate every existing Katalon installation using it.
+>
+> Consequently:
+>
+> - 2.7.0 ships a **dispatch pre-flight guard** that blocks any
+>   execution that would present the licensed key on a target, before
+>   anything is staged — the exposure cannot recur through the product.
+> - The **licensed acceptance cells were not run** for this release:
+>   the SSH-credentialed cell, the POSIX private-license-server cell,
+>   and the two-session overlap cell remain **blocked by owner
+>   decision**. Their blockage is deliberate and documented in the
+>   release notes and the acceptance ledger.
+> - Any deployment that needs live KRE execution must resolve the
+>   license exposure with Katalon first — the guard stays in place
+>   regardless.
+
+### 24.3 Configuring offline mode — step by step
+
+1. Obtain `.lic` files from Katalon for the machines that will run KRE.
+2. Copy them to the runner host — the exact directory depends on the
+   KRE version; check Katalon's offline-activation documentation.
+3. In Admin → Runtimes, edit the KRE runtime and set **Licensing
+   mode** to `offline`.
+4. Save. The readiness probe re-checks the runtime; offline mode does
+   not require an API key, so the key field is not consulted.
+
+**What if it doesn't work:** probe failures in offline mode are almost
+always missing `.lic` files or wrong file permissions on the runner —
+check the probe output on the runtime page before anything else.
+
+### 24.4 Private license server
+
+Set the mode to `private` and fill in the license server URL. The URL
+must be HTTPS in production. The readiness probe validates against
+your server; a self-signed private server certificate must be trusted
+by the runner host's certificate store — the product does not probe
+around certificate validation.
+
+---
+
+## 25. System operations pages — control reference
+
+### 25.1 Backup
+
+The backup page offers two actions. **Create & download** builds a
+verified backup archive (database plus instance content) and
+downloads it in one step — the archive carries its SHA256. **Upload
+& validate** accepts a backup archive and validates it without
+restoring: structure, checksums, version compatibility. Always
+validate an archive before trusting it as your restore source. The
+backup report page shows the last backup's content manifest and
+verification result.
+
+### 25.2 Restore
+
+The restore page lists what an uploaded archive would restore —
+**Apply restore** executes it. Restore replaces the current data;
+the pre-restore state is itself backed up automatically first.
+*Common mistake:* restoring onto a running system — stop the
+services first (§8), restore, then start.
+
+### 25.3 Operational logs and log export
+
+The operational logs page filters the service logs by `severity`
+(info / warning / error) and `category` (web, dispatch, buildbot,
+storage, auth). The log export page downloads a diagnostics bundle —
+logs, configuration with secrets redacted, versions — for support.
+The bundle never contains secret values.
+
+### 25.4 Reporting and retention settings
+
+The reporting settings page carries the system-wide retention
+defaults: `retention_artifact_days` (how long run artifacts are
+kept) and `retention_metadata_days` (how long execution records are
+kept — always ≥ artifact days, since metadata is the index to the
+evidence). **Save settings** applies them; projects can override
+per-project (§B.1). Empty means the system default.
+
+### 25.5 Secrets administration
+
+The secrets page lists secret names — never values. **Store
+encrypted** saves a new secret: name, kind, value (write-only).
+**Save scope** records where the secret may be used (§8.2) — secrets
+created before 2.7.0 show `migration_pending` until their scope is
+reviewed and saved here.
+
+### 25.6 Runtime wizard
+
+The runtime wizard walks runtime creation step by step: kind,
+transport, executable, framework selection. **Save runtime** creates
+the connection; the readiness probe starts automatically after.
+*Common mistake:* pointing the executable at the framework
+entry-point (`/usr/bin/pytest`) instead of the interpreter for
+Python-family runtimes — the edit form validates this and explains
+the correct value.
+
+The advanced runtime editor stores the chosen framework in the
+`runtime_kind` field. The exact choices shown in the picker are:
+**KRE (desktop engine)**, **Playwright Test (Node.js)**, **Cypress E2E
+(Node.js)**, **Robot Framework (Python)**, **pytest (Python)**,
+**Behave BDD (Python)**, **GoogleTest (C/C++)**, **Postman (Newman /
+Postman CLI)**, **Bruno (bru CLI)**, and **Jest (Node.js)**.
+
+### 25.7 Initial setup
+
+The setup steps run on first boot: admin creation, network,
+verification. **Run verification** re-checks the step's requirements
+and reports exactly what is missing — a green verification per step
+is required before the system serves traffic.
+
+---
+
+## 26. Quick-start — first installation in thirty minutes
+
+For a first evaluation on a single Linux host:
+
+1. **Verify the package.** Download the tarball and its `.sha256`
+   file; run `sha256sum -c` — it must print OK. Never install an
+   unverified package.
+2. **Extract** into a scratch directory and run
+   `sudo sh install.sh --yes` inside it. Defaults: payload
+   `/opt/testorchestrator`, data `/var/lib/testorchestrator`.
+   For custom locations use `--data`/`--config` — existing data is
+   always preserved (in-place upgrade is the same command).
+3. **Check the services.** `systemctl status testorchestrator-web` —
+   all units active. The installer prints the exact unit names.
+4. **Open the portal** at the configured address and complete the
+   setup steps — each needs a green **Run verification** (§25.7).
+5. **Create the first admin**, sign in, and set the network
+   configuration if the portal must be reachable from other machines
+   (§B.23 — validate certificates before applying).
+6. **Register a runtime.** For a first evaluation the local worker
+   is already there; the runtime wizard (§25.6) adds framework
+   runtimes. Readiness probes run automatically.
+7. **Hand over to the users** — the User Manual quick-start takes
+   them from sign-in to their first run in fifteen minutes.
+
+*What if it doesn't work:* the three most common first-install
+problems are port already in use (change ports in network config),
+certificate mismatch (validate before applying — §B.23), and a
+runtime probing failed because the framework tool is missing on the
+host (the probe output names the exact missing executable).
+

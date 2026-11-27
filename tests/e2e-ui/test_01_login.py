@@ -2,16 +2,17 @@
 import pytest
 from playwright.sync_api import expect
 
-from conftest import ADMIN_USER, BOOTSTRAP_PW, ADMIN_PW, _do_login
+from conftest import (ADMIN_USER, BOOTSTRAP_PW, ADMIN_PW, BASE_URL,
+                        _do_login)
 
 
 def test_cert_warning_negative(browser):
     from playwright.sync_api import Error
-    ctx = browser.new_context(base_url="https://localhost")  # OFF deliberately
+    ctx = browser.new_context(base_url=BASE_URL)  # OFF deliberately
     page = ctx.new_page()
     blocked = False
     try:
-        page.goto("https://localhost/login", timeout=15000)
+        page.goto(BASE_URL + "/login", timeout=15000)
     except Error:
         blocked = True
     # Some builds navigate to the interstitial instead of throwing —
@@ -39,7 +40,7 @@ def test_login_and_forced_password_change(page):
 
 
 def test_wrong_password_rejected(browser, admin_state):
-    ctx = browser.new_context(ignore_https_errors=True, base_url="https://localhost")
+    ctx = browser.new_context(ignore_https_errors=True, base_url=BASE_URL)
     page = ctx.new_page()
     _do_login(page, ADMIN_USER, "definitely-wrong-1")
     # stays on login with an error, never reaches the dashboard

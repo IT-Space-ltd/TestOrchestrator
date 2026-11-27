@@ -1,0 +1,681 @@
+{
+  "ProjectForm": {
+    "name": {
+      "type": "StringField",
+      "label": "Name"
+    },
+    "description": {
+      "type": "TextAreaField",
+      "label": "Description"
+    }
+  },
+  "BindingForm": {
+    "name": {
+      "type": "StringField",
+      "label": "Name"
+    },
+    "url": {
+      "type": "StringField",
+      "label": "Repository URL or path"
+    },
+    "ref": {
+      "type": "StringField",
+      "label": "Ref (branch/tag)"
+    },
+    "subdirectory": {
+      "type": "StringField",
+      "label": "Subdirectory"
+    },
+    "prj_path": {
+      "type": "StringField",
+      "label": ".prj path"
+    },
+    "credential_ref": {
+      "type": "StringField",
+      "label": "Credential reference"
+    },
+    "authoring_writable": {
+      "type": "BooleanField",
+      "label": "Source authoring (edit native definitions)",
+      "default": true
+    },
+    "report_writable": {
+      "type": "BooleanField",
+      "label": "Report write-back (publish execution reports to this repository)",
+      "default": false
+    }
+  },
+  "SuiteForm": {
+    "name": {
+      "type": "StringField",
+      "label": "Suite name"
+    },
+    "description": {
+      "type": "TextAreaField",
+      "label": "Description"
+    },
+    "binding_id": {
+      "type": "StringField",
+      "label": "Source binding"
+    },
+    "case_refs": {
+      "type": "SelectMultipleField",
+      "label": "Test cases"
+    }
+  },
+  "ScheduleForm": {
+    "name": {
+      "type": "StringField",
+      "label": "Schedule name"
+    },
+    "description": {
+      "type": "TextAreaField",
+      "label": "Description"
+    },
+    "framework": {
+      "type": "SelectField",
+      "label": "What to schedule",
+      "choices": []
+    },
+    "target_type": {
+      "type": "SelectField",
+      "label": "Target",
+      "choices": [
+        [
+          "suite",
+          "Suite"
+        ]
+      ]
+    },
+    "target_id": {
+      "type": "SelectField",
+      "label": "Runs"
+    },
+    "pytest_keyword": {
+      "type": "StringField",
+      "label": "Keyword expression (-k)"
+    },
+    "pytest_markers": {
+      "type": "StringField",
+      "label": "Marker expression (-m)"
+    },
+    "robot_test": {
+      "type": "StringField",
+      "label": "Test name"
+    },
+    "robot_include": {
+      "type": "StringField",
+      "label": "Include tags"
+    },
+    "robot_exclude": {
+      "type": "StringField",
+      "label": "Exclude tags"
+    },
+    "jest_test_path": {
+      "type": "StringField",
+      "label": "Test path pattern"
+    },
+    "jest_test_name": {
+      "type": "StringField",
+      "label": "Test name pattern"
+    },
+    "postman_collection": {
+      "type": "StringField",
+      "label": "Collection"
+    },
+    "postman_environment": {
+      "type": "StringField",
+      "label": "Environment"
+    },
+    "postman_folder": {
+      "type": "StringField",
+      "label": "Folder"
+    },
+    "postman_iterations": {
+      "type": "IntegerField",
+      "label": "Iteration count"
+    },
+    "bruno_collection": {
+      "type": "StringField",
+      "label": "Collection folder"
+    },
+    "bruno_environment": {
+      "type": "StringField",
+      "label": "Environment"
+    },
+    "bruno_tags": {
+      "type": "StringField",
+      "label": "Tags"
+    },
+    "kind": {
+      "type": "SelectField",
+      "label": "Kind",
+      "choices": [
+        [
+          "once",
+          "Once"
+        ],
+        [
+          "interval",
+          "Repeating"
+        ]
+      ]
+    },
+    "run_at": {
+      "type": "StringField",
+      "label": "First run (UTC, YYYY-MM-DD HH:MM)"
+    },
+    "interval_minutes": {
+      "type": "IntegerField",
+      "label": "Every N minutes",
+      "default": 60
+    },
+    "execution_profile": {
+      "type": "StringField",
+      "label": "Execution profile",
+      "default": "default"
+    },
+    "browser_type": {
+      "type": "SelectField",
+      "label": "Browser",
+      "choices": "dynamic",
+      "default": "Chrome (headless)"
+    },
+    "remote_webdriver_url": {
+      "type": "StringField",
+      "label": "Remote WebDriver URL"
+    },
+    "remote_webdriver_type": {
+      "type": "StringField",
+      "label": "WebDriver driver type"
+    },
+    "timeout_seconds": {
+      "type": "IntegerField",
+      "label": "Timeout (seconds)",
+      "default": 3600
+    },
+    "runner_id": {
+      "type": "SelectField",
+      "label": "Runner",
+      "choices": []
+    },
+    "runtime_id": {
+      "type": "SelectField",
+      "label": "KRE installation",
+      "choices": []
+    },
+    "deps_prepare": {
+      "type": "SelectField",
+      "label": "Dependency prepare (npm ci)",
+      "choices": [
+        [
+          "",
+          "On \u2014 npm ci before the run (default)"
+        ],
+        [
+          "false",
+          "Off \u2014 deps pre-installed on target"
+        ]
+      ]
+    },
+    "overlap_policy": {
+      "type": "SelectField",
+      "label": "Overlap",
+      "choices": [
+        [
+          "allow",
+          "Allow overlap"
+        ],
+        [
+          "skip",
+          "Skip if previous run active"
+        ]
+      ],
+      "default": "allow"
+    },
+    "misfire_policy": {
+      "type": "SelectField",
+      "label": "Missed fire",
+      "choices": [
+        [
+          "late",
+          "Run once late"
+        ],
+        [
+          "skip",
+          "Skip if past interval"
+        ]
+      ],
+      "default": "late"
+    }
+  },
+  "FrameworkProjectForm": {
+    "name": {
+      "type": "StringField",
+      "label": "Project display name"
+    },
+    "framework": {
+      "type": "SelectField",
+      "label": "Framework / runner"
+    },
+    "project_root": {
+      "type": "StringField",
+      "label": "Project root (relative to binding scope, '.' allowed)"
+    },
+    "workdir": {
+      "type": "StringField",
+      "label": "Working directory (default: project root)"
+    },
+    "config_file": {
+      "type": "StringField",
+      "label": "Framework config file (pytest.ini / cypress.config.js / playwright.config.ts / .prj \u2026)"
+    },
+    "test_roots": {
+      "type": "TextAreaField",
+      "label": "Test roots (one per line; '.' = scope root)"
+    },
+    "include": {
+      "type": "TextAreaField",
+      "label": "Include patterns (one per line, e.g. **/*.spec.ts)"
+    },
+    "exclude": {
+      "type": "TextAreaField",
+      "label": "Exclude patterns (one per line)"
+    },
+    "feature_roots": {
+      "type": "TextAreaField",
+      "label": "Feature-file roots \u2014 BDD only (one per line)"
+    },
+    "stepdef_roots": {
+      "type": "TextAreaField",
+      "label": "Step-definition/binding roots \u2014 BDD only (one per line)"
+    },
+    "support_roots": {
+      "type": "TextAreaField",
+      "label": "Resource/fixture/support roots (informational)"
+    }
+  },
+  "LoginForm": {
+    "username": {
+      "type": "StringField",
+      "label": "Username"
+    },
+    "password": {
+      "type": "PasswordField",
+      "label": "Password"
+    }
+  },
+  "ChangePasswordForm": {
+    "current_password": {
+      "type": "PasswordField",
+      "label": "Current password"
+    },
+    "new_password": {
+      "type": "PasswordField",
+      "label": "New password"
+    },
+    "confirm_password": {
+      "type": "PasswordField",
+      "label": "Confirm new password"
+    }
+  },
+  "AccountForm": {
+    "timezone": {
+      "type": "StringField",
+      "label": "Display time zone",
+      "description": "IANA zone name \u2014 the shown offset varies by date."
+    }
+  },
+  "LicenceActivationForm": {
+    "licence_code": {
+      "type": "StringField",
+      "label": "Licence code"
+    },
+    "website": {
+      "type": "StringField",
+      "label": "Website"
+    }
+  },
+  "AddressForm": {
+    "external_enabled": {
+      "type": "BooleanField",
+      "label": "Enable external/LAN access"
+    },
+    "external_host": {
+      "type": "StringField",
+      "label": "External/LAN address",
+      "description": "IP address or DNS hostname (no scheme, path, or port). A private LAN IP is fine \u2014 it does not make the site Internet-accessible; DNS must resolve and any NAT/firewall forwarding is configured separately."
+    },
+    "candidate": {
+      "type": "RadioField",
+      "label": "Detected candidates"
+    }
+  },
+  "PortsForm": {
+    "https_port": {
+      "type": "IntegerField",
+      "label": "Public HTTPS port"
+    },
+    "http_port": {
+      "type": "IntegerField",
+      "label": "Public HTTP port (redirect-only)"
+    },
+    "internal_app_port": {
+      "type": "IntegerField",
+      "label": "Internal app port (Waitress, loopback)"
+    },
+    "http_mode": {
+      "type": "RadioField",
+      "label": "HTTP listener mode",
+      "choices": [
+        [
+          "redirect",
+          "Redirect-only to HTTPS"
+        ],
+        [
+          "disabled",
+          "Disabled \u2014 no HTTP listener"
+        ],
+        [
+          "development-insecure",
+          "Development insecure (explicit approval required)"
+        ]
+      ],
+      "default": "redirect"
+    }
+  },
+  "GenerateCertForm": {
+    "san_hosts": {
+      "type": "SelectMultipleField",
+      "label": "Hostnames/IPs to include as SANs"
+    }
+  },
+  "ImportCertForm": {
+    "certificate": {
+      "type": "FileField",
+      "label": "Certificate / full chain (PEM)"
+    },
+    "private_key": {
+      "type": "FileField",
+      "label": "Matching private key (PEM)"
+    },
+    "intermediates": {
+      "type": "FileField",
+      "label": "Intermediate certificates (PEM, optional)"
+    }
+  },
+  "UserForm": {
+    "username": {
+      "type": "StringField",
+      "label": "Username"
+    },
+    "display_name": {
+      "type": "StringField",
+      "label": "Display name"
+    },
+    "role": {
+      "type": "RadioField",
+      "label": "Role",
+      "choices": [
+        [
+          "admin",
+          "Admin"
+        ],
+        [
+          "test_manager",
+          "Test Manager"
+        ],
+        [
+          "tester",
+          "Tester"
+        ],
+        [
+          "po",
+          "PO"
+        ]
+      ],
+      "default": "tester"
+    },
+    "timezone": {
+      "type": "StringField",
+      "label": "Display time zone",
+      "default": "UTC",
+      "description": "IANA zone name \u2014 the shown offset varies by date."
+    },
+    "temporary_password": {
+      "type": "PasswordField",
+      "label": "Temporary password"
+    }
+  },
+  "UserTimezoneForm": {
+    "timezone": {
+      "type": "StringField",
+      "label": "Display time zone",
+      "description": "IANA zone name \u2014 the shown offset varies by date."
+    }
+  },
+  "ResetForm": {
+    "temporary_password": {
+      "type": "PasswordField",
+      "label": "New temporary password"
+    }
+  },
+  "SecretForm": {
+    "name": {
+      "type": "StringField",
+      "label": "Reference name"
+    },
+    "kind": {
+      "type": "RadioField",
+      "label": "Kind",
+      "choices": [
+        [
+          "git",
+          "Git \u2014 HTTPS repository authentication"
+        ],
+        [
+          "runtime",
+          "KRE invocation secret"
+        ],
+        [
+          "license",
+          "KRE offline license file (.lic)"
+        ]
+      ],
+      "default": "git"
+    },
+    "value": {
+      "type": "PasswordField",
+      "label": "Credential value",
+      "description": "Git (HTTPS only): user:token \u2014 e.g. git:ghp_\u2026 \u2014 split at the first colon; a bare token is used as the username (PAT convention). SSH remotes use the host ssh agent or the worker-side key path \u2014 never a stored key. KRE: a sensitive value used by the invocation (license key or project token) that must be redacted from logs/artifacts. License kind: the exact contents of a genuine Katalon-issued .lic offline license file (machine-bound to the target's execution account)."
+    },
+    "description": {
+      "type": "StringField",
+      "label": "Description"
+    }
+  },
+  "RunnerForm": {
+    "name": {
+      "type": "StringField",
+      "label": "Name"
+    },
+    "description": {
+      "type": "TextAreaField",
+      "label": "Description"
+    },
+    "os_arch": {
+      "type": "StringField",
+      "label": "OS / architecture"
+    },
+    "connection_mode": {
+      "type": "RadioField",
+      "label": "Connection mode",
+      "choices": [
+        [
+          "local",
+          "Local (same machine)"
+        ],
+        [
+          "remote",
+          "Remote (pending agent transport)"
+        ]
+      ],
+      "default": "local"
+    },
+    "target_type": {
+      "type": "RadioField",
+      "label": "Target type",
+      "choices": [
+        [
+          "local",
+          "This host"
+        ],
+        [
+          "buildbot-worker",
+          "Buildbot worker"
+        ],
+        [
+          "ssh",
+          "Agentless Linux SSH"
+        ]
+      ],
+      "default": "local"
+    },
+    "ssh_host": {
+      "type": "StringField",
+      "label": "SSH host"
+    },
+    "ssh_port": {
+      "type": "IntegerField",
+      "label": "SSH port"
+    },
+    "ssh_username": {
+      "type": "StringField",
+      "label": "SSH username"
+    },
+    "ssh_workdir": {
+      "type": "StringField",
+      "label": "Remote working directory"
+    },
+    "ssh_credential_ref": {
+      "type": "StringField",
+      "label": "SSH credential (existing secret)"
+    },
+    "ssh_key": {
+      "type": "TextAreaField",
+      "label": "New SSH private key",
+      "description": "PEM private key \u2014 stored encrypted under a generated reference; never shown again."
+    },
+    "workspace_root": {
+      "type": "StringField",
+      "label": "Workspace root"
+    },
+    "max_slots": {
+      "type": "IntegerField",
+      "label": "Max concurrent slots",
+      "default": 1
+    },
+    "allowed_projects": {
+      "type": "SelectMultipleField",
+      "label": "Allowed projects"
+    }
+  },
+  "RuntimeForm": {
+    "name": {
+      "type": "StringField",
+      "label": "Connection name"
+    },
+    "description": {
+      "type": "TextAreaField",
+      "label": "Description"
+    },
+    "runner_id": {
+      "type": "StringField",
+      "label": "Worker"
+    },
+    "executable_path": {
+      "type": "StringField",
+      "label": "KRE path on the selected worker"
+    },
+    "git_ssh_key_path": {
+      "type": "StringField",
+      "label": "Worker-side SSH key path (for ssh:// bindings)",
+      "description": "Path on the worker's filesystem to its deploy key \u2014 the key material never enters the portal."
+    },
+    "workspace_root": {
+      "type": "StringField",
+      "label": "Workspace root"
+    },
+    "credential_ref": {
+      "type": "StringField",
+      "label": "Credential reference"
+    },
+    "credential_file": {
+      "type": "StringField",
+      "label": "Worker-local credential file (remote dispatch)",
+      "description": "Absolute path on the WORKER to a protected credential file (0700 dir / 0600 file). The spec carries this path only \u2014 the worker's resolver reads the value at exec time."
+    },
+    "concurrency": {
+      "type": "IntegerField",
+      "label": "Concurrency",
+      "default": 1
+    }
+  },
+  "BackupCreateForm": {
+    "passphrase": {
+      "type": "PasswordField",
+      "label": "Backup passphrase",
+      "description": "Min 12 characters \u2014 encrypts the archive; unrecoverable if lost."
+    },
+    "confirm": {
+      "type": "PasswordField",
+      "label": "Confirm passphrase"
+    },
+    "password": {
+      "type": "PasswordField",
+      "label": "Your password (re-authentication)"
+    }
+  },
+  "RestoreStageForm": {
+    "backup_file": {
+      "type": "FileField",
+      "label": "Backup file (.tobackup)"
+    },
+    "passphrase": {
+      "type": "PasswordField",
+      "label": "Backup passphrase"
+    },
+    "credential": {
+      "type": "PasswordField",
+      "label": "Your password / fresh-install setup token"
+    }
+  },
+  "RestoreApplyForm": {
+    "staged_id": {
+      "type": "StringField",
+      "label": ""
+    },
+    "mode": {
+      "type": "RadioField",
+      "label": "Restore mode",
+      "choices": [
+        [
+          "fresh",
+          "Restore into a fresh installation"
+        ],
+        [
+          "replace",
+          "Replace current configuration"
+        ]
+      ]
+    },
+    "passphrase": {
+      "type": "PasswordField",
+      "label": "Backup passphrase"
+    },
+    "credential": {
+      "type": "PasswordField",
+      "label": "Your password / fresh-install setup token"
+    }
+  }
+}

@@ -139,19 +139,87 @@ def _prepare(client, spec) -> None:
     sftp = client.open_sftp()
     try:
         q = shlex.quote
+        _sweep_stale_workdirs(client, spec)
         rc, out, err = _exec(
             client,
             f"mkdir -p {q(wd)} && "
             f"touch {q(wd)}/.to_write_test && "
-            f"rm -f {q(wd)}/.to_write_test")
+            f"rm -f {q(wd)}/.to_write_test && "
+            # The per-execution workdir is locked to the SSH user
+            # BEFORE any staging — a delivered credential file must
+            # never sit inside a directory other users can list/read,
+            # not even between put and chmod.
+            f"chmod 700 {q(wd)}")
         if rc != 0:
             detail = (err or out).strip()
             raise RuntimeError(
                 f"remote workdir {wd} is not creatable/writable for "
                 f"SSH user {spec.get('username')!r} (rc={rc}"
                 + (f": {detail}" if detail else ")"))
+        # Free-space pre-flight: a full /tmp broke SFTP staging with an
+        # opaque 'OSError: Failure' on the acceptance guest (ISS-024).
+        # Check the workdir filesystem has the archive + extraction
+        # margin BEFORE staging, and fail with a clear, actionable error.
+        try:
+            need = os.path.getsize(spec["source_tar"]) * 3 + 32 * 1024 * 1024
+        except OSError:
+            need = 64 * 1024 * 1024
+        rc, out, err = _exec(
+            client, f"df -k {q(wd)} 2>/dev/null | awk 'NR==2 {{print $4}}'")
+        avail_kb = out.strip()
+        if rc == 0 and avail_kb.isdigit() and int(avail_kb) * 1024 < need:
+            raise RuntimeError(
+                f"insufficient free space on the remote workdir "
+                f"filesystem for {wd}: {int(avail_kb)//1024} MiB "
+                f"available, {need//1024//1024} MiB required (archive "
+                f"+ extraction margin) — free space or reduce retained "
+                f"run workdirs (workdir_retention_s/workdir_max_count)")
         # stage the portal-built source archive
         sftp.put(spec["source_tar"], wd + "/source.tar")
+        # Delivered credential (portal-side credential_ref): SFTP'd
+        # per execution into the run workdir, 0600, removed at
+        # collect/kill — never inside source.tar or argv.
+        if spec.get("credential_stage"):
+            sftp.put(spec["credential_stage"], wd + "/.to_kre_cred")
+            _exec(client, f"chmod 600 {shlex.quote(wd)}/.to_kre_cred")
+        # Managed offline licenses: the pack is SFTP'd into the run
+        # workdir, then each to-<sha>.lic is installed into the LOGIN
+        # account's ~/.katalon/license (0600) — durable machine-bound
+        # state that PERSISTS across runs (unlike .to_kre_cred, which
+        # is wiped at collect/kill). Only to-* names are installed,
+        # so operator-owned .lic files are never overwritten or
+        # removed; the .to_managed ledger records TO ownership.
+        lic = spec.get("license_install") or {}
+        if lic.get("stage"):
+            sftp.put(lic["stage"], wd + "/.to_licpack.tar")
+            _exec(
+                client,
+                f'LDIR="$HOME/.katalon/license" && '
+                f'mkdir -p "$LDIR" && '
+                f'tar -xf {shlex.quote(wd)}/.to_licpack.tar -C '
+                f'{shlex.quote(wd)}')
+            for ent in (lic.get("files") or []):
+                name, sha = ent["name"], ent["sha256"]
+                rc, out, err = _exec(
+                    client,
+                    f'LDIR="$HOME/.katalon/license"; '
+                    f'if [ -f "$LDIR/{name}" ]; then '
+                    f'  echo "to_license: {name} already installed '
+                    f'(content-identical, kept)"; '
+                    f'else '
+                    f'  install -m 600 {shlex.quote(wd)}/{name} '
+                    f'"$LDIR/{name}" && '
+                    f'  echo "to_license: installed {name}"; '
+                    f'fi; '
+                    f'touch "$LDIR/.to_managed" && '
+                    f'grep -q "^{sha}  {name}" "$LDIR/.to_managed" '
+                    f'2>/dev/null || echo "{sha}  {name}  '
+                    f'user=$(id -un 2>/dev/null)" '
+                    f'>> "$LDIR/.to_managed"')
+                if rc != 0:
+                    raise RuntimeError(
+                        f"to_license: license install failed for "
+                        f"{name}: {(err or out).strip()[:200]}")
         remote = shlex.quote
         args = " ".join(remote(a) for a in spec["args"])
         cred = spec.get("credential_file") or ""
@@ -165,11 +233,15 @@ def _prepare(client, spec) -> None:
             # remote host needs no pre-installed copy.
             wrapper_path = spec.get("remote_cred_wrapper") or ""
             if not wrapper_path:
-                wrapper_path = wd + "/kre_cred_exec.py"
+                wrapper_path = wd + "/kre_cred_exec.sh"
                 sftp.put(str(Path(__file__).resolve().parent
-                             / "kre_cred_exec.py"), wrapper_path)
+                             / "kre_cred_exec.sh"), wrapper_path)
                 _exec(client, f"chmod 700 {remote(wrapper_path)}")
-            wrapper = remote(wrapper_path) + " " + remote(cred) + " "
+            # Run under `sh` explicitly — the SSH path must not rely on
+            # any PATH-resolved interpreter (the old shebang+python3
+            # requirement); sh is the shell run.sh already executes in.
+            wrapper = ("sh " + remote(wrapper_path) + " "
+                       + remote(cred) + " ")
         # Node runners execute inside the untarred project root
         # (proj/src) — exec_subdir descends into it; env carries
         # runner vars like PLAYWRIGHT_JUNIT_OUTPUT_FILE.
@@ -189,8 +261,9 @@ def _prepare(client, spec) -> None:
         # Optional dependency step (node runners: npm ci — pinned
         # project deps into the isolated staged workspace).
         deps = spec.get("deps_argv") or []
+        deps_timeout = int(spec.get("deps_timeout") or 600)
         deps_line = (
-            " ".join(remote(a) for a in deps)
+            f"timeout {deps_timeout} " + " ".join(remote(a) for a in deps)
             + f" >>{remote(wd)}/run.out 2>&1 || "
             f"{{ printf 124 > {remote(wd)}/exit_code; exit 124; }}\n"
             if deps else "")
@@ -199,6 +272,7 @@ def _prepare(client, spec) -> None:
             f"mkdir -p {remote(wd)}/proj && "
             f"tar -xf {remote(wd)}/source.tar -C {remote(wd)}/proj\n"
             f"cd {cd_target} || exit 125\n"
+            "mkdir -p Reports/junit\n"
             f"{env_exports}"
             f"{deps_line}"
             f"{wrapper}{exe} {args} "
@@ -209,6 +283,92 @@ def _prepare(client, spec) -> None:
         _exec(client, f"chmod 700 {remote(wd)}/run.sh")
     finally:
         sftp.close()
+
+
+def _sweep_stale_workdirs(client, spec) -> None:
+    """Bounded remote-workdir retention (ISS-024): sibling per-execution
+    workdirs older than the retention bound are removed — but ONLY when
+    they carry TO run markers (run.sh/run.pid), never the workdir root
+    or foreign content, and never while the recorded run pid is still
+    alive: a long-running execution outliving the retention window must
+    not lose its workdir mid-flight to a sibling's prepare sweep. Runs left for reconciliation after a timeout are
+    reattachable inside this window; the bound prevents the unbounded
+    /tmp growth that filled tmpfs and broke SFTP staging on the
+    acceptance guest."""
+    import posixpath
+    wd = spec["remote_workdir"]
+    root = posixpath.dirname(wd.rstrip("/"))
+    if not root or root == "/":
+        return
+    retention = int(spec.get("workdir_retention_s") or 86400)
+    q = shlex.quote
+    # Epoch comparison — find -mmin is minute-granular, too coarse for
+    # short retention windows. Only dirs carrying a TO run marker are
+    # eligible; the root itself is never touched.
+    script = (
+        f"cutoff=$(( $(date +%s) - {retention} )); "
+        f"for d in {q(root)}/*/; do "
+        f"  if [ -f \"$d\"run.sh ] || [ -f \"$d\"run.pid ]; then "
+        # liveness + unclear-case determination runs for EVERY marked dir,
+        # not only stale ones: credential material is scrubbed from any
+        # non-live dir even inside the retention window (a controller
+        # death can skip both collect and kill scrub paths).
+        f"    live=0; unclear=0; "
+        f"    if [ -f \"$d\"run.pid ]; then "
+        f"      p=$(cat \"$d\"run.pid 2>/dev/null); "
+        f"      if [ -z \"$p\" ]; then unclear=1; "
+        f"      elif kill -0 \"$p\" 2>/dev/null; then live=1; fi; "
+        f"    fi; "
+        f"    if [ \"$live\" = 0 ]; then "
+        f"      rm -f \"$d\".to_kre_cred \"$d\".to_licpack.tar 2>/dev/null; true; "
+        f"    fi; "
+        f"    m=$(stat -c %Y \"$d\" 2>/dev/null || echo 0); "
+        f"    if [ \"$m\" -gt 0 ] && [ \"$m\" -lt \"$cutoff\" ]; then "
+        f"      if [ \"$live\" = 0 ] && [ \"$unclear\" = 0 ]; then rm -rf \"$d\"; fi; "
+        f"    fi; "
+        f"  fi; "
+        f"done; "
+        # bounded-count cap: if marked sibling dirs still exceed the cap,
+        # remove the oldest non-live, non-unclear ones first. The cap
+        # bounds /tmp growth even when everything is inside the age window
+        # (rapid-fire short runs). Never touches live/unclear/foreign.
+        f"cap={int(spec.get('workdir_max_count') or 100)}; "
+        f"n=0; for d in {q(root)}/*/; do "
+        f"  if [ -f \"$d\"run.sh ] || [ -f \"$d\"run.pid ]; then n=$((n+1)); fi; "
+        f"done; "
+        f"if [ \"$n\" -gt \"$cap\" ]; then "
+        f"  ls -1dt {q(root)}/*/ 2>/dev/null | tail -n +$((cap/2)) | while read d; do "
+        f"    if [ -f \"$d\"run.sh ] || [ -f \"$d\"run.pid ]; then "
+        f"      p=$(cat \"$d\"run.pid 2>/dev/null); "
+        f"      if [ -n \"$p\" ] && kill -0 \"$p\" 2>/dev/null; then continue; fi; "
+        f"      if [ -z \"$p\" ] && [ -f \"$d\"run.pid ]; then continue; fi; "
+        f"      rm -rf \"$d\"; "
+        f"    fi; "
+        f"  done; "
+        f"fi; true")
+    try:
+        _exec(client, script, timeout=30)
+    except Exception:
+        pass    # sweep is best-effort; a failure must not block the run
+
+
+def _cleanup_remote_workdir(client, spec) -> None:
+    """Remove the per-execution remote workdir after collection or a
+    confirmed cancel kill (ISS-024). Delivered credential material is
+    already wiped separately at collect/kill — this bounds everything
+    else the run staged (source.tar, licpack, run.sh, Reports).
+    ``keep_workdir`` in the spec is the operator debugging opt-out —
+    the age-based sweep still bounds what is kept."""
+    if spec.get("keep_workdir"):
+        return
+    wd = (spec.get("remote_workdir") or "").strip()
+    if len(wd) < 8 or wd == "/":
+        return
+    q = shlex.quote
+    try:
+        _exec(client, f"rm -rf {q(wd)} 2>/dev/null; true", timeout=30)
+    except Exception:
+        pass
 
 
 def _launch(client, spec) -> None:
@@ -258,6 +418,8 @@ def _kill_remote(client, spec) -> bool:
             return False
         _exec(client, f"kill -TERM -{pid} 2>/dev/null; sleep 1; "
                       f"kill -KILL -{pid} 2>/dev/null; true")
+        # A killed run must not leave delivered secret material.
+        _exec(client, f"rm -f {q(wd)}/.to_kre_cred 2>/dev/null; true")
         rc, out, _ = _exec(client, f"kill -0 {pid} 2>/dev/null "
                                    f"&& echo alive || echo dead")
         return out.strip() == "dead"
@@ -299,6 +461,22 @@ def _collect(client, spec, local_dir: Path) -> None:
         # dir (dispatch passes <wd>/<report_rel>) — collect from there.
         report_rel = (spec.get("report_rel") or "Reports").strip("/")
         _walk(f"{wd}/{report_rel}", report_rel)
+        # Delivered credentials live only for the execution's window —
+        # remove once results are pulled (helper already consumed it).
+        try:
+            sftp.remove(f"{wd}/.to_kre_cred")
+        except OSError:
+            pass
+        # The license pack + extracted copies are per-run staging —
+        # the INSTALLED copies under ~/.katalon/license persist.
+        for rel in (".to_licpack.tar",
+                    *((e["name"]) for e in
+                      (spec.get("license_install") or {})
+                      .get("files") or [])):
+            try:
+                sftp.remove(f"{wd}/{rel}")
+            except OSError:
+                pass
     finally:
         sftp.close()
 
@@ -367,6 +545,8 @@ def main(argv=None) -> int:
                     ok = False
                 print("TO-SSH: cancel-confirmed" if ok
                       else "TO-SSH: cancel-unconfirmed")
+                if ok:
+                    _cleanup_remote_workdir(client, spec)
                 return 0 if ok else 15
             if time.monotonic() > deadline:
                 print("TO-SSH: timeout — remote run left for "
@@ -375,6 +555,7 @@ def main(argv=None) -> int:
             time.sleep(POLL_S)
         _tail_remote_log(client, spec)
         _collect(client, spec, local_artifacts)
+        _cleanup_remote_workdir(client, spec)
         print(f"TO-SSH: runner exit_code={exit_code}; artifacts "
               "collected")
         return 0 if exit_code == 0 else 3

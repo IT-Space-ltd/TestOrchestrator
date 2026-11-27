@@ -67,6 +67,11 @@ DEFAULTS = {
     # the sole enhanced backend in 2.0; native-KRE reporting always on.
     "reportinglabs_enabled": True,
     "logs_retention_days": 30,
+    # Evidence retention defaults (M9 §storage-7): days after an
+    # execution finishes before its artifact FILES / its metadata
+    # row expire. 0 = keep forever. Projects may override per-key.
+    "retention_artifact_days": 0,
+    "retention_metadata_days": 0,
     "logs_max_rows": 20000,
     # CSV export (Admin -> Audit / Operational Logs). Exports never
     # silently truncate — above logs_export_max_rows the request fails

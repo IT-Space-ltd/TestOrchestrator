@@ -27,7 +27,28 @@ class Project(db.Model):
     id = db.Column(db.String(32), primary_key=True, default=new_id)
     name = db.Column(db.String(128), nullable=False)
     description = db.Column(db.Text, nullable=False, default="")
+    # Artifact capture policy (§storage-5): per-category collection
+    # permissions, snapshotted into each execution's run_config.
+    capture_policy_json = db.Column(db.Text, nullable=False,
+                                  default="{}")
+    # Per-project retention overrides (§storage-7): null per key =
+    # inherit the global default; 0 = keep forever.
+    retention_json = db.Column(db.Text, nullable=False, default="{}")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    def capture_policy(self) -> dict:
+        from .capture import normalize_policy
+        try:
+            raw = json.loads(self.capture_policy_json or "{}")
+        except ValueError:
+            raw = {}
+        return normalize_policy(raw)
+
+    def retention(self) -> dict:
+        try:
+            return json.loads(self.retention_json or "{}")
+        except ValueError:
+            return {}
 
 
 class GitBinding(db.Model):
@@ -322,7 +343,7 @@ class RuntimeConnection(db.Model):
                                  default="")
     # Worker-local credential FILE path for orchestrated KRE — the
     # coordinator spec carries this path only; the worker-side
-    # resolver (scripts/kre_cred_exec.py) reads the value on the
+    # resolver (scripts/kre_cred_exec.{sh,ps1}) reads the value on the
     # worker immediately before exec. Admin-configured; an execution
     # request can never select an arbitrary worker path.
     credential_file = db.Column(db.String(512), nullable=False,
@@ -334,7 +355,54 @@ class RuntimeConnection(db.Model):
     # resolved on the TARGET host.
     runtime_kind = db.Column(db.String(16), nullable=False,
                              default="kre")
+    # KRE licensing mode (docs/kre-licensing-modes.md): "online"
+    # (-apiKey credential, existing rows keep this), "offline"
+    # (machine-bound .lic files under the execution account's
+    # ~/.katalon/license — no -apiKey is emitted), "private"
+    # (online + -serverUrl private authentication instance).
+    # There is deliberately no "hybrid" execution mode — hybrid is a
+    # deployment property: online and offline runtimes coexist.
+    licensing_mode = db.Column(db.String(16), nullable=False,
+                               default="online")
+    # JSON list of 'license'-kind secret names, each holding ONE
+    # genuine Katalon-issued .lic file body for managed offline
+    # provisioning. One .lic = one concurrent offline session
+    # (Katalon floating model). Empty => operator-provisioned
+    # (the admin placed .lic files on the target themselves — the
+    # probe reports what is present).
+    license_refs = db.Column(db.Text, nullable=False, default="[]")
+    # Private authentication instance URL (licensing_mode "private")
+    # — emitted as -serverUrl=<url> (KRE v8.3.5+). Kept separate
+    # from online/offline selection.
+    license_server_url = db.Column(db.String(512), nullable=False,
+                                   default="")
+    # Framework-adapted toolchain settings for non-KRE runtimes
+    # (M16): python_env/node_bin/engine/sandbox-policy/env-allowlist
+    # etc. — additive JSON; KRE rows keep "{}" and never read it.
+    config_json = db.Column(db.Text, nullable=False, default="{}")
+    # Structured readiness state (M16) — KRE rows stay on
+    # last_diagnostic semantics; non-KRE wizard drives these:
+    #   not-checked | checking | ready-discovery | ready-execution |
+    #   project-validation-required | missing-dependency |
+    #   unsupported-version | target-unavailable | evidence-stale
+    readiness_state = db.Column(db.String(32), nullable=False,
+                                default="not-checked")
     runner = db.relationship("Runner", backref="runtimes")
+
+    def config(self) -> dict:
+        try:
+            return json.loads(self.config_json or "{}")
+        except ValueError:
+            return {}
+
+    def license_ref_names(self) -> list:
+        """Managed offline-license secret names (each holds one
+        Katalon-issued .lic body)."""
+        try:
+            return [n for n in json.loads(self.license_refs or "[]")
+                    if (n or "").strip()]
+        except ValueError:
+            return []
 
 
 class ExecutionState(str, enum.Enum):
@@ -619,8 +687,53 @@ class Artifact(db.Model):
     # run/suite level and are labelled unmapped.
     mapped = db.Column(db.Boolean, nullable=False, default=True)
     collected_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    # Durable-storage bookkeeping (M9): the workspace file is a
+    # STAGING copy — cleanup eligibility requires storage_state ==
+    # "stored" with a verified checksum at storage_ref.
+    attempt = db.Column(db.Integer, nullable=False, default=1)
+    store_id = db.Column(db.String(32),
+                         db.ForeignKey("artifact_stores.id"),
+                         nullable=True)
+    storage_state = db.Column(db.String(16), nullable=False,
+                              default="staged")
+    # staged | uploading | stored | failed | expired
+    storage_ref = db.Column(db.String(768), nullable=False, default="")
+    stored_at = db.Column(db.DateTime(timezone=True), nullable=True)
     execution = db.relationship("Execution", backref=db.backref(
         "artifacts", cascade="all, delete-orphan"))
+
+
+class ArtifactStore(db.Model):
+    """Per-project durable artifact destination (M9). Execution
+    metadata/status/parsed results stay in the DB; file bytes go to
+    the project's ACTIVE store at execution-scoped keys. Historical
+    executions keep their store_id/ref — a config change affects new
+    runs only, old artifacts stay reachable (§8)."""
+
+    __tablename__ = "artifact_stores"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    project_id = db.Column(db.String(32),
+                           db.ForeignKey("projects.id"), nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    kind = db.Column(db.String(16), nullable=False)  # local|mounted|s3
+    # local/mounted: {"root", "subdir"}; s3: {"bucket","prefix",
+    # "region","endpoint_url","path_style"} — NEVER credentials.
+    config_json = db.Column(db.Text, nullable=False, default="{}")
+    credential_ref = db.Column(db.String(64), nullable=False,
+                               default="")
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    # Retired destinations keep their config so historical artifacts
+    # stay retrievable — they just never receive new writes.
+    retired = db.Column(db.Boolean, nullable=False, default=False)
+    validated_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    last_error = db.Column(db.Text, nullable=False, default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+
+    def config(self) -> dict:
+        try:
+            return json.loads(self.config_json or "{}")
+        except ValueError:
+            return {}
 
 
 class OutboxEvent(db.Model):
@@ -653,6 +766,22 @@ class SecretRef(db.Model):
     kind = db.Column(db.String(32), nullable=False)      # git|buildbot|ssh|runner|runtime
     encrypted = db.Column(db.LargeBinary, nullable=False)
     meta_json = db.Column(db.Text, nullable=False, default="{}")
+    # Credential authorization scope (§12). JSON:
+    #   {"grants": [{"project_ids": [...], "runtime_ids": [...],
+    #                "runner_ids": [...]}],
+    #    "pending": [{"runtime_id", "runner_id"}]}
+    # A grant row matches when every NON-empty dimension contains the
+    # identity (empty list = wildcard for that dimension). Default-deny:
+    # no grants => the secret cannot be delivered anywhere. ``pending``
+    # records associations saved before an administrator grants scope;
+    # they never bypass enforcement.
+    scope_json = db.Column(db.Text, nullable=False,
+                           default='{"grants": [], "pending": []}')
+    # Existing secrets migrated before the scope feature carry derived
+    # grants an administrator must review. The flag is advisory only —
+    # enforcement applies whether or not it is set.
+    migration_pending = db.Column(db.Boolean, nullable=False,
+                                  default=False)
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     rotated_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
@@ -695,6 +824,9 @@ class ApiToken(db.Model):
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
     last_used_at = db.Column(db.DateTime(timezone=True), nullable=True)
     revoked_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # NULL = never expires (explicit admin choice at creation).
+    # Pre-feature rows migrate to NULL and stay valid indefinitely.
+    expires_at = db.Column(db.DateTime(timezone=True), nullable=True)
 
     def project_allowed(self, project_id: str) -> bool:
         allowed = json.loads(self.allowed_projects or "[]")
@@ -750,6 +882,25 @@ class DiscoveredItem(db.Model):
     dynamic = db.Column(db.Boolean, nullable=False, default=False)
     warnings = db.Column(db.Text, nullable=False, default="")
     members_json = db.Column(db.Text, nullable=False, default="[]")
+    # Framework-aware inventory (2.7.0): which framework project and
+    # adapter produced this item, plus the executable selector when
+    # the adapter supports sub-file granularity.
+    framework_project_id = db.Column(
+        db.String(32), db.ForeignKey("framework_projects.id"),
+        nullable=True)
+    framework = db.Column(db.String(20), nullable=False, default="")
+    node_id = db.Column(db.String(512), nullable=False, default="")
+    granularity = db.Column(db.String(16), nullable=False,
+                            default="file")  # file|test|scenario|case
+    selectable = db.Column(db.Boolean, nullable=False, default=True)
+    tags = db.Column(db.Text, nullable=False, default="")
+    # Config fingerprint at discovery time — staleness is config+
+    # adapter-version aware, not just git-SHA aware.
+    fingerprint = db.Column(db.String(80), nullable=False, default="")
+    # Provenance: "static" (in-process parse) or "native" (worker
+    # collection — authoritative executable identities).
+    item_type = db.Column(db.String(16), nullable=False,
+                          default="static")
     created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
 
     def members(self) -> list:
@@ -758,6 +909,94 @@ class DiscoveredItem(db.Model):
             return _j.loads(self.members_json or "[]")
         except Exception:
             return []
+
+
+# Framework kinds a FrameworkProject can declare. The user's explicit
+# choice picks the discovery adapter — detection is only a hint.
+FRAMEWORK_KINDS = ("katalon", "pytest", "pytest-bdd", "behave",
+                   "robot", "cypress", "playwright", "playwright-pytest",
+                   "gtest", "jest", "postman", "bruno")
+
+
+class FrameworkProject(db.Model):
+    """A named framework area inside a GitBinding — one binding can
+    carry several independently configured projects (mixed-framework
+    monorepos; intentionally overlapping roots allowed). The chosen
+    `framework` selects the discovery adapter and the interpretation
+    of files — a `.feature` is Behave/pytest-bdd only because the
+    user said so, never by filename inference."""
+    __tablename__ = "framework_projects"
+    id = db.Column(db.String(32), primary_key=True, default=new_id)
+    binding_id = db.Column(db.String(32), db.ForeignKey("git_bindings.id"),
+                           nullable=False)
+    project_id = db.Column(db.String(32), db.ForeignKey("projects.id"),
+                           nullable=False)
+    name = db.Column(db.String(128), nullable=False)
+    framework = db.Column(db.String(20), nullable=False)
+    # All paths are relative to the binding checkout root; the
+    # effective base is worktree/subdirectory + project_root.
+    project_root = db.Column(db.String(512), nullable=False, default="")
+    workdir = db.Column(db.String(512), nullable=False, default="")
+    config_file = db.Column(db.String(512), nullable=False, default="")
+    test_roots_json = db.Column(db.Text, nullable=False, default="[]")
+    include_json = db.Column(db.Text, nullable=False, default="[]")
+    exclude_json = db.Column(db.Text, nullable=False, default="[]")
+    # BDD layouts may split features from step bindings.
+    feature_roots_json = db.Column(db.Text, nullable=False, default="[]")
+    stepdef_roots_json = db.Column(db.Text, nullable=False,
+                                  default="[]")
+    # Fixtures/resources/support — scanned for context, never
+    # presented as tests.
+    support_roots_json = db.Column(db.Text, nullable=False,
+                                  default="[]")
+    settings_json = db.Column(db.Text, nullable=False, default="{}")
+    adapter_version = db.Column(db.String(16), nullable=False,
+                                default="")
+    # Discovery state — strictly separated from "configuration saved".
+    # draft   = saved, never validated (no worker/sync needed)
+    # pending = sync/discovery requested, not finished
+    # ok      = discovery validated for `discovered_sha`
+    # stale   = config intact but inventory needs refresh
+    # failed  = last discovery attempt errored (see discovery_error)
+    discovered_sha = db.Column(db.String(64), nullable=False,
+                              default="")
+    discovery_status = db.Column(db.String(16), nullable=False,
+                                 default="draft")
+    discovery_error = db.Column(db.String(512), nullable=False,
+                                default="")
+    discovery_at = db.Column(db.DateTime(timezone=True), nullable=True)
+    # Full warning set (JSON list) + config fingerprint that the
+    # validated inventory was produced under.
+    discovery_warnings_json = db.Column(db.Text, nullable=False,
+                                        default="[]")
+    discovery_fingerprint = db.Column(db.String(80), nullable=False,
+                                      default="")
+    created_at = db.Column(db.DateTime(timezone=True), default=utcnow)
+    binding = db.relationship(
+        "GitBinding", backref=db.backref("framework_projects",
+                                         cascade="all,delete"))
+
+    def _list(self, col: str) -> list:
+        import json as _j
+        try:
+            return _j.loads(getattr(self, col) or "[]")
+        except Exception:
+            return []
+
+    def test_roots(self) -> list: return self._list("test_roots_json")
+    def include(self) -> list: return self._list("include_json")
+    def exclude(self) -> list: return self._list("exclude_json")
+    def feature_roots(self) -> list: return self._list("feature_roots_json")
+    def stepdef_roots(self) -> list: return self._list("stepdef_roots_json")
+    def support_roots(self) -> list: return self._list("support_roots_json")
+    def discovery_warnings(self) -> list:
+        return self._list("discovery_warnings_json")
+
+    def settings(self) -> dict:
+        try:
+            return json.loads(self.settings_json or "{}")
+        except Exception:
+            return {}
 
 
 class ImportSession(db.Model):

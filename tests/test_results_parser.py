@@ -90,3 +90,57 @@ def test_manifest_checksums_and_kinds(tmp_path):
     assert by_name["shot.png"]["kind"] == "screenshot"
     assert by_name["page.html"]["active_content"] is True
     assert all(len(m["sha256"]) == 64 for m in manifest)
+
+
+def test_parse_jest_contract(tmp_path):
+    """jest's --json outputFile is the declared results contract —
+    a failing run must yield failed canonical cases, not zero rows."""
+    from testorchestrator.results import JestParseError, parse_jest
+
+    p = tmp_path / "jest.json"
+    p.write_text("""{
+      "numTotalTests": 2, "numFailedTests": 1, "numPassedTests": 1,
+      "numPendingTests": 0, "numTodoTests": 0,
+      "testResults": [{
+        "name": "/proj/smoke.test.js",
+        "assertionResults": [
+          {"ancestorTitles": ["smoke"], "title": "passes",
+           "status": "passed", "duration": 12},
+          {"ancestorTitles": ["smoke"], "title": "fails",
+           "status": "failed", "duration": 3,
+           "failureMessages": ["expect(1).toBe(2)"]}
+        ]
+      }]
+    }""")
+    run = parse_jest(p)
+    assert len(run.cases) == 2
+    assert run.cases[0].classname == "smoke.test.js"
+    assert run.cases[0].name == "smoke passes"
+    assert run.cases[1].status == "failed"
+    assert "toBe(2)" in run.cases[1].message
+    assert run.cases[1].duration_s == pytest.approx(0.003)
+    assert not run.discrepant
+
+
+def test_parse_jest_pending_and_discrepant(tmp_path):
+    from testorchestrator.results import JestParseError, parse_jest
+
+    p = tmp_path / "jest.json"
+    p.write_text("""{"numTotalTests": 3, "testResults": [{
+        "name": "/proj/a.test.js",
+        "assertionResults": [
+          {"title": "one", "status": "passed"},
+          {"title": "two", "status": "pending"}
+        ]}]}""")
+    run = parse_jest(p)
+    assert [c.status for c in run.cases] == ["passed", "skipped"]
+    assert run.discrepant  # producer claims 3, only 2 parsed
+
+    bad = tmp_path / "jest.json"
+    bad.write_text("not json")
+    with pytest.raises(JestParseError):
+        parse_jest(bad)
+    other = tmp_path / "jest.json"
+    other.write_text("{}")
+    with pytest.raises(JestParseError):
+        parse_jest(other)

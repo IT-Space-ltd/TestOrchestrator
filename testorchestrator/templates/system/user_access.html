@@ -27,7 +27,7 @@
   <form method="post" action="{{ url_for('system.save_user_access', user_id=u.id) }}">
     {{ apply_form.csrf_token }}
     <div class="field">
-      <input type="search" id="proj-filter" placeholder="filter projects…">
+      <input type="search" id="proj-filter" aria-label="Filter projects" placeholder="filter projects…">
       <button type="button" class="button secondary sm"
         data-check-group=".proj-cb" data-check-on="1">Select all</button>
       <button type="button" class="button secondary sm"
@@ -39,6 +39,7 @@
         {% for p in projects %}
         <tr class="proj-row" data-name="{{ p.name.lower() }}">
           <td><input type="checkbox" class="proj-cb" name="project_ids"
+                     aria-label="Grant {{ p.name }}"
                      value="{{ p.id }}"
                      {% if p.id in assigned %}checked{% endif %}></td>
           <td>{{ p.name }}</td>

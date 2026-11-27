@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Add Runtime · TestOrchestrator{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('system.infrastructure') }}">← Back to infrastructure</a></p>
+<h1>Add Runtime</h1>
+<p class="muted">A runtime tells TestOrchestrator which installed
+tools to use on a worker or SSH target. <strong>Adding a runtime
+does not install software.</strong> KRE (Katalon Runtime Engine)
+is included — KRE itself must already be installed and licensed
+on the selected target.</p>
+
+<form method="post" id="runtime-wizard"
+      action="{{ url_for('system.add_runtime_create') }}">
+  {{ apply_form.csrf_token }}
+
+  <section class="card">
+    <h2>Step 1 — Choose framework</h2>
+    <div class="fw-grid">
+      {% for fw, p in profiles.items() %}
+      <label class="fw-tile">
+        <input type="radio" name="framework" value="{{ fw }}"
+               {% if selected_fw == fw %}checked{% endif %} required>
+        <span class="fw-tile-body">
+          <strong>{{ p.label }}</strong>
+          <small class="muted">{{ p.desc }}</small>
+        </span>
+      </label>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Step 2 — Choose where it runs</h2>
+    {% if targets %}
+    <table class="data-table">
+      <thead><tr><th></th><th>Target</th><th>Connection</th>
+        <th>OS/arch</th><th>Reachability</th><th>Last check</th></tr></thead>
+      <tbody>
+        {% for t in targets %}
+        <tr>
+          <td><input type="radio" name="runner_id"
+                     value="{{ t.id }}" required
+                     aria-label="select target {{ t.name }}"></td>
+          <td>{{ t.name }}</td>
+          <td><span class="badge">{{ t.target_type }}</span></td>
+          <td>{{ t.os_arch }}</td>
+          <td><span class="badge {{ 'warn' if t.health in ('unknown','stale') else 'ok' }}">{{ t.health }}</span></td>
+          <td>{{ t.last_check_at|localtime_short if t.last_check_at else "never" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="muted">No enabled execution targets exist yet.
+      Register an authorized worker or SSH host first in
+      <a href="{{ url_for('system.infrastructure') }}">Infrastructure</a>
+      — the wizard does not provision hosts.</p>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Step 3 — Configure the toolchain</h2>
+    <p class="muted">Paths are on the <strong>selected target</strong>,
+      not this server. Examples are illustrative — validate the real
+      installation with Check readiness after saving.</p>
+    <div class="grid-2">
+      <div class="field"><label for="rt-name">Profile name</label>
+        <input id="rt-name" name="name" maxlength="128"
+               placeholder="e.g. pytest 3.11 env on worker-01"></div>
+      <div class="field"><label for="rt-desc">Description</label>
+        <input id="rt-desc" name="description" maxlength="512"></div>
+      <div class="field"><label for="rt-ws">Working directory (optional)</label>
+        <input id="rt-ws" name="workspace_root" maxlength="512"
+               placeholder="absolute path on the target"></div>
+    </div>
+
+    {% for fw, p in profiles.items() %}
+    <fieldset class="fw-cfg" data-fw="{{ fw }}"
+              {% if selected_fw != fw %}disabled hidden{% endif %}>
+      <legend>{{ p.label }}</legend>
+      {% if p.engine_field %}
+        <div class="field" role="group" aria-labelledby="ef-lbl-{{ fw }}"><span class="lbl" id="ef-lbl-{{ fw }}">{{ p.engine_field[1] }} (required)</span>
+          {% for val, lbl in p.engine_field[2] %}
+          <label><input type="radio" name="cfg_{{ p.engine_field[0] }}"
+                 value="{{ val }}"> {{ lbl }}</label>
+          {% endfor %}
+          <small class="muted">The engine choice determines which
+            collection formats this runtime supports.</small></div>
+      {% endif %}
+      {% for key, kind, label, helptext in p.fields %}
+      <div class="field">
+        <label for="cfg-{{ fw }}-{{ key }}">{{ label }}</label>
+        {% if kind == "select" %}
+          <select id="cfg-{{ fw }}-{{ key }}" name="cfg_{{ key }}">
+            {% for val, lbl in sandbox_choices %}
+            <option value="{{ val }}">{{ lbl }}</option>
+            {% endfor %}</select>
+        {% elif kind == "secret" %}
+          <select id="cfg-{{ fw }}-{{ key }}" name="cfg_{{ key }}">
+            <option value="">(none)</option>
+            {% for s in runtime_secret_names %}
+            <option value="{{ s }}">{{ s }}</option>
+            {% endfor %}</select>
+          {% if not runtime_secret_names %}
+          <small class="warn">No runtime-kind secrets exist — an
+            administrator must create one under System → Secrets
+            (kind <code>runtime</code>) before managed credential
+            delivery can be used.</small>
+          {% endif %}
+        {% elif kind == "kv" %}
+          <textarea id="cfg-{{ fw }}-{{ key }}" name="cfg_{{ key }}"
+                    rows="3" placeholder="KEY=VALUE"></textarea>
+        {% else %}
+          <input id="cfg-{{ fw }}-{{ key }}" name="cfg_{{ key }}"
+                 maxlength="512">
+        {% endif %}
+        <small class="muted">{{ helptext }}</small>
+      </div>
+      {% endfor %}
+    </fieldset>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <h2>Step 4 — Review &amp; save</h2>
+    <p class="muted">The profile is saved with status
+      <strong>not checked</strong>. Run <em>Check readiness</em>
+      from the infrastructure list — a readable checklist verifies
+      the target, executable, version, and framework dependencies.
+      Project compatibility is validated when you connect a
+      repository. Incomplete profiles cannot execute.</p>
+    <div class="btn-row">
+      <button class="button primary" type="submit">Save runtime</button>
+    </div>
+  </section>
+</form>
+
+<script src="{{ url_for('static', filename='js/runtime-wizard.js') }}?v={{ js_v }}" defer></script>
+{% endblock %}

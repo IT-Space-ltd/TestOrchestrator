@@ -44,6 +44,7 @@ INCLUDE = [
     ("docs", "docs"),
     ("README.md", "docs"),
     ("CHANGELOG.md", "docs"),
+    ("Manuals-Doc", "docs"),  # user+admin manuals ship inside the build (2.7.0)
     ("assets", "app"),
     ("3rdparty/python-runtime", "python-runtime"),
     ("3rdparty/python-wheels", "python-deps"),

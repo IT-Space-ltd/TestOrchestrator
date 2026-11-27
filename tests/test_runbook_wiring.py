@@ -256,6 +256,7 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
         from testorchestrator import readiness
         rt = RuntimeConnection.query.filter_by(name="kre-1").first()
         rt.detected_version = "9.0.0"
+        rt.licensing_mode = "offline"
         readiness.record_verified(f"engine_{rt.id}",
                                   readiness._engine_fp(rt))
         r = Runner.query.filter_by(name="local-1").first()
@@ -293,6 +294,18 @@ def test_runbook_fixture_path_end_to_end(client, login_as, app, tmp_path):
             "robot_suite": "", "robot_test": "",
             "robot_include": "", "robot_exclude": "",
             "pytest_keyword": "", "pytest_markers": "",
+            "node_ids": [], "behave_targets": [], "spec": "",
+            "projects": [], "test_pattern": "", "gtest_filter": "",
+            "gtest": {},
+            "postman_collection": "", "postman_folder": "",
+            "postman_format": "", "postman_paths": [], "postman": {},
+            "bruno_collection": "", "bruno_paths": [],
+            "bruno_recurse": False, "bruno": {},
+            "capture_policy": {
+                "reports": True, "logs": True, "screenshots": True,
+                "videos": True, "traces": True, "html": True,
+                "coverage": True, "extra": True},
+            "native_collect": False, "fp_id": "", "collect_roots": [],
             "timeout_seconds": 0,
             "parallel_mode": "default", "parallel": 0,
             "shard_index": 0, "shard_total": 0,

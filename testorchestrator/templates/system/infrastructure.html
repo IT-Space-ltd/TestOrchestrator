@@ -140,28 +140,28 @@ or license KRE.</p>
             <summary class="button secondary sm">Edit</summary>
             <form method="post" action="{{ url_for('system.edit_runner', runner_id=r.id) }}" class="edit-form">
               {{ runner_form.csrf_token }}
-              <div class="field"><label>Name</label><input name="name" value="{{ r.name }}"></div>
-              <div class="field"><label>Description</label><input name="description" value="{{ r.description }}"></div>
-              <div class="field"><label>OS/arch</label><input name="os_arch" value="{{ r.os_arch }}"></div>
+              <div class="field"><label for="name-{{ r.id }}">Name</label><input id="name-{{ r.id }}" name="name" value="{{ r.name }}"></div>
+              <div class="field"><label for="description-{{ r.id }}">Description</label><input id="description-{{ r.id }}" name="description" value="{{ r.description }}"></div>
+              <div class="field"><label for="os_arch-{{ r.id }}">OS/arch</label><input id="os_arch-{{ r.id }}" name="os_arch" value="{{ r.os_arch }}"></div>
               {% if r.target_type == "ssh" %}
-              <div class="field"><label>SSH host</label><input name="ssh_host" value="{{ r.ssh_host }}"></div>
-              <div class="field"><label>SSH port</label><input name="ssh_port" type="number" value="{{ r.ssh_port or 22 }}"></div>
-              <div class="field"><label>SSH username</label><input name="ssh_username" value="{{ r.ssh_username }}"></div>
-              <div class="field"><label>Remote working directory</label><input name="ssh_workdir" value="{{ r.ssh_workdir }}"></div>
-              <div class="field"><label>SSH credential (existing secret)</label>
-                <select name="ssh_credential_ref">
+              <div class="field"><label for="ssh_host-{{ r.id }}">SSH host</label><input id="ssh_host-{{ r.id }}" name="ssh_host" value="{{ r.ssh_host }}"></div>
+              <div class="field"><label for="ssh_port-{{ r.id }}">SSH port</label><input id="ssh_port-{{ r.id }}" name="ssh_port" type="number" value="{{ r.ssh_port or 22 }}"></div>
+              <div class="field"><label for="ssh_username-{{ r.id }}">SSH username</label><input id="ssh_username-{{ r.id }}" name="ssh_username" value="{{ r.ssh_username }}"></div>
+              <div class="field"><label for="ssh_workdir-{{ r.id }}">Remote working directory</label><input id="ssh_workdir-{{ r.id }}" name="ssh_workdir" value="{{ r.ssh_workdir }}"></div>
+              <div class="field"><label for="ssh_credential_ref-{{ r.id }}">SSH credential (existing secret)</label>
+                <select id="ssh_credential_ref-{{ r.id }}" name="ssh_credential_ref">
                   <option value="{{ r.ssh_credential_ref }}" selected>{{ r.ssh_credential_ref or "(none)" }}</option>
                   {% for s in secret_names if s != r.ssh_credential_ref %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
                 </select></div>
-              <div class="field"><label>Replace SSH private key</label>
-                <textarea name="ssh_key" rows="3" placeholder="Paste a PEM private key to replace the stored credential — stored encrypted, never shown back"></textarea></div>
+              <div class="field"><label for="ssh_key-{{ r.id }}">Replace SSH private key</label>
+                <textarea id="ssh_key-{{ r.id }}" name="ssh_key" rows="3" placeholder="Paste a PEM private key to replace the stored credential — stored encrypted, never shown back"></textarea></div>
               <small class="muted">Changing host, port, or username clears the pinned host key — re-approve after saving.</small>
               {% else %}
-              <div class="field"><label>Workspace root</label><input name="workspace_root" value="{{ r.workspace_root }}"></div>
+              <div class="field"><label for="workspace_root-{{ r.id }}">Workspace root</label><input id="workspace_root-{{ r.id }}" name="workspace_root" value="{{ r.workspace_root }}"></div>
               {% endif %}
-              <div class="field"><label>Max slots</label><input name="max_slots" value="{{ r.max_slots }}"></div>
-              <div class="field"><label>Max procs</label><input name="max_procs" value="{{ r.max_procs or '' }}" placeholder="unlimited"><small>total framework processes across all concurrent jobs; empty = unconstrained</small></div>
-              <div class="field"><label>License slots</label><input name="license_slots" value="{{ r.license_slots if r.license_slots is not none else '' }}" placeholder="(unlimited)"></div>
+              <div class="field"><label for="max_slots-{{ r.id }}">Max slots</label><input id="max_slots-{{ r.id }}" name="max_slots" value="{{ r.max_slots }}"></div>
+              <div class="field"><label for="max_procs-{{ r.id }}">Max procs</label><input id="max_procs-{{ r.id }}" name="max_procs" value="{{ r.max_procs or '' }}" placeholder="unlimited"><small>total framework processes across all concurrent jobs; empty = unconstrained</small></div>
+              <div class="field"><label for="license_slots-{{ r.id }}">License slots</label><input id="license_slots-{{ r.id }}" name="license_slots" value="{{ r.license_slots if r.license_slots is not none else '' }}" placeholder="(unlimited)"></div>
               <button type="submit" class="button">Apply</button>
               <button type="button" class="button danger" data-cancel-details>Cancel</button>
             </form></details>
@@ -208,15 +208,15 @@ or license KRE.</p>
       <div class="field">{{ runner_form.ssh_workdir.label }} {{ runner_form.ssh_workdir(placeholder="/var/lib/to-runs") }}
         <small>Base directory for isolated runs — must be writable by
           the SSH account; verified by Test Connection.</small></div>
-      <div class="field">{{ runner_form.ssh_credential_ref.label }}
-        <select name="ssh_credential_ref">
+      <div class="field"><label for="ssh_credential_ref">SSH credential (existing secret)</label>
+        <select name="ssh_credential_ref" id="ssh_credential_ref">
           <option value="">(select)</option>
           {% for s in secret_names %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
         </select>
         <small>An existing secret holding a PEM private key — or paste
           a new one below.</small></div>
-      <div class="field">{{ runner_form.ssh_key.label }}
-        <textarea name="ssh_key" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
+      <div class="field"><label for="ssh_key">New SSH private key</label>
+        <textarea name="ssh_key" id="ssh_key" rows="4" placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"></textarea>
         <small>Stored encrypted under a generated reference — never
           shown again.</small></div>
     </fieldset>
@@ -274,7 +274,9 @@ or license KRE.</p>
         {% for rt in its %}
         <tr>
           <td>{{ rt.name }}{% if (rt.runtime_kind or "kre") != "kre" %}
-            <span class="badge">{{ rt.runtime_kind }}</span>{% endif %}</td>
+            <span class="badge">{{ rt.runtime_kind }}</span>{% endif %}
+            {% if (rt.licensing_mode or "online") != "online" %}
+            <span class="badge">lic:{{ rt.licensing_mode }}</span>{% endif %}</td>
           <td><span class="badge {{ 'warn' if rt.runner and rt.runner.connection_mode == 'remote' else '' }}">{{ "Remote" if rt.runner and rt.runner.connection_mode == 'remote' else "Local" }}</span></td>
           <td><code>{{ rt.executable_path }}</code></td>
           <td>{{ rt.detected_version or "unprobed" }}</td>
@@ -287,6 +289,12 @@ or license KRE.</p>
             {% elif "re-check" in rt.last_diagnostic|lower %}
             <span class="badge">Re-check required</span>
             {% else %}<span class="badge ok">Check passed</span>{% endif %}
+            {% if (rt.runtime_kind or "kre") != "kre" %}
+            <br><span class="badge {% if rt.readiness_state == 'ready-execution' %}ok{% elif rt.readiness_state in ('missing-dependency','unsupported-version','target-unavailable') %}danger{% elif rt.readiness_state in ('project-validation-required','evidence-stale') %}warn{% endif %}">{{ rt.readiness_state }}</span>
+            {% set help = readiness_help.get(rt.readiness_state) %}
+            {% if help %}<br><small class="muted">{{ help[0] }}
+              {%- if help[1] %} {{ help[1] }}{% endif %}</small>{% endif %}
+            {% endif %}
             <small class="muted">{{ rt.last_check_at|localtime_short if rt.last_check_at else "" }}
               {%- if rt.last_diagnostic and not rt.last_diagnostic.startswith('{') %}<br>{{ rt.last_diagnostic[:200] }}{% endif %}</small></td>
           <td class="actions-cell"><span class="row-actions">
@@ -302,6 +310,56 @@ or license KRE.</p>
             <span class="badge" title="Portal-host check can't verify a
               remote worker's installation">Remote — not verified</span>
             {% endif %}
+            {% if (rt.runtime_kind or "kre") != "kre"
+               and rt.readiness_state in ("ready-discovery",
+               "ready-execution", "project-validation-required") %}
+            <details class="inline-details">
+              <summary class="button secondary sm">Validate for project</summary>
+              <form method="post"
+                    action="{{ url_for('system.runtime_validate_project',
+                                       runtime_id=rt.id) }}"
+                    class="edit-form">
+                {{ runtime_form.csrf_token }}
+                <div class="field"><label for="project_id-{{ rt.id }}">Project</label>
+                  {% set rt_allowed = rt.allowed_projects | default('[]') %}
+                  <select id="project_id-{{ rt.id }}" name="project_id">
+                    {% for p in all_projects %}
+                    {% if (not rt.allowed_projects or rt.allowed_projects == '[]' or p.id in rt.allowed_projects) %}
+                    <option value="{{ p.id }}">{{ p.name }}</option>
+                    {% endif %}
+                    {% endfor %}
+                  </select></div>
+                <small class="muted">Checks association, framework
+                  compatibility, validated discovery, engine,
+                  permissions, and result ingestion — then marks the
+                  pair ready-execution.</small>
+                <button type="submit" class="button">Validate</button>
+                <button type="button" class="button danger" data-cancel-details>Cancel</button>
+              </form></details>
+            {% endif %}
+            <details class="inline-details">
+              <summary class="button secondary sm">Projects</summary>
+              <form method="post"
+                    action="{{ url_for('system.runtime_projects',
+                                       runtime_id=rt.id) }}"
+                    class="edit-form">
+                {{ runtime_form.csrf_token }}
+                <div class="field" role="group" aria-labelledby="ap-lbl-{{ rt.id }}"><span class="lbl" id="ap-lbl-{{ rt.id }}">Allowed projects</span>
+                  {% set rt_projects = rt.allowed_projects | default('[]') %}
+                  {% for p in all_projects %}
+                  <label class="check-label">
+                    <input type="checkbox" name="project_ids"
+                           value="{{ p.id }}"
+                           {% if p.id in rt_projects %}checked{% endif %}>
+                    <span>{{ p.name }}</span></label>
+                  {% endfor %}
+                  <small class="muted">Unchecked all = usable by every
+                    project. Checking any restricts the runtime — and
+                    for KRE, where its credential is delivered — to
+                    the listed projects.</small></div>
+                <button type="submit" class="button">Apply</button>
+                <button type="button" class="button danger" data-cancel-details>Cancel</button>
+              </form></details>
             <form method="post" action="{{ url_for('system.toggle_runtime', runtime_id=rt.id) }}" class="inline">
               {{ runtime_form.csrf_token }}
               <button type="submit" class="button secondary sm">{{ "Disable" if rt.enabled else "Enable" }}</button></form>
@@ -309,12 +367,33 @@ or license KRE.</p>
               <summary class="button secondary sm">Edit</summary>
               <form method="post" action="{{ url_for('system.edit_runtime', runtime_id=rt.id) }}" class="edit-form">
                 {{ runtime_form.csrf_token }}
-                <div class="field"><label>Name</label><input name="name" value="{{ rt.name }}"></div>
-                <div class="field"><label>Executable path</label><input name="executable_path" value="{{ rt.executable_path }}"></div>
-                <div class="field"><label>Working directory</label><input name="workspace_root" value="{{ rt.workspace_root }}"></div>
-                <div class="field"><label>Credential reference</label><input name="credential_ref" value="{{ rt.credential_ref }}"></div>
-                <div class="field"><label>Worker credential file (remote)</label><input name="credential_file" value="{{ rt.credential_file }}" placeholder="Absolute path on worker, 0600 file / 0700 dir"></div>
-                <div class="field"><label>Concurrency</label><input name="concurrency" value="{{ rt.concurrency }}"></div>
+                <div class="field"><label for="name-{{ rt.id }}">Name</label><input id="name-{{ rt.id }}" name="name" value="{{ rt.name }}"></div>
+                <div class="field"><label for="executable_path-{{ rt.id }}">Executable path</label><input id="executable_path-{{ rt.id }}" name="executable_path" value="{{ rt.executable_path }}">
+                  <small class="muted">On the worker's filesystem. Linux: <code>/usr/local/bin/katalonc</code> · Windows: <code>C:\Katalon\Katalon_Studio_Engine\katalonc.exe</code></small></div>
+                <div class="field"><label for="workspace_root-{{ rt.id }}">Working directory</label><input id="workspace_root-{{ rt.id }}" name="workspace_root" value="{{ rt.workspace_root }}">
+                  <small class="muted">Linux: <code>/var/lib/to-runs</code> · Windows: <code>C:\to\runs</code></small></div>
+                <div class="field"><label for="credential_ref-{{ rt.id }}">Credential reference</label>
+                  <select id="credential_ref-{{ rt.id }}" name="credential_ref">
+                    <option value="{{ rt.credential_ref }}" selected>{{ rt.credential_ref or "(none)" }}</option>
+                    <option value="">(none)</option>
+                    {% for s in runtime_secret_names if s != rt.credential_ref %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+                  </select>
+                  <small class="muted">Delivered securely to the target per execution — overrides the legacy file below. E.g. <code>kre-api-key</code> (kind <code>runtime</code> under System → Secrets).</small></div>
+                <div class="field"><label for="credential_file-{{ rt.id }}">Credential file on target (legacy)</label><input id="credential_file-{{ rt.id }}" name="credential_file" value="{{ rt.credential_file }}" placeholder="Absolute path on target, 0600 — only if no credential reference">
+                  <small class="muted">Linux: <code>/opt/to/cred/kre-api-key.txt</code> · Windows: <code>C:\to\cred\kre-api-key.txt</code></small></div>
+                {% if (rt.runtime_kind or "kre") == "kre" %}
+                <div class="field"><label for="licensing_mode-{{ rt.id }}">Licensing mode</label>
+                  <select id="licensing_mode-{{ rt.id }}" name="licensing_mode">
+                    <option value="online" {{ "selected" if (rt.licensing_mode or "online") == "online" }}>online — API-key credential</option>
+                    <option value="offline" {{ "selected" if (rt.licensing_mode or "online") == "offline" }}>offline — machine-bound .lic</option>
+                    <option value="private" {{ "selected" if (rt.licensing_mode or "online") == "private" }}>private — API key + private license server</option>
+                  </select>
+                  <small class="muted">KRE licensing mode — not a fallback: the runtime uses exactly the selected mechanism.</small></div>
+                <div class="field"><label for="license_refs-{{ rt.id }}">Offline license secrets</label><input id="license_refs-{{ rt.id }}" name="license_refs" value="{{ rt.license_refs | replace('[','') | replace(']','') | replace('"','') }}" placeholder="Comma-separated 'license'-kind secret names — one .lic each">
+                  <small class="muted">One genuine Katalon-issued .lic per name; delivered to the execution account's <code>~/.katalon/license</code> (persistent). One .lic = one concurrent offline session.</small></div>
+                <div class="field"><label for="license_server_url-{{ rt.id }}">Private license server URL</label><input id="license_server_url-{{ rt.id }}" name="license_server_url" value="{{ rt.license_server_url }}" placeholder="https://license.internal — only for 'private' mode"></div>
+                {% endif %}
+                <div class="field"><label for="concurrency-{{ rt.id }}">Concurrency</label><input id="concurrency-{{ rt.id }}" name="concurrency" value="{{ rt.concurrency }}"></div>
                 <button type="submit" class="button">Apply</button>
                 <button type="button" class="button danger" data-cancel-details>Cancel</button>
               </form></details>
@@ -335,27 +414,41 @@ or license KRE.</p>
     <p class="muted">{{ unbound|length }} installation(s) not
     associated with a worker.</p></div>
   {% endif %}
-  <details class="block-details"><summary class="button">Register a test runtime</summary>
+  <div class="btn-row">
+    <a class="button primary" href="{{ url_for('system.add_runtime_wizard') }}">Add Runtime (Guided)</a>
+    <small class="muted">Guided setup — a runtime names the installed
+      tools to use on a target; adding one never installs
+      software.</small>
+  </div>
+  <details class="block-details"><summary class="button">Add Runtime (Manual)</summary>
   <form method="post" action="{{ url_for('system.create_runtime') }}">
     {{ runtime_form.csrf_token }}
-    <div class="field"><label>Runner type</label>
-      <select name="runtime_kind">
+    <div class="field"><label for="runtime_kind">Runner type</label>
+      <select id="runtime_kind" name="runtime_kind">
         <option value="kre">KRE (desktop engine)</option>
         <option value="playwright">Playwright Test (Node.js)</option>
         <option value="cypress">Cypress E2E (Node.js)</option>
         <option value="robot">Robot Framework (Python)</option>
         <option value="pytest">pytest (Python)</option>
+        <option value="behave">Behave BDD (Python)</option>
+        <option value="gtest">GoogleTest (C/C++)</option>
+        <option value="postman">Postman (Newman / Postman CLI)</option>
+        <option value="bruno">Bruno (bru CLI)</option>
+        <option value="jest">Jest (Node.js)</option>
       </select>
-      <small><strong>Required.</strong> Playwright/Cypress run on the
+      <small><strong>Required.</strong> Select <code>KRE (desktop
+      engine)</code> for a Katalon Runtime Engine install.
+      Playwright/Cypress run on the
       <em>selected target</em> via <code>npx</code> inside the staged
       project — install Node.js, the project's framework dependency,
       and the browsers on that host; the framework need not be a
       global install. No separate agent is needed.</small></div>
     <div class="field">{{ runtime_form.name.label }} {{ runtime_form.name() }}
-      <small><strong>Required.</strong> Label for this installation,
-      e.g. <code>kre-9.2-ci01</code>.</small></div>
+      <small><strong>Required.</strong> Label for this installation.<br>
+      Example: <code>katalon-lin-01</code> or <code>katalon-win-01</code></small></div>
     <div class="field">{{ runtime_form.description.label }} {{ runtime_form.description() }}
-      <small>Optional note.</small></div>
+      <small>Optional note.<br>
+      Example: <code>KRE 11.7 on the Linux CI worker</code></small></div>
     <fieldset class="field"><legend>Execution location</legend>
       <div class="checkbox"><input type="radio" name="exec_location"
         id="loc-local" value="local" checked>
@@ -371,39 +464,82 @@ or license KRE.</p>
         host) — a path is not a connection. It is verified on
         <em>that</em> computer, never run here.</small>
     </fieldset>
-    <div class="field" id="runner-select-field"><label>Remote runner</label>
-      <select name="runner_id">
+    <div class="field" id="runner-select-field"><label for="runner_id">Remote runner</label>
+      <select id="runner_id" name="runner_id">
         <option value="">(auto — first compatible)</option>
         {% for rn in runners if rn.connection_mode == 'remote' and rn.enabled %}
         <option value="{{ rn.id }}"{{ ' selected' if request.form.get('runner_id') == rn.id }}>{{ rn.name }} — {{ rn.id[:12] }}</option>
         {% endfor %}
       </select>
       <small><strong>Remote only.</strong> The execution target this
-      runtime binds to; validated against compatibility.</small></div>
-    <div class="field"><label>Executable location</label> {{ runtime_form.executable_path() }}
+      runtime binds to; validated against compatibility. Pick the
+      Buildbot worker or SSH host you added under <em>Workers</em>
+      above — e.g. <code>acc-lin</code> for a Linux worker.</small></div>
+    <div class="field"><label for="executable_path">Executable location</label> {{ runtime_form.executable_path() }}
       <small><strong>Required for KRE.</strong> Path on the
       <em>worker's</em> filesystem (for local workers: this host) to
-      the KRE CLI binary. Example:
-      <code>/opt/kre/bin/kre-console.sh</code>. For
-      Playwright/Cypress this is the <code>npx</code> binary on the
+      the KRE CLI binary (<code>katalonc</code> /
+      <code>katalonc.exe</code>).<br>
+      Linux example: <code>/usr/local/bin/katalonc</code><br>
+      Windows example: <code>C:\Katalon\Katalon_Studio_Engine\katalonc.exe</code><br>
+      For Playwright/Cypress this is the <code>npx</code> binary on the
       target — leave it empty to resolve <code>npx</code>/
       <code>npx.cmd</code> from the target's PATH.</small></div>
     <div class="field"><label>Working directory</label> {{ runtime_form.workspace_root() }}
       <small>Optional. Overrides the worker's workspace root for this
-      runtime only — path on the worker's filesystem.</small></div>
-    <div class="field"><label>Credential reference</label> {{ runtime_form.credential_ref() }}
-      <small>Optional. <em>Name</em> of a credential stored under
-      System → Credentials — never the value itself. Needed only when
-      the runtime requires an auth token.</small></div>
-    <div class="field">{{ runtime_form.credential_file.label }} {{ runtime_form.credential_file() }}
-      <small>Optional. Absolute path on the <em>worker</em> to a
-      protected credential file (0700 dir / 0600 file) — the
-      spec carries the path only; the worker's resolver reads the
+      runtime only — path on the worker's filesystem.<br>
+      Linux example: <code>/var/lib/to-runs</code> ·
+      Windows example: <code>C:\to\runs</code></small></div>
+    <div class="field"><label for="credential_ref">Credential reference</label>
+      <select id="credential_ref" name="credential_ref">
+        <option value="" selected>(none)</option>
+        {% for s in runtime_secret_names %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+      </select>
+      <small>Optional. <em>Name</em> of a 'runtime' secret stored under
+      System → Credentials — never the value itself. TestOrchestrator
+      delivers it to the worker or SSH target securely per execution
+      and removes it afterwards. Needed when the runtime requires an
+      auth token (e.g. a KRE API key).<br>
+      Example: <code>kre-api-key</code> — create it under System →
+      Secrets with kind <code>runtime</code> first, then select it
+      here.</small></div>
+    <div class="field"><label for="credential_file">Credential file on target (legacy)</label> {{ runtime_form.credential_file() }}
+      <small>Optional. Legacy mode: absolute path on the <em>target</em>
+      to a protected credential file (0700 dir / 0600 file) you placed
+      there yourself — prefer a credential reference, which needs no
+      manual file placement. The spec carries the path only; the
+      target-side launcher reads the
       value at exec. Required for remote dispatch when this runtime
-      uses a credential.</small></div>
+      uses a credential.<br>
+      Linux example: <code>/opt/to/cred/kre-api-key.txt</code> ·
+      Windows example: <code>C:\to\cred\kre-api-key.txt</code></small></div>
+    <div class="field"><label for="licensing_mode">Licensing mode (KRE)</label>
+      <select id="licensing_mode" name="licensing_mode">
+        <option value="online" selected>online — API-key credential</option>
+        <option value="offline">offline — machine-bound .lic</option>
+        <option value="private">private — API key + private license server</option>
+      </select>
+      <small>Optional, KRE only. <em>online</em> needs the credential
+      reference above; <em>offline</em> uses Katalon-issued .lic files
+      in the execution account's <code>~/.katalon/license</code> —
+      no API key needed; <em>private</em> is online against your own
+      license server (<code>-serverUrl</code>). There is no hybrid
+      execution mode — run different modes on different runtimes.</small></div>
+    <div class="field"><label for="license_refs">Offline license secrets</label>
+      <input id="license_refs" name="license_refs" placeholder="Comma-separated 'license'-kind secret names — one .lic each">
+      <small>Optional, for <em>offline</em> mode. Each named secret
+      (kind <code>license</code>) holds one genuine Katalon-issued
+      .lic file; delivered to the execution account's
+      <code>~/.katalon/license</code> where it persists. One .lic =
+      one concurrent offline session. Leave empty if the operator
+      placed .lic files on the target directly.</small></div>
+    <div class="field"><label for="license_server_url">Private license server URL</label>
+      <input id="license_server_url" name="license_server_url" placeholder="https://license.internal — only for 'private' mode"></div>
     <div class="field">{{ runtime_form.concurrency.label }} {{ runtime_form.concurrency() }}
       <small><strong>Required.</strong> Max parallel sessions for this
-      runtime; integer ≥ 1, capped by the worker's free slots.</small></div>
+      runtime; integer ≥ 1, capped by the worker's free slots.<br>
+      Example: <code>1</code> — a KRE licence typically allows one
+      session per key.</small></div>
     <div class="form-actions">
       <button type="submit" class="button">Apply</button>
       <button type="button" class="button danger" data-cancel-details>Cancel</button>

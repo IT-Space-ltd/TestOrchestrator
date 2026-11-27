@@ -43,6 +43,84 @@ REQUIRED_PAYLOAD_FILES = (
 )
 
 
+
+def _active_to_units() -> list:
+    """Names of currently active systemd units matching testorchestrator-*.
+    Empty when systemd is unavailable or nothing runs."""
+    if not shutil.which("systemctl"):
+        return []
+    r = subprocess.run(
+        ["systemctl", "list-units", "--type=service", "--state=active",
+         "--no-legend", "--no-pager", "testorchestrator-*"],
+        capture_output=True, text=True, check=False)
+    units = []
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if parts and parts[0].startswith("testorchestrator-"):
+            units.append(parts[0])
+    return units
+
+
+def _payload_processes(payload: Path) -> list:
+    """Live processes whose executable or command line references the
+    payload tree — survivors of a service stop, or never-managed strays.
+    Returns (pid, cmdline) pairs, excluding this installer itself."""
+    me = os.getpid()
+    found = []
+    needle = str(payload)
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        pid = int(entry)
+        if pid == me:
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                cmd = fh.read().replace(b"\0", b" ").decode(
+                    "utf-8", "replace").strip()
+        except (OSError, PermissionError):
+            continue
+        if not cmd:
+            continue
+        hit = needle in cmd
+        if not hit:
+            try:
+                hit = os.readlink(f"/proc/{pid}/exe").startswith(needle)
+            except (OSError, PermissionError):
+                hit = False
+        if hit:
+            found.append((pid, cmd[:160]))
+    return found
+
+
+def stop_services_before_payload_copy(args, payload: Path) -> None:
+    """Upgrade defense (owner-mandated after the 2.6.0 cell: a survivor
+    of an incomplete stop held python3.12 busy and the copy crashed
+    mid-write, bricking the server). BEFORE anything is written:
+    stop every active testorchestrator-* unit, then verify no process
+    still references the payload tree — refusing to install rather
+    than writing into a busy tree. No-op on fresh installs."""
+    if args.dry_run:
+        return
+    if os.geteuid() == 0 and shutil.which("systemctl"):
+        units = _active_to_units()
+        if units:
+            print(f"[install] stopping running services before the "
+                  f"payload copy: {', '.join(units)}")
+            subprocess.run(["systemctl", "stop", *units], check=False,
+                           stdout=subprocess.DEVNULL)
+            import time
+            time.sleep(3)
+    if payload.exists():
+        left = _payload_processes(payload)
+        if left:
+            detail = "; ".join(f"pid {p}: {c}" for p, c in left[:5])
+            sys.exit(
+                f"error: processes still reference {payload} after the "
+                f"service stop — refusing to overwrite a busy tree. "
+                f"Stop them and re-run: {detail}")
+
+
 def port_free(port: int, host: str = "127.0.0.1") -> bool:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -154,6 +232,8 @@ def main() -> None:
         print(f"[install] {label}: {path}")
         if not args.dry_run:
             path.mkdir(parents=True, exist_ok=True)
+
+    stop_services_before_payload_copy(args, payload)
 
     if not args.dry_run:
         for item in steps[0][2]:

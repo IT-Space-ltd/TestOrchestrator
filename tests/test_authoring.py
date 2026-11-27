@@ -441,3 +441,60 @@ def test_non_commit_discovery_marker_resolves_real_head(app, tmp_path):
         d = authoring.open_draft("alice", item)
         assert d.base_sha != "discovery-marker-not-a-sha"
         assert len(d.base_sha) >= 30        # looks like a real commit
+
+
+def test_cleanup_abandoned_wired_into_reconcile(app, tmp_path):
+    """The reconcile loop invokes the abandoned-draft cleanup — the
+    wiring regression guard (P4.16)."""
+    import testorchestrator.dispatch as dispatch
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        d1 = authoring.open_draft("alice", item)
+        d1.status = "abandoned"; db.session.commit()
+        dispatch.reconcile_buildbot_runs()
+        assert db.session.get(AuthoringDraft, d1.id) is None
+
+
+def test_cleanup_abandoned_preserves_active_and_published(app, tmp_path):
+    """What cleanup_abandoned deletes — the matrix that matters:
+    - abandoned ROWS are always deleted (content lives in the DB)
+    - the SHARED per-binding worktree survives while any active
+      ('draft'-status) draft remains on the same binding — an
+      in-flight publish writes+commits there
+    - once no active draft remains, the worktree is swept
+    - published rows and other bindings are never touched."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        wt = authoring._authoring_wt(b.id)
+        d_ab = authoring.open_draft("alice", item)
+        d_ab.status = "abandoned"; db.session.commit()
+        d_active = authoring.open_draft("bob", item)   # same binding!
+        wt.mkdir(parents=True, exist_ok=True)
+        (wt / "marker.txt").write_text("x")
+        n = authoring.cleanup_abandoned()
+        assert n == 1
+        assert db.session.get(AuthoringDraft, d_ab.id) is None
+        # active draft survives AND the shared worktree is preserved
+        assert db.session.get(AuthoringDraft, d_active.id) is not None
+        assert (wt / "marker.txt").exists(), \
+            "shared worktree swept while an active draft uses the binding"
+        # once the active draft publishes, the sweep proceeds
+        d_active.status = "published"; db.session.commit()
+        n2 = authoring.cleanup_abandoned()
+        assert n2 == 0    # nothing abandoned remains; published rows kept
+        assert db.session.get(AuthoringDraft, d_active.id) is not None
+
+
+def test_cleanup_abandoned_sweeps_worktree_when_no_active(app, tmp_path):
+    """The worktree IS swept once only abandoned rows exist on the
+    binding — the janitorial purpose is preserved."""
+    with app.app_context():
+        p, b, item, repo = _env(app, tmp_path)
+        wt = authoring._authoring_wt(b.id)
+        d_ab = authoring.open_draft("alice", item)
+        d_ab.status = "abandoned"; db.session.commit()
+        wt.mkdir(parents=True, exist_ok=True)
+        (wt / "marker.txt").write_text("x")
+        n = authoring.cleanup_abandoned()
+        assert n == 1
+        assert not wt.exists(), "worktree must be swept once no active draft remains"

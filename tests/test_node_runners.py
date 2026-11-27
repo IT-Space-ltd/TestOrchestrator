@@ -41,6 +41,16 @@ def test_junit_env_only_playwright():
     assert nodefw.junit_env("cypress")["ELECTRON_RUN_AS_NODE"] == ""
 
 
+def test_junit_env_windows_omits_electron_guard():
+    # An empty-valued env var is still PRESENT in a Windows process
+    # environment block — Electron honours it and cypress run fails
+    # with MODULE_NOT_FOUND. On Windows the key must be absent.
+    assert "ELECTRON_RUN_AS_NODE" not in nodefw.junit_env(
+        "cypress", win=True)
+    assert "ELECTRON_RUN_AS_NODE" not in nodefw.junit_env(
+        "playwright", win=True)
+
+
 def test_node_exec_spec_shape():
     spec = buildbot_cfg.node_exec_spec(
         None, "npx", ["playwright", "test"],

@@ -8,15 +8,105 @@ execution orchestration, Katalon Runtime Engine (KRE) execution via
 managed execution targets, and reporting-labs single-file reports —
 a pure-Python backend with no bundled Node.js.
 
-**Status: 2.6.0 released** ([CHANGELOG](CHANGELOG.md) ·
+**Status: 2.7.0 final candidate** on PR #5 — not tagged or published yet;
+**2.6.0 remains the latest published release** ([CHANGELOG](CHANGELOG.md) ·
 [release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.6.0)).
-2.6.0 adds **Playwright Test, Cypress, Robot Framework, and pytest**
+The 2.7.0 candidate adds repository discovery, execution-level runtime
+readiness, durable artifact stores (local/mounted/S3-compatible), and
+separate artifact/metadata retention. Final-candidate evidence is in
+`GATE-LEDGER-2.7.0.md`; owner sign-off is still required.
+
+The published 2.6.0 series added **Playwright Test, Cypress, Robot Framework, and pytest**
 as first-class runtime kinds alongside KRE — all on the same
 Buildbot/SSH execution paths, with per-framework readiness probes
 and reporting-labs generated reports. Execution orchestration is
 **Buildbot 4.3.0** — local workers, remote Buildbot workers, and
 agentless SSH targets, all managed from Admin → Execution Targets —
 and the public frontend is the in-process **Cheroot** HTTPS tier.
+
+## Supported runtimes
+
+- **KRE** (Katalon Runtime Engine) — the original workflow:
+  registration, readiness, invocation, credentials, and lifecycle
+  are **unchanged** and do not migrate into the runtime-profile flow.
+- **pytest / Robot Framework** — explicit interpreter per runtime
+  (`executable_path` = the target's `bin/python`); runs via
+  `python -m pytest` / `python -m robot` with JUnit + native report
+  output collected as evidence.
+- **Playwright Test / Cypress** — Node toolchains on the target
+  (`npx`); JUnit reports into `Reports/`; browser selection is a
+  validated allowlist, never free text.
+- **jest / gtest / behave / pytest-bdd / postman (Newman and
+  Postman CLI) / bruno** — adapter-supported with per-framework
+  contracts in `docs/integration-contracts.md` and
+  `docs/requirements-ledger-2.7.0.md`. Not every protocol, plugin,
+  browser, or execution mode is supported — unsupported
+  combinations are refused server-side with an explanation.
+
+## Runtime profiles and readiness (2.7.0 final candidate)
+
+Execution **targets** (where jobs run: local worker, remote
+Buildbot worker over PB, or agentless SSH) are separate from
+**runtime profiles** (which toolchain + configuration to use).
+Register a runtime under Admin → Infrastructure with a kind,
+executable path, workspace root, and optional project association;
+the contextual fields and examples adapt to the kind.
+
+Readiness is staged and honest:
+
+- `ready-discovery` — the toolchain answered a probe on the target
+  (interpreter/CLI resolvable, workspace writable, app reachable).
+- `ready-execution` — additionally validated for a specific project:
+  association, framework compatibility, validated discovery,
+  engine, permissions, and a supported result-ingestion path.
+- `project-validation-required`, `missing-dependency`,
+  `unsupported-version`, `target-unavailable`, `stale` — each state
+  explains itself in the UI and offers the matching action
+  (Check runner readiness / Validate for project).
+
+A version probe alone never marks a runtime execution-ready, and
+dispatch never silently substitutes engines, interpreters, or
+targets. Static preview never executes repository code; native
+collection runs only on the approved isolated target; dependencies
+are never installed automatically.
+
+## Durable storage (2.7.0 final candidate)
+
+Under a project's storage tab, destinations keep result files
+available after workers are removed:
+
+- **Local folder** — a path inside the administrator-approved roots.
+- **Mounted network folder** — an existing mount on the storage
+  host (the app never mounts shares itself; a missing mount fails
+  cleanly and share I/O is bounded so an outage cannot park request
+  handling).
+- **S3-compatible** — endpoint + bucket + credential reference from
+  the secrets store (never inline credentials), optional custom CA
+  bundle within approved roots. Verified against SeaweedFS 4.55;
+  not universal-provider proof.
+
+**Capture policies** control which artifact categories are kept
+(immutable per-execution snapshot), **retention** gives artifact
+files and execution metadata separate keep-for periods — globally
+and per project, with preview + explicit confirmation before any
+destructive cleanup, full audit records, and clear "expired under
+the retention policy" presentation for historical executions.
+**Git publication** is an optional, independent write-back of
+eligible reports — publication outcomes never change execution or
+storage results.
+
+## Troubleshooting pointers
+
+- Runtime stuck at `not-checked`/`stale` → run **Check runner
+  readiness**, then **Validate for project**.
+- `project-validation-required` → the pair failed a check; the
+  flash message names which (association, framework project,
+  discovery validation, engine, permissions, ingestion).
+- Mounted store unreachable → the app's prompt error is expected
+  behavior; restore the mount — nothing was silently written
+  elsewhere.
+- Full readiness/selection/connection/storage guidance: Admin
+  manual and `docs/integration-contracts.md`.
 
 ## Manuals
 
@@ -225,6 +315,25 @@ no remote KRE API. Dispatch, cancellation (process-tree kill), and
 reconciliation belong to this application. KRE stays operator-installed
 and licensed; a version probe is never claimed as a licensed run.
 
+On remote targets (Buildbot-PB workers and agentless-SSH), credentialed
+runs use **managed credential delivery**: the KRE API key is stored as
+a `runtime` secret (System → Secrets) and the runtime's
+`credential_ref` selects it by name — never by value. Per execution the
+portal stages a 0600 file and delivers it over the transport already in
+use (Buildbot `FileDownload` → `.to_kre_cred`; SFTP → `run.cred`),
+isolated per run and removed on every completion, failure, timeout, or
+cancel path.
+
+Runs are driven by target-native launchers staged per execution —
+`kre_cred_exec.sh` under plain `sh` on POSIX, `kre_cred_exec.ps1`
+under `powershell -File` on Windows — so no helper-specific Python is
+needed on any target. The launcher validates the delivered file
+(0600, owner-only, token shape), injects `-apiKey=` into KRE's argv,
+and scrubs the key from KRE's echoed output before step capture; its
+sha256 is recorded per run. A legacy operator-placed
+`credential_file` (0600 on the target) remains supported but is no
+longer required.
+
 ## Execution targets (Buildbot)
 
 Every execution target is registered and managed in the Admin UI —
@@ -284,13 +393,27 @@ artifacts; a queued retry blocks stop-enforcement), **schedules**
 exactly one worker fires it — tested under two-contender races; fire
 failure un-claims so the run is retried; a missed interval fires once
 late on the next tick — no catch-up replay — and a deleted/disabled
-schedule never dispatches), and **version-gated KRE options**
+schedule never dispatches), **schedule targets**
+(Katalon schedules target a test suite, a test suite collection or a
+plan — matching the run form; other frameworks target a discovery
+selection or a plan; per-framework fields with examples, server-side
+rejection of foreign values), and **version-gated KRE options**
 (allowlisted flags with declared, *provisional* minimum majors —
 `retry`, `retryStrategy`, `maxFailedTests`; options the detected
 runtime cannot accept **reject the launch** rather than changing the
 requested semantics — explicit `kre_options_allow_drop`
 acknowledgement is required to continue, recorded in `kre-gating.log`
 evidence + audit).
+
+## Test tab — inventory tree
+
+The Test tab opens on a read-only **tree** of the discovered inventory:
+collections → suites → test cases, with counts, per-framework
+granularity labels (Cypress is file-level only), repo badges, and the
+last result per item. Members that no longer resolve after a sync are
+badged **stale** — warned, never dropped. The tree is
+keyboard-navigable (ARIA treeview) and all repository content is
+escaped.
 
 ## Importing existing results
 
@@ -610,6 +733,31 @@ reconciled ledger `docs/acceptance-2.6.0.md`:
   JavaScript (SSH-target fields, confirm gates), and a retry-block
   marker false-positive that misclassified real build failures.
 
+## Validation (2.7.0 final candidate — PR #5)
+
+Final-candidate acceptance evidence is recorded in
+`GATE-LEDGER-2.7.0.md` with exact artifact hashes and caveats:
+
+- Serial unit/integration suite: **1220 passed, 2 skipped**.
+- Browser e2e-ui acceptance on the installed Linux package:
+  **44 passed, 1 skipped** in one clean run.
+- Linux and Windows release builds completed from clean commit
+  `473ecc745a0277b2f9d468c7a0d088db2d690dc1`; both package-validation
+  manifests pass and `SHA256SUMS.txt` files are present.
+- Linux final `.run` artifact was sha256-verified, installed on the
+  acceptance guest, all five controller units became active, and the
+  HTTPS ping endpoint returned 200.
+- Windows controller install, true 2.6.0→2.7.0 upgrade, credential
+  process-tree kill, and PowerShell probe cells passed on the same
+  product code; the final rebuild changed docs/harness only.
+- Manuals coverage gate: **500/500** inventory items documented,
+  **54/54** tutorial steps screenshot-backed, **116/116** image embeds
+  with alt text, zero missing or orphan screenshot files.
+- Fixed-string licensed-key exposure scan over the final Linux and
+  Windows artifacts, docs, manuals, and gate ledger: **0 hits**.
+- The real-framework matrix and subdirectory/test-level cells are
+  recorded in the gate ledger with execution ids and artifact evidence.
+
 ## Deferred checks & limitations
 
 Explicitly deferred — **not** passed:
@@ -617,8 +765,9 @@ Explicitly deferred — **not** passed:
 - Windows interactive checklist W1–W18 and the independent Group B
   review — product-owner items, tracked in
   `docs/acceptance-2.6.0.md`.
-- Real licensed-KRE suite execution — not demonstrated (no API key
-  was supplied; the adapter only injects `-apiKey=`).
+- Live licensed-KRE acceptance cells were **not run** for the final
+  candidate by owner decision after the license-key exposure incident;
+  the dispatch pre-flight guard ships instead.
 - Azure DevOps repo interoperability — gated on an authorized
   repository.
 - Import duplicate matching scans per-project history at classify

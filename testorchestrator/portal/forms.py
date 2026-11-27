@@ -49,8 +49,38 @@ class ScheduleForm(FlaskForm):
     name = StringField("Schedule name",
                        validators=[DataRequired(), Length(max=128)])
     description = TextAreaField("Description", validators=[Optional()])
+    framework = SelectField("What to schedule", validators=[Optional()],
+                            choices=[])
     target_type = SelectField("Target", choices=[("suite", "Suite")])
-    target_id = SelectField("Runs", validators=[DataRequired()])
+    target_id = SelectField("Runs", validators=[Optional()])
+    pytest_keyword = StringField("Keyword expression (-k)",
+                                 validators=[Optional(), Length(max=256)])
+    pytest_markers = StringField("Marker expression (-m)",
+                                 validators=[Optional(), Length(max=256)])
+    robot_test = StringField("Test name",
+                             validators=[Optional(), Length(max=256)])
+    robot_include = StringField("Include tags",
+                                validators=[Optional(), Length(max=256)])
+    robot_exclude = StringField("Exclude tags",
+                                validators=[Optional(), Length(max=256)])
+    jest_test_path = StringField("Test path pattern",
+                                 validators=[Optional(), Length(max=512)])
+    jest_test_name = StringField("Test name pattern",
+                                 validators=[Optional(), Length(max=256)])
+    postman_collection = StringField(
+        "Collection", validators=[Optional(), Length(max=512)])
+    postman_environment = StringField(
+        "Environment", validators=[Optional(), Length(max=512)])
+    postman_folder = StringField(
+        "Folder", validators=[Optional(), Length(max=256)])
+    postman_iterations = IntegerField(
+        "Iteration count", validators=[Optional()])
+    bruno_collection = StringField(
+        "Collection folder", validators=[Optional(), Length(max=512)])
+    bruno_environment = StringField(
+        "Environment", validators=[Optional(), Length(max=256)])
+    bruno_tags = StringField(
+        "Tags", validators=[Optional(), Length(max=256)])
     kind = SelectField("Kind", choices=[("once", "Once"),
                                         ("interval", "Repeating")])
     run_at = StringField("First run (UTC, YYYY-MM-DD HH:MM)",
@@ -71,6 +101,11 @@ class ScheduleForm(FlaskForm):
                             choices=[])
     runtime_id = SelectField("KRE installation", validators=[Optional()],
                              choices=[])
+    deps_prepare = SelectField(
+        "Dependency prepare (npm ci)",
+        choices=[("", "On — npm ci before the run (default)"),
+                 ("false", "Off — deps pre-installed on target")],
+        validators=[Optional()])
     overlap_policy = SelectField(
         "Overlap", choices=[("allow", "Allow overlap"),
                             ("skip", "Skip if previous run active")],
@@ -79,6 +114,55 @@ class ScheduleForm(FlaskForm):
         "Missed fire", choices=[("late", "Run once late"),
                                 ("skip", "Skip if past interval")],
         default="late")
+
+
+class FrameworkProjectForm(FlaskForm):
+    """Onboard a framework project inside a binding (2.7.0). The
+    framework selector picks the discovery adapter — it never
+    auto-detects or overrides the user's choice. All paths are
+    binding-scope relative."""
+    name = StringField("Project display name",
+                       validators=[DataRequired(), Length(max=128)])
+    framework = SelectField("Framework / runner",
+                            validators=[DataRequired()])
+    project_root = StringField(
+        "Project root (relative to binding scope, '.' allowed)",
+        validators=[Optional(), Length(max=512)])
+    workdir = StringField("Working directory (default: project root)",
+                          validators=[Optional(), Length(max=512)])
+    config_file = StringField(
+        "Framework config file (pytest.ini / cypress.config.js / "
+        "playwright.config.ts / .prj …)",
+        validators=[Optional(), Length(max=512)])
+    test_roots = TextAreaField(
+        "Test roots (one per line; '.' = scope root)",
+        validators=[Optional()])
+    include = TextAreaField(
+        "Include patterns (one per line, e.g. **/*.spec.ts)",
+        validators=[Optional()])
+    exclude = TextAreaField("Exclude patterns (one per line)",
+                            validators=[Optional()])
+    feature_roots = TextAreaField(
+        "Feature-file roots — BDD only (one per line)",
+        validators=[Optional()])
+    stepdef_roots = TextAreaField(
+        "Step-definition/binding roots — BDD only (one per line)",
+        validators=[Optional()])
+    support_roots = TextAreaField(
+        "Resource/fixture/support roots (informational)",
+        validators=[Optional()])
+
+
+def reject_url_password(url: str) -> str:
+    """Reject credentials embedded in the URL (`user:pass@host`).
+    Username-only SSH forms (`git@host:`, `ssh://user@host`) stay
+    valid. Returns an error string or ''."""
+    import re
+    m = re.match(r"^[a-z][a-z0-9+.-]*://([^@/]*)@", url)
+    if m and ":" in m.group(1):
+        return ("URL must not contain an embedded password "
+                "(user:pass@host) — use a credential reference")
+    return ""
 
 
 class PlainForm(FlaskForm):

@@ -37,6 +37,7 @@
             {% set current = u.timezone or "UTC" %}
             {% set select_id = "tz-" ~ u.id %}
             {% set compact = true %}
+            {% set aria_label = "Time zone for " ~ u.username %}
             {% include "_tz_select.html" %}
             <button type="submit" class="button secondary sm">Save</button>
             <label for="tzt-{{ u.id }}" class="button ghost sm">Cancel</label>
@@ -80,6 +81,8 @@
             {{ reset_form.csrf_token }}
             <strong>Reset password for {{ u.username }}</strong>
             <input type="password" name="temporary_password"
+                   id="tpw-{{ u.id }}"
+                   aria-label="New temporary password for {{ u.username }}"
                    minlength="12" required
                    placeholder="New temporary password (min. 12 chars)">
             <button type="submit" class="button sm">Reset password</button>
@@ -100,6 +103,7 @@
     <div class="field">{{ form.display_name.label }} {{ form.display_name() }}</div>
     <div class="field">{{ form.timezone.label }}
       {% set current = form.timezone.data or "UTC" %}
+      {% set aria_label = none %}
       {% include "_tz_select.html" %}
       <p class="muted">Major-city IANA zones grouped by region, like OS
          pickers — the shown offset is current and varies by date.

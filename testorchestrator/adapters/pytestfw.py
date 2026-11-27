@@ -118,13 +118,13 @@ PY="${PYBIN:-python3}"
   || p "python=missing ($PY not runnable)"
 v=$("$PY" -m pytest --version 2>/dev/null | head -1)
 [ -n "$v" ] && p "pytest=$v" \\
-  || p "pytest=missing ($PY -m pytest --version failed)"
+  || p "pytest=missing ($PY -m pytest --version failed) — install with: $PY -m pip install pytest"
 IFS=','
 for lib in ${REQUIRED_LIBS:-}; do
   lib=$(echo "$lib" | tr -d ' ')
   [ -z "$lib" ] && continue
   "$PY" -c "import $lib" >/dev/null 2>&1 \\
-    && p "lib_$lib=ok" || p "lib_$lib=MISSING"
+    && p "lib_$lib=ok" || p "lib_$lib=MISSING — install with: $PY -m pip install $lib"
 done
 unset IFS
 "$PY" -c "import xdist" >/dev/null 2>&1 \
@@ -147,27 +147,45 @@ setlocal enabledelayedexpansion
 if not exist Reports mkdir Reports
 set L=Reports\probe.txt
 type nul > "%L%"
+rem cmd.exe constraints honoured below: 'call :label' aborts the
+rem script inside if/for parens (inline echo pairs used instead), and
+rem 'X && (...) || (...)' can emit BOTH branches when the middle group
+rem leaves a nonzero code — every conditional therefore sits on a
+rem two-line '<test>' + 'if errorlevel 1 (...) else (...)' pair.
 call :p connectivity=ok
 if "%PYBIN%"=="" (set PY=python) else (set "PY=%PYBIN%")
-"%PY%" --version >nul 2>&1 && (for /f "delims=" %%v in ('"%PY%" --version 2^>nul') do call :p python=%%v) || call :p python=missing (%PY% not runnable)
-"%PY%" -m pytest --version >nul 2>&1 && call :p pytest=installed || call :p pytest=missing (%PY% -m pytest --version failed)
-if defined REQUIRED_LIBS (
-  for %%l in (%REQUIRED_LIBS%) do (
-    "%PY%" -c "import %%l" >nul 2>&1 && call :p lib_%%l=ok || call :p lib_%%l=MISSING
-  )
-)
-"%PY%" -c "import xdist" >nul 2>&1 && call :p opt_xdist=ok || call :p opt_xdist=absent
-mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul && call :p workspace_write=ok || call :p workspace_write=denied
-if not "%APP_URL%"=="" (
-  curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1 && call :p app_url=reachable || call :p app_url=UNREACHABLE from this target
-) else (
-  call :p app_url=not-configured
-)
+"%PY%" --version >nul 2>&1
+if errorlevel 1 (echo TO-PROBE python=missing ^(%PY% not runnable^) & >>"%L%" echo TO-PROBE python=missing ^(%PY% not runnable^)) else (for /f "delims=" %%v in ('"%PY%" --version 2^>nul') do (echo TO-PROBE python=%%v & >>"%L%" echo TO-PROBE python=%%v))
+"%PY%" -m pytest --version >nul 2>&1
+if errorlevel 1 (echo TO-PROBE pytest=missing ^(%PY% -m pytest --version failed^) — install with: %PY% -m pip install pytest & >>"%L%" echo TO-PROBE pytest=missing ^(%PY% -m pytest --version failed^) — install with: %PY% -m pip install pytest) else (for /f "delims=" %%v in ('"%PY%" -m pytest --version 2^>nul') do (echo TO-PROBE pytest=%%v & >>"%L%" echo TO-PROBE pytest=%%v))
+if not defined REQUIRED_LIBS goto nolibs
+for %%l in (%REQUIRED_LIBS%) do call libchk.cmd %%l
+:nolibs
+"%PY%" -c "import xdist" >nul 2>&1
+if errorlevel 1 (echo TO-PROBE opt_xdist=absent & >>"%L%" echo TO-PROBE opt_xdist=absent) else (echo TO-PROBE opt_xdist=ok & >>"%L%" echo TO-PROBE opt_xdist=ok)
+rmdir Reports\.wtest 2>nul & mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul
+if errorlevel 1 (echo TO-PROBE workspace_write=denied & >>"%L%" echo TO-PROBE workspace_write=denied) else (echo TO-PROBE workspace_write=ok & >>"%L%" echo TO-PROBE workspace_write=ok)
+if "%APP_URL%"=="" goto noappurl
+curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1
+if errorlevel 1 (echo TO-PROBE app_url=UNREACHABLE from this target & >>"%L%" echo TO-PROBE app_url=UNREACHABLE from this target) else (echo TO-PROBE app_url=reachable & >>"%L%" echo TO-PROBE app_url=reachable)
+goto appdone
+:noappurl
+call :p app_url=not-configured
+:appdone
 call :p done=1
 exit /b 0
 :p
-echo TO-PROBE %*>>"%L%"
+>>"%L%" echo TO-PROBE %*
 echo TO-PROBE %*
+exit /b 0
+"""
+
+# Helper invoked as 'call libchk.cmd <module>' from inside the probe's
+# for-loop — 'call :label' is illegal inside for-DO, 'call file.cmd'
+# is legal everywhere. %PY%/%L% are inherited from the caller's env.
+LIBCHK_CMD = r"""@echo off
+"%PY%" -c "import %~1" >nul 2>&1
+if errorlevel 1 (echo TO-PROBE lib_%~1=MISSING & >>"%L%" echo TO-PROBE lib_%~1=MISSING) else (echo TO-PROBE lib_%~1=ok & >>"%L%" echo TO-PROBE lib_%~1=ok)
 exit /b 0
 """
 
@@ -175,7 +193,9 @@ exit /b 0
 def probe_scripts(app_url: str = "") -> dict:
     return {
         "probe.sh": PROBE_SH.replace("%APP_URL%", app_url or ""),
-        "probe.cmd": PROBE_CMD.replace("%APP_URL%", app_url or ""),
+        "probe.cmd": PROBE_CMD.replace("%APP_URL%", app_url or "")
+                              .replace("\n", "\r\n"),
+        "libchk.cmd": LIBCHK_CMD.replace("\n", "\r\n"),
     }
 
 

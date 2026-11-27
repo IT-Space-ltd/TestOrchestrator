@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Discover on worker · {{ fp.name }}{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for('portal.fp_detail',
+  fp_id=fp.id) }}">← Back to {{ fp.name }}</a></p>
+<h1>Discover on worker <span class="badge">{{ fp.framework }}</span></h1>
+<p class="muted">Framework project <code>{{ fp.name }}</code> on binding
+  <code>{{ binding.name }}</code> · revision
+  <code>{{ (binding.last_synced_sha or "—")[:12] }}</code></p>
+
+<section class="card">
+  <h2>Native collection</h2>
+  <p>Native collection stages this checkout on an isolated worker/SSH
+  target and runs the framework's <em>own</em> collector
+  (pytest <code>--collect-only</code> plugin, Robot suite model,
+  behave parser, <code>--gtest_list_tests</code>,
+  Playwright/Jest listing). That produces <strong>authoritative
+  executable identities</strong> — exact parametrized node IDs,
+  generated scenarios, expanded examples — and reconciles the saved
+  inventory: confirmed items become selectable.</p>
+  <p class="warn"><strong>Repository code may execute.</strong>
+  Loading conftest.py, suite imports, or framework configuration can
+  run repository-controlled code. Collection runs only on the worker
+  you pick below, inside the staged checkout, under the execution
+  timeout and the standard cancel/timeout pipeline. No dependencies
+  are installed and nothing runs on this server.</p>
+
+  <form method="post" class="add-form">
+    {{ plain_form.csrf_token }}
+    <div class="field">
+      <label for="runtime_id">Target worker / SSH runtime</label>
+      <select name="runtime_id" id="runtime_id" required>
+        {% for r in runtimes %}
+        <option value="{{ r.id }}">{{ r.name }} —
+          {{ r.runtime_kind }} · {{ r.os_arch }}{{ " · ready" if r.ready }}</option>
+        {% else %}
+        <option value="" disabled selected>No compatible
+          {{ fp.framework }} runtime registered — add one under
+          System → Infrastructure.</option>
+        {% endfor %}
+      </select>
+      <small class="muted">Only enabled runtimes of the matching kind
+        are listed; readiness is checked again at dispatch.</small>
+    </div>
+    <div class="field">
+      <label><input type="checkbox" name="ack" value="1" required>
+        I approve running this repository's collection code on the
+        selected isolated target.</label>
+    </div>
+    <div class="btn-row">
+      <button class="button primary" {% if not runtimes %}disabled
+        {% endif %}>Queue native collection</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Current discovery state</h2>
+  <p><span class="badge">{{ fp.discovery_status }}</span>
+    {% if fp.discovered_sha %}validated for
+    <code>{{ fp.discovered_sha[:12] }}</code>{% endif %}
+    {% if fp.discovery_at %}at {{ fp.discovery_at }}{% endif %}</p>
+  <p class="muted">A validated inventory stays reusable while its
+  source revision and configuration fingerprint match — re-running
+  static discovery or re-selecting tests needs no new approval.
+  Configuration edits mark it <em>stale</em>.</p>
+</section>
+{% endblock %}

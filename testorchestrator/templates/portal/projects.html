@@ -68,10 +68,10 @@
         <summary class="button secondary">Edit</summary>
         <form method="post" action="{{ url_for('portal.edit_project', project_id=c.project.id) }}" class="edit-form">
           {{ form.csrf_token }}
-          <div class="field"><label>Name</label>
-            <input name="name" value="{{ c.project.name }}"></div>
-          <div class="field"><label>Description</label>
-            <textarea name="description">{{ c.project.description }}</textarea></div>
+          <div class="field"><label for="name-{{ c.id }}">Name</label>
+            <input id="name-{{ c.id }}" name="name" value="{{ c.project.name }}"></div>
+          <div class="field"><label for="description-{{ c.id }}">Description</label>
+            <textarea id="description-{{ c.id }}" name="description">{{ c.project.description }}</textarea></div>
           <button type="submit" class="button">Apply</button>
           <button type="button" class="button danger" data-cancel-details>Cancel</button>
         </form>

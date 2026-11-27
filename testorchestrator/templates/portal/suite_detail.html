@@ -123,6 +123,7 @@
       <label><input type="checkbox" name="retry_enabled" id="retry_enabled" checked>
       relaunch after a worker interruption</label>
       <input type="number" name="max_attempts" id="max_attempts" min="1" max="10"
+             aria-label="Max attempts including first launch"
              value="3" title="max attempts including the first launch">
       <small>Attempts including the first launch (1–10). <b>A retry repeats
       the whole run</b> — stopping an interrupted attempt cannot undo test

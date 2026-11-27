@@ -211,12 +211,13 @@ class BuildbotAdapter:
                              else line)
         return "\n".join(lines)
 
-    def run_log(self, buildid, step_names=("run", "kre", "shell")) -> str:
+    def run_log(self, buildid, step_names=("run", "kre", "shell",
+                                           "ssh-run")) -> str:
         """Best-effort stdout/stderr for the execution step."""
         for step in self.steps(buildid):
             if step.get("name") in step_names or any(
                     step.get("name", "").startswith(p) for p in
-                    ("shell", "run_kre", "kre")):
+                    ("shell", "run_kre", "kre", "ssh-run")):
                 for lg in self.step_logs(step["stepid"]):
                     if lg.get("name") == "stdio":
                         return self.log_contents(lg["logid"])

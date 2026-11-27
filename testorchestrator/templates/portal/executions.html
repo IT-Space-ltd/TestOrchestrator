@@ -96,7 +96,7 @@
 <table class="data-table">
   <thead><tr>
     {% if can_run %}<th><input type="checkbox" id="sel-all"
-        data-select-all></th>{% endif %}
+        aria-label="Select all executions" data-select-all></th>{% endif %}
     <th>ID</th><th>Project</th><th>Suite</th><th>State</th>
     <th>Outcome</th><th>Worker</th><th>Schedule</th><th>Created</th>
     <th>By</th></tr></thead>
@@ -105,6 +105,7 @@
     <tr>
       {% if can_run %}
       <td><input type="checkbox" class="sel-ex" name="ex_ids"
+                 aria-label="Select execution {{ e.id }}"
                  value="{{ e.id }}"
                  {% if e.state.value not in ("queued","dispatched","running","preparing","cancel_requested") %}disabled{% endif %}></td>
       {% endif %}

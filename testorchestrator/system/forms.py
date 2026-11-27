@@ -129,7 +129,8 @@ class SecretForm(FlaskForm):
     kind = RadioField(
         "Kind",
         choices=[("git", "Git — HTTPS repository authentication"),
-                 ("runtime", "KRE invocation secret")],
+                 ("runtime", "KRE invocation secret"),
+                 ("license", "KRE offline license file (.lic)")],
         default="git",
     )
     value = PasswordField("Credential value",
@@ -142,7 +143,11 @@ class SecretForm(FlaskForm):
                           "key path — never a stored key. KRE: a "
                           "sensitive value used by the invocation "
                           "(license key or project token) that must "
-                          "be redacted from logs/artifacts.")
+                          "be redacted from logs/artifacts. License "
+                          "kind: the exact contents of a genuine "
+                          "Katalon-issued .lic offline license file "
+                          "(machine-bound to the target's execution "
+                          "account).")
     description = StringField("Description", validators=[Optional()])
 
 

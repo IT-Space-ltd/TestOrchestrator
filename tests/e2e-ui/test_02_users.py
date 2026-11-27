@@ -3,6 +3,8 @@ import re
 import pytest
 from playwright.sync_api import expect
 
+from conftest import BASE_URL
+
 TESTER_PW = "UiThrowaway-Tester99!"
 TESTER_PW2 = "UiThrowaway-Tester88!"
 
@@ -46,7 +48,7 @@ def test_create_tester_user(admin_page):
 
 def test_tester_gets_403_on_admin_pages(browser):
     ctx = browser.new_context(ignore_https_errors=True,
-                              base_url="https://localhost")
+                              base_url=BASE_URL)
     page = ctx.new_page()
     _login_tester(page)
     for path in ("/system/users", "/system/secrets",
@@ -59,7 +61,7 @@ def test_tester_gets_403_on_admin_pages(browser):
 
 def test_tester_cannot_reach_users_api(browser):
     ctx = browser.new_context(ignore_https_errors=True,
-                              base_url="https://localhost")
+                              base_url=BASE_URL)
     page = ctx.new_page()
     _login_tester(page)
     resp = page.request.get("/system/users")

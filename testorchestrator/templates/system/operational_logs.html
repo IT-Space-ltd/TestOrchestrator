@@ -75,6 +75,10 @@
     <span class="muted toolbar-right"><small>{{ page.total }} rows</small></span>
   </div>
   <table class="data-table" id="log-table">
+    <colgroup>
+      <col class="col-time"><col class="col-sev"><col class="col-comp">
+      <col class="col-cat"><col class="col-msg"><col class="col-ctx">
+    </colgroup>
     <thead><tr>
       <th>Time</th><th>Severity</th><th>Component</th><th>Category</th>
       <th>Message</th><th>Context</th>
@@ -92,7 +96,7 @@
             <pre class="log-detail-text">{{ r.details }}</pre></details>
           {% else %}{{ r.message }}{% endif %}
         </td>
-        <td><small class="muted">
+        <td class="log-ctx"><small class="muted">
           {{ r.project_id or "" }} {{ r.execution_id or "" }}
           {{ r.worker_id or "" }} {{ r.correlation_id or "" }}
         </small></td>

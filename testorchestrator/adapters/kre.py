@@ -101,6 +101,13 @@ def validate_browser(value: str, os_arch: str = "") -> tuple[bool, str]:
 # Well-known KRE console flag set (Katalon-documented form). Kept version-
 # aware: flags may be overridden per detected version once the operator's
 # installed version is probed — never assumed universal (§5).
+# Supported KRE licensing modes (docs/kre-licensing-modes.md).
+# "hybrid" is deliberately NOT a mode — Katalon uses the word for an
+# organisation holding a mix of online and offline licenses; here it
+# would leave the actual per-runtime mechanism unspecified.
+LICENSING_MODES = ("online", "offline", "private")
+
+
 def build_args(
     executable: str,
     project_path: str,
@@ -112,6 +119,7 @@ def build_args(
     remote_webdriver_type: str = "",
     extra: list | None = None,
     collection: bool = False,
+    server_url: str = "",
 ) -> list:
     # KRE console selectors want the project-relative path WITHOUT the
     # file extension — the discovered inventory path keeps it, so it is
@@ -147,6 +155,10 @@ def build_args(
     else:
         args += [f"-browserType={browser}"]
     args += [f"-reportFolder={report_dir}", *(extra or [])]
+    if server_url:
+        # -serverUrl=<url>: Private Instance license activation —
+        # documented KRE argument from v8.3.5 onwards.
+        args.append(f"-serverUrl={server_url}")
     return args
 
 
@@ -348,10 +360,91 @@ def classify_error(result: InvocationResult, stdout_tail: str = "") -> str:
     if result.timed_out:
         return "infrastructure"
     text = stdout_tail.lower()
-    if any(s in text for s in ("license", "licence", "activation")):
-        return "license"
-    if any(s in text for s in ("projectpath", "no such file", "cannot find project")):
+    # The step runner's own kill marker — a timed-out run is
+    # infrastructure even when the coordinator only reports a bare
+    # failure code (results=2 hides the timeout cause).
+    if "command timed out" in text:
+        return "infrastructure"
+    # The credential resolver failed before KRE launched — never a
+    # KRE license verdict (the license was never reached). Split by
+    # layer: a missing/unreadable credential FILE, permission or
+    # confinement failure, missing executable/interpreter, or a
+    # failed launch is a target infrastructure problem; only a bad
+    # credential VALUE (empty/malformed token, conflicting source,
+    # usage errors) is a config error.
+    if "kre_cred_exec:" in text:
+        if any(s in text for s in (
+                "credential file not found", "credential file unreadable",
+                "credential file must not be a link",
+                "cannot stat credential", "cannot read credential",
+                "not owned by the invoking", "group/other permission",
+                "outside permitted directory", "cannot create private run dir",
+                "cannot create output fifo", "executable not found",
+                "failed to start")):
+            return "infrastructure"
         return "config"
+    # Offline-license provisioning/delivery failures carry the
+    # to_license: marker — split by layer like the credential
+    # launcher: transport/filesystem problems are infrastructure,
+    # content/ownership conflicts are config for the admin.
+    if "to_license:" in text:
+        if any(s in text for s in (
+                "cannot create license dir", "mkdir failed",
+                "cannot write license file", "permission denied",
+                "cannot stat", "delivery failed", "sftp",
+                "cannot update managed marker")):
+            return "infrastructure"
+        return "config"
+    # Fatal license failures — specific markers only. KRE logs a
+    # benign "Failed to activate with TestCloud license" fallback in
+    # every run before acquiring the KRE license; matching on the bare
+    # word "license" misclassifies unrelated failures that follow it.
+    # The API-key rejection line is a genuine license verdict, and a
+    # failed-activation run can still emit project/config complaints
+    # (KRE validates argv even after activation fails — observed on
+    # real katalonc: "Failed to activate with API key" followed by
+    # "Cannot find project"), so activation-failure evidence outranks
+    # the config markers below whenever activation never succeeded.
+    activation_ok = (
+        "activated successfully with katalon runtime engine license"
+        in text)
+    if not activation_ok and any(s in text for s in (
+            "failed to activate with katalon runtime engine",
+            "failed to activate with api key",
+            "license quota exceeded", "cannot find a license",
+            "license has expired", "trial license has expired",
+            "cannot execute the activation request",
+            "invalid api key", "incorrect api key",
+            "no license available", "insufficient license",
+            # Offline path: no valid .lic for this machine/account —
+            # "Cannot execute this test suite. There is no Katalon
+            # Runtime Engine and TestCloud license available."
+            "there is no katalon runtime engine")):
+        return "license"
+    # Bad project/config markers — but never the argv echo: the
+    # logged invocation always carries "-projectPath=<dir>", which is
+    # data, not an error. Real KRE complaints phrase the path problem
+    # out, so the bare "projectpath" substring is only meaningful when
+    # it is not the "-projectPath=" option itself. These markers only
+    # appear AFTER activation succeeds, so they outrank the generic
+    # license text below — a truncated tail can lose the
+    # "Activated successfully" line while keeping stray
+    # "Failed to activate with TestCloud" noise.
+    if any(s in text for s in ("no such file", "cannot find project",
+                               "project not found", "invalid project")) \
+            or ("projectpath" in text and "projectpath=" not in text) \
+            or re.search(
+                r"test suite(?: collection)? '[^']*' not found",
+                text) is not None:
+        return "config"
+    # Generic license text only counts when the KRE license was never
+    # acquired — a successful activation proves licensing was not the
+    # failure.
+    if ("activated successfully with katalon runtime engine license"
+            not in text and any(
+                s in text for s in ("license", "licence",
+                                    "activation"))):
+        return "license"
     if result.exit_status not in (0, 1):
         return "infrastructure"
     return ""
@@ -365,3 +458,182 @@ def discover_reports(report_dir: Path) -> list:
         p for p in report_dir.rglob("*.xml")
         if p.is_file() and not p.name.startswith(".")
     )
+
+
+# ---------------------------------------------------------------- readiness
+# Same TO-PROBE marker contract as the other runners: the staged source
+# runs on the target under the target's own account, emits markers,
+# installs nothing. What a remote KRE run actually needs, checked on
+# the target itself — the configured katalonc executable, a Python
+# interpreter the staged credential resolver runs under, that resolver
+# really executing (its usage-error exit proves parse + launch), a
+# writable workspace, and application-URL reachability.
+
+PROBE_SH = """#!/bin/sh
+# TestOrchestrator KRE readiness probe (POSIX).
+set +e
+R=Reports
+mkdir -p "$R"
+L="$R/probe.txt"; : > "$L"
+p() { echo "TO-PROBE $1"; echo "TO-PROBE $1" >> "$L"; }
+p "connectivity=ok"
+K="${KREBIN:-}"
+if [ -z "$K" ]; then
+  p "kre=missing (no executable_path configured)"
+elif [ ! -f "$K" ]; then
+  p "kre=missing ($K not found)"
+elif [ ! -x "$K" ]; then
+  p "kre=missing ($K not executable)"
+else
+  p "kre=present"
+  if command -v timeout >/dev/null 2>&1; then T="timeout 120"; else T=""; fi
+  v=$($T "$K" -version 2>&1 \\
+      | grep -o 'katalon\\.versionNumber=[0-9.]*' | head -1)
+  if [ -n "$v" ]; then
+    p "krever=${v#katalon.versionNumber=}"
+  else
+    p "krever=unprobeable (-version produced no versionNumber marker)"
+  fi
+fi
+# --- licensing-mode awareness (TO_LIC_MODE set by the portal) ---
+# Reports the ACTUAL execution identity and offline-license
+# provisioning state — presence only; only a real run proves KRE
+# accepts a .lic, and the probe never attempts activation.
+LM="${TO_LIC_MODE:-online}"
+p "licensing_mode=$LM"
+p "exec_user=$(id -un 2>/dev/null || echo unknown)"
+p "exec_home=${HOME:-unset}"
+LDIR="${TO_LIC_DIR:-$HOME/.katalon/license}"
+if [ "$LM" = "offline" ]; then
+  if [ -d "$LDIR" ]; then
+    cnt=$(ls -1 "$LDIR" 2>/dev/null | grep -c '\.lic$')
+    p "license_dir=present ($LDIR)"
+    p "license_files=$cnt"
+    for f in "$LDIR"/*.lic; do
+      [ -f "$f" ] || continue
+      h=$(sha256sum "$f" 2>/dev/null | cut -c1-12)
+      [ -z "$h" ] && h=$(shasum -a 256 "$f" 2>/dev/null | cut -c1-12)
+      p "license_file=$(basename "$f") sha256_12=${h:-unhashable}"
+    done
+    if [ -f "$LDIR/.to_managed" ]; then
+      p "managed_marker=present ($(wc -l < "$LDIR/.to_managed" | tr -d ' ') entries)"
+    else
+      p "managed_marker=absent (operator-provisioned or unmanaged)"
+    fi
+  else
+    p "license_dir=missing ($LDIR)"
+    p "license_files=0"
+  fi
+fi
+sh .to_kre_cred_exec.sh 2>&1 | grep -q "usage: kre_cred_exec" \\
+  && { p "helper_launcher=sh"; p "helper_exec=ok"; } \\
+  || p "helper_exec=FAILED"
+mkdir -p Reports/.wtest && rmdir Reports/.wtest \\
+  && p "workspace_write=ok" || p "workspace_write=denied"
+if [ -n "%APP_URL%" ]; then
+  curl -sf -m 10 -o /dev/null "%APP_URL%" \\
+    && p "app_url=reachable" || p "app_url=UNREACHABLE from this target"
+else
+  p "app_url=not-configured (no application URL to check)"
+fi
+p "done=1"
+"""
+
+
+PROBE_CMD = r"""@echo off
+rem TestOrchestrator KRE readiness probe (Windows cmd, argv-only).
+setlocal enabledelayedexpansion
+if not exist Reports mkdir Reports
+set L=Reports\probe.txt
+type nul > "%L%"
+call :p connectivity=ok
+if "%KREBIN%"=="" goto nokrebin
+if not exist "%KREBIN%" goto kremissing
+call :p kre=present
+for /f "delims=" %%v in ('"%KREBIN%" -version 2^>^&1 ^| findstr /c:"katalon.versionNumber="') do (echo TO-PROBE krever=%%v & >>"%L%" echo TO-PROBE krever=%%v)
+goto kredone
+:kremissing
+call :p kre=missing ^(%KREBIN% not found^)
+goto kredone
+:nokrebin
+call :p kre=missing ^(no executable_path configured^)
+:kredone
+rem --- licensing-mode awareness (TO_LIC_MODE set by the portal) ---
+if "%TO_LIC_MODE%"=="" set TO_LIC_MODE=online
+call :p licensing_mode=%TO_LIC_MODE%
+for /f "delims=" %%u in ('whoami') do (echo TO-PROBE exec_user=%%u & >>"%L%" echo TO-PROBE exec_user=%%u)
+call :p exec_profile=%USERPROFILE%
+if "%TO_LIC_MODE%"=="offline" (
+  set "LDIR=%USERPROFILE%\.katalon\license"
+  if exist "!LDIR!" (
+    call :p license_dir=present ^(!LDIR!^)
+    set CNT=0
+    for %%f in ("!LDIR!\*.lic") do (
+      set /a CNT+=1
+      for /f "tokens=1" %%h in ('certutil -hashfile "%%f" SHA256 ^| findstr /v ":"') do (echo TO-PROBE license_file=%%~nxf sha256_12=%%h & >>"%L%" echo TO-PROBE license_file=%%~nxf sha256_12=%%h)
+    )
+    call :p license_files=!CNT!
+    if exist "!LDIR!\.to_managed" (call :p managed_marker=present) else (call :p managed_marker=absent ^(operator-provisioned or unmanaged^))
+  ) else (
+    call :p license_dir=missing ^(!LDIR!^)
+    call :p license_files=0
+  )
+)
+powershell -NoProfile -ExecutionPolicy Bypass -File ".to_kre_cred_exec.ps1" 2>&1 | findstr /c:"usage: kre_cred_exec" >nul
+if errorlevel 1 (echo TO-PROBE helper_exec=FAILED & >>"%L%" echo TO-PROBE helper_exec=FAILED) else (echo TO-PROBE helper_launcher=powershell & echo TO-PROBE helper_exec=ok & >>"%L%" echo TO-PROBE helper_launcher=powershell & >>"%L%" echo TO-PROBE helper_exec=ok)
+rmdir Reports\.wtest 2>nul & mkdir Reports\.wtest 2>nul & rmdir Reports\.wtest 2>nul
+if errorlevel 1 (echo TO-PROBE workspace_write=denied & >>"%L%" echo TO-PROBE workspace_write=denied) else (echo TO-PROBE workspace_write=ok & >>"%L%" echo TO-PROBE workspace_write=ok)
+if "%APP_URL%"=="" goto noappurl
+curl -sf -m 10 -o nul "%APP_URL%" >nul 2>&1
+if errorlevel 1 (echo TO-PROBE app_url=UNREACHABLE from this target & >>"%L%" echo TO-PROBE app_url=UNREACHABLE from this target) else (echo TO-PROBE app_url=reachable & >>"%L%" echo TO-PROBE app_url=reachable)
+goto appdone
+:noappurl
+call :p app_url=not-configured
+:appdone
+call :p done=1
+exit /b 0
+:p
+>>"%L%" echo TO-PROBE %*
+echo TO-PROBE %*
+exit /b 0
+"""
+
+
+def probe_scripts(app_url: str = "", helper_dir=None) -> dict:
+    """Filename -> content for the staged readiness source. The
+    credential launchers travel with the probe so the helper_exec
+    marker proves the target-native shell + script on the real
+    target — a missing payload copy is reported, not hidden."""
+    scripts = {
+        "probe.sh": PROBE_SH.replace("%APP_URL%", app_url or ""),
+        "probe.cmd": PROBE_CMD.replace("%APP_URL%", app_url or "")
+                              .replace("\n", "\r\n"),
+    }
+    for name in ("kre_cred_exec.sh", "kre_cred_exec.ps1"):
+        try:
+            scripts[".to_" + name] = (Path(helper_dir) / name) \
+                .read_text(encoding="utf-8")
+        except (OSError, TypeError):
+            pass
+    return scripts
+
+
+def probe_argv(os_arch: str) -> list:
+    """Entry argv for the probe on the worker — batch on Windows,
+    POSIX sh everywhere else."""
+    win = (os_arch or "").lower().startswith("win")
+    return ["cmd", "/c", "probe.cmd"] if win else ["sh", "probe.sh"]
+
+
+def helper_launch_for(os_arch: str) -> list:
+    """Target-native shell argv prefix that runs the staged credential
+    launcher — ``sh`` on POSIX, ``powershell -NoProfile
+    -ExecutionPolicy Bypass -File`` on Windows. Both are guaranteed
+    by the supported target baseline (SSH needs a shell; the Windows
+    cleanup steps already require powershell); no PATH-resolved
+    Python is needed for KRE. Dispatch and the readiness probe must
+    agree on this choice."""
+    return (["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+             "-File"]
+            if (os_arch or "").lower().startswith("win")
+            else ["sh"])

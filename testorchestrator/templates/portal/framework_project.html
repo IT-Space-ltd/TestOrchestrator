@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}{{ fp.name if fp else "New framework project" }} ·
+  {{ binding.name }}{% endblock %}
+{% block content %}
+<p><a class="button ghost sm" href="{{ url_for(
+  'portal.project_detail', project_id=binding.project_id)
+  }}?tab=bindings">← Back to {{ binding.name }}</a></p>
+<h1>{% if fp and saved %}{{ fp.name }}{% else %}Add framework
+  project{% endif %}
+  {% if fp %}<span class="badge">{{ fp.framework }}</span>{% endif %}
+</h1>
+<p class="muted">Binding <code>{{ binding.name }}</code> ·
+  {{ binding.url }} · scope
+  <code>{{ binding.subdirectory or "." }}</code> · synced
+  <code>{{ (binding.last_synced_sha or "—")[:12] }}</code></p>
+
+{% if fp and saved %}
+<p>
+  <span class="badge">{{ fp.discovery_status }}</span>
+  {% if fp.discovery_status == "draft" %}
+    Configuration saved — discovery has not validated yet.
+  {% elif fp.discovery_status == "ok" %}
+    Discovery validated for
+    <code>{{ (fp.discovered_sha or "—")[:12] }}</code>.
+  {% elif fp.discovery_status == "stale" %}
+    Discovery stale — configuration changed, re-run to validate.
+  {% elif fp.discovery_status == "failed" %}
+    Discovery failed: {{ fp.discovery_error }}
+  {% endif %}
+</p>
+{% for w in fp.discovery_warnings() %}<p class="warn">{{ w }}</p>
+{% endfor %}
+{% endif %}
+
+<details {% if not saved %}open{% endif %} class="card">
+  <summary><strong>Framework &amp; locations</strong></summary>
+  <form method="post"
+        action="{% if saved %}{{ url_for('portal.fp_edit', fp_id=fp.id) }}{% else %}{{ url_for('portal.fp_new', binding_id=binding.id) }}{% endif %}"
+        class="add-form">
+    {{ form.csrf_token }}
+    <div class="field">{{ form.name.label }} {{ form.name() }}</div>
+    <div class="field">{{ form.framework.label }}
+      {{ form.framework() }}
+      <small class="muted">Your selection picks the discovery
+      adapter — it is never auto-detected or overridden.</small></div>
+    <div class="field">{{ form.project_root.label }}
+      {{ form.project_root() }}</div>
+    <div class="field">{{ form.workdir.label }}
+      {{ form.workdir() }}</div>
+    <div class="field">{{ form.config_file.label }}
+      {{ form.config_file() }}</div>
+    <div class="grid-2">
+      <div class="field">{{ form.test_roots.label }}
+        {{ form.test_roots(rows=4) }}</div>
+      <div class="field">{{ form.include.label }}
+        {{ form.include(rows=4) }}</div>
+      <div class="field">{{ form.exclude.label }}
+        {{ form.exclude(rows=4) }}</div>
+      <div class="field">{{ form.feature_roots.label }}
+        {{ form.feature_roots(rows=4) }}</div>
+      <div class="field">{{ form.stepdef_roots.label }}
+        {{ form.stepdef_roots(rows=4) }}</div>
+      <div class="field">{{ form.support_roots.label }}
+        {{ form.support_roots(rows=4) }}</div>
+    </div>
+    <small class="muted">BDD fields apply to Behave and pytest-bdd;
+    other frameworks use test roots + patterns. Empty fields fall
+    back to framework config, then defaults.</small>
+    <div class="btn-row">
+      {% if not saved %}
+      <button name="action" value="preview" class="button secondary">
+        Preview discovery</button>
+      <button name="action" value="save" class="button primary">
+        Save draft</button>
+      {% else %}
+      <button class="button primary">Apply changes</button>
+      {% endif %}
+    </div>
+  </form>
+</details>
+
+{% if saved %}
+<div class="btn-row">
+  <form method="post" class="inline"
+        action="{{ url_for('portal.fp_preview', fp_id=fp.id) }}">
+    {{ plain_form.csrf_token }}
+    <button class="button secondary">Preview discovery</button>
+  </form>
+  <form method="post" class="inline"
+        action="{{ url_for('portal.fp_discover', fp_id=fp.id) }}">
+    {{ plain_form.csrf_token }}
+    <button class="button primary">Run discovery (validate)</button>
+  </form>
+  <a class="button secondary"
+     href="{{ url_for('portal.fp_collect', fp_id=fp.id) }}">
+    Discover on worker…</a>
+  {% if can_edit %}
+  <form method="post" class="inline"
+        action="{{ url_for('portal.fp_delete', fp_id=fp.id) }}"
+        data-confirm="Delete this framework project and its inventory?">
+    {{ plain_form.csrf_token }}
+    <button class="button danger">Delete</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+{% if preview %}
+<section class="card">
+  <h2>Discovery preview <small class="muted">— static inspection,
+    not saved{% if preview.method == "static" %} (no repository code
+    executed){% endif %}</small></h2>
+  {% if preview.needs_native %}
+  <p class="warn">Some units need <strong>native collection</strong>
+  on an isolated worker to become selectable (parametrized tests,
+  generated pytest-bdd node IDs, Robot templates, scenario-outline
+  examples). Native collection may execute repository code and runs
+  only in the approved worker environment.</p>
+  {% endif %}
+  {% if preview.effective %}
+  <h3>Effective settings</h3>
+  <table class="audit-table">
+    <thead><tr><th>Setting</th><th>Value</th><th>Source</th></tr></thead>
+    <tbody>
+    {% for k, v in preview.effective.items() %}
+      <tr><td>{{ k }}</td><td><code>{{ v.value }}</code></td>
+        <td><span class="badge">{{ v.source }}</span></td></tr>
+    {% endfor %}
+    </tbody></table>
+  {% endif %}
+  {% for w in preview.warnings %}<p class="warn">{{ w }}</p>{% endfor %}
+  <h3>Discovered items ({{ preview.items | length }})</h3>
+  <table class="data-table">
+    <thead><tr><th>Kind</th><th>Granularity</th><th>Path</th>
+      <th>Name</th><th>Selector</th><th>Selectable</th>
+      <th>Notes</th></tr></thead>
+    <tbody>
+      {% for it in preview.items %}
+      <tr><td>{{ it.kind }}</td><td>{{ it.granularity }}</td>
+        <td><code>{{ it.path }}</code></td><td>{{ it.name }}</td>
+        <td><code>{{ it.node_id or "—" }}</code></td>
+        <td>{{ "✓" if it.selectable else "candidate" }}</td>
+        <td><small>{{ it.tags }}{{ " · " + it.warnings if it.warnings }}</small></td></tr>
+      {% else %}<tr><td colspan="7" class="muted">Nothing discovered —
+        check roots/patterns.</td></tr>{% endfor %}
+    </tbody></table>
+</section>
+{% endif %}
+
+{% if items is not none and saved %}
+<section class="card">
+  <h2>Saved inventory ({{ items | length }})</h2>
+  <table class="data-table">
+    <thead><tr><th>Kind</th><th>Granularity</th><th>Path</th>
+      <th>Name</th><th>Selector</th><th>Selectable</th><th>Source</th>
+      <th></th></tr></thead>
+    <tbody>
+      {% for i in items %}
+      <tr><td>{{ i.kind }}</td><td>{{ i.granularity }}</td>
+        <td><code>{{ i.path }}</code></td><td>{{ i.name }}</td>
+        <td><code>{{ i.node_id or "—" }}</code></td>
+        <td>{{ "✓" if i.selectable else "candidate" }}</td>
+        <td><span class="badge">{{ i.item_type or "static" }}</span></td>
+        <td>
+          {% if i.selectable and fp.discovery_status == "ok" %}
+          <a class="button sm"
+             href="{{ url_for('portal.discovered_detail', item_id=i.id)
+             }}">Run</a>
+          {% endif %}</td></tr>
+      {% else %}<tr><td colspan="8" class="muted">No saved inventory —
+        run discovery.</td></tr>{% endfor %}
+    </tbody></table>
+</section>
+{% endif %}
+{% endblock %}
