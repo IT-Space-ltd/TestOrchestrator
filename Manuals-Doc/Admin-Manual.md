@@ -2380,11 +2380,16 @@ execution's evidence export is a different, later operation.
 
 ## 20. Version and upgrade matrix
 
-| Path | Platform | Evidence | Migrations | Notes |
+Each row is one upgrade path that was really tested, not just planned.
+"Verified" means the exact steps were executed against the release
+package and the outcome was recorded.
+
+| Upgrade path | Platform | How it was proven | What the database migration did | What you should know |
 |---|---|---|---|---|
-| — → 2.5.1 | Linux | **[verified]** fresh install, same-version reruns, network listener apply/rollback | `db-upgrade` applies; idempotent | reruns preserve Buildbot credentials, `web.env` secrets, certs, and network settings |
-| 2.5.1 → 2.6.0 | Linux | **[verified]** representative upgrade — real 2.5.x data, `flask db upgrade` (the same path the installer's ExecStartPre runs): 7 migrations applied, all pre-existing data preserved | `runtime_kind`, `users.timezone`, resource/queue/CI-API columns created | `notified_at` backfill bug found and fixed during verification (`docs/acceptance-2.6.0.md`) |
-| 2.6.0 → 2.6.0 | Linux | **[verified]** same-version reinstall: stop units → rerun package; payload replaced, data/secrets/certs/units preserved | none | standard patch/refresh path |
+| fresh → 2.5.1 | Linux | **[verified]** fresh install plus same-version reruns, network listener apply and rollback | migrations apply cleanly; running them twice is safe | re-running the installer keeps your job-runner credentials, `web.env` secrets, certificates and network settings |
+| 2.5.1 → 2.6.0 | Linux | **[verified]** real 2.5.x data upgraded: 7 migrations applied, every pre-existing row preserved | new columns for runtime kinds, user timezones, resource/queue/CI-API | a backfill bug (`notified_at`) was found and fixed during this verification (`docs/acceptance-2.6.0.md`) |
+| 2.6.0 → 2.6.0 | Linux | **[verified]** same-version reinstall: services stopped, package re-run; program files replaced, everything else preserved | none needed | the standard patch/refresh path |
+| 2.6.0 → 2.7.0 | Linux | **[verified]** production-like services running, real seeded data — users, projects, credentials, repository bindings all preserved; migration verified row by row. The first-pass cell also caught a real defect: a service missing from the documented stop list survived and blocked the copy — fixed in this version | schema migrates automatically on first start | the installer stops services itself and refuses to write while anything still uses the program folder — see §8.4 |
 
 Rules for future upgrades: **back up `data/` first** (§16).
 Re-running the installer on the same directories performs the
