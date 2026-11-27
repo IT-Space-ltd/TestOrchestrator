@@ -2527,12 +2527,12 @@ The controls around that risk:
 
 ### 23.5 Troubleshooting
 
-| Symptom | Cause | Fix |
+| What you see | Why it happened | What you do — example |
 |---|---|---|
-| "deps_prepare requires a lockfile" | no `package-lock.json` in the repo | commit the lockfile (`npm install` writes it) or vendor node_modules |
-| "deps_prepare is off" failure | prepare disabled and no vendored deps | enable it for the run (test manager/admin), or vendor dependencies |
-| preparation timeout | large dependency tree / slow network | raise `deps_timeout` for the run, or vendor dependencies |
-| audit event shows wrong lockfile hash | lockfile changed upstream | review the lockfile diff before allowing further runs |
+| `deps_prepare requires a lockfile` | The repository has no `package-lock.json`. | Commit the lockfile (`npm install` writes it) or vendor `node_modules`. |
+| `deps_prepare is off` failure | Preparation is disabled and the repository does not vendor dependencies. | Enable it for the run as a test manager/admin, or vendor dependencies. |
+| preparation timeout | The dependency tree is large or the network is slow. | Raise `deps_timeout` for the run, or vendor dependencies. |
+| audit event shows wrong lockfile hash | The lockfile changed upstream. | Review the lockfile diff before allowing further runs. |
 
 ---
 
