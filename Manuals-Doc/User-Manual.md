@@ -1598,6 +1598,121 @@ can open in a browser), `junit/bruno.xml` and `manifest.json`.
 > - A FAILED line reading `expected 200 to equal …` is Bruno's own
 >   assertion text — open `bruno.html` for the full request/response.
 
+## 11D. Framework walkthrough — Pytest
+
+Pytest tests are Python files, usually named `test_*.py`. The runtime
+runs them with the Python interpreter configured on the runtime —
+the same Python that has your test libraries installed.
+
+You need: a project with a synced repository containing pytest tests,
+and a pytest runtime in the **ready-execution** state.
+
+### Step by step
+
+**Step 1.** In **Framework projects**, click **Add framework project**.
+Type these values:
+
+| Field | Value to type |
+|---|---|
+| Framework | `pytest` |
+| Name | `unit-tests` |
+| Project root | `tests` (the folder with your test files — empty if at the top) |
+
+Click **Save**.
+
+**Step 2.** Wait for discovery status `ok`. Open the framework project:
+one line per test file, with the test functions inside.
+
+**Step 3.** Click **Run**. Pick the framework project and runtime,
+tick one file, click **Start run**.
+
+**Step 4.** Wait for *completed*. Expected for passing tests: outcome
+**PASSED**; artifacts include the xunit report and `manifest.json`.
+
+### Reading results
+
+Each test function is one line in the results table. FAILED lines carry
+pytest's assertion text. INCOMPLETE with a message about a missing
+library means the runtime Python does not have a package your tests
+import — the administrator installs it on the runtime machine, in the
+same Python the runtime uses.
+
+> **Common mistakes — Pytest**
+>
+> - Tests import a library that is only on your own computer: the run
+>   machine needs it too. The readiness probe lists missing libraries
+>   when the administrator configures required libraries on the
+>   framework project.
+> - Test files not named `test_*.py` or `*_test.py`: pytest itself
+>   would not collect them either.
+
+## 11E. Framework walkthrough — Robot Framework
+
+Robot tests live in `.robot` files. The runtime runs them with the
+`robot` command through the configured Python.
+
+You need: a project with a synced repository containing `.robot`
+files, and a Robot runtime in the **ready-execution** state.
+
+### Step by step
+
+**Step 1.** In **Framework projects**, click **Add framework project**.
+Type these values:
+
+| Field | Value to type |
+|---|---|
+| Framework | `robot` |
+| Name | `acceptance-tests` |
+| Project root | `robot` (the folder with your `.robot` files) |
+
+Click **Save**.
+
+**Step 2.** Wait for discovery status `ok`. Open the framework project:
+one line per `.robot` file, with the test cases inside.
+
+**Step 3.** Click **Run**. Pick the framework project and runtime,
+tick one file or one test case, click **Start run**.
+
+**Step 4.** Wait for *completed*. Expected for passing tests: outcome
+**PASSED**; artifacts include Robot's own `output.xml`, `log.html` and
+`report.html` — open `log.html` in a browser for the full detail.
+
+> **Common mistakes — Robot**
+>
+> - Robot Framework not installed in the runtime Python: the probe
+>   reports it — the administrator installs it on the runtime machine.
+> - Browser tests (SeleniumLibrary, Browser library) need the browser
+>   and its driver on the runtime machine, not on your computer.
+
+## 11F. Framework walkthrough — Behave
+
+Behave tests live in `.feature` files — plain-language scenarios. The
+runtime runs them with the `behave` command.
+
+**Step 1.** Add a framework project: Framework `behave`, Name
+`bdd-tests`, Project root `features` (the folder with your `.feature`
+files). Click **Save**.
+
+**Step 2.** Wait for discovery status `ok` — one line per feature file,
+scenarios inside.
+
+**Step 3.** Click **Run**, pick project and runtime, tick one feature,
+click **Start run**.
+
+**Step 4.** Wait for *completed*. PASSED means every scenario passed.
+FAILED lines carry the scenario name and the failing step. Behave also
+needs its *step implementation* Python files next to the features —
+missing steps fail the run the same way they fail on your computer.
+
+## 11G. Katalon — static discovery only
+
+Katalon Studio projects are *discovered* — TestOrchestrator reads the
+project files and lists the test cases — but running them needs a
+licensed Katalon Runtime Engine on the target machine. Discovery works
+without any licence, so you can inventory and plan around Katalon
+content. Execution requires the licensed runtime; ask your
+administrator.
+
 ## 12. Troubleshooting
 
 | Symptom | Most likely cause | What to do |
