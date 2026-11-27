@@ -15,6 +15,15 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
 
 ### Added
 
+- **Test tree view (Test tab default — owner decision, recorded).** Read-only inventory tree —
+  collection → suite → test cases — with per-level counts, repo badges
+  (repository-defined items refreshed on sync), per-framework
+  granularity labels (Cypress is file-level only), stale-member badges
+  (render-time diff against the current inventory, warn-only — entries
+  are never dropped), and last-result badges from a single rollup
+  query. Keyboard-navigable (ARIA treeview: arrows, Enter/Space,
+  `aria-expanded`, roving tabindex). All discovered content is escaped.
+
 - **Schedule target kinds.** Katalon schedules target a test suite, a
   test suite collection, or a plan — matching the run form. Other
   frameworks target a discovery selection or a plan. The item picker
