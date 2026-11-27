@@ -2336,12 +2336,14 @@ doubt, use Other (Manual) with a credential reference.
 **Schedules tab — the target kind.** `target_kind` decides what the
 schedule runs:
 
-| Value | Available for | What it runs |
-|---|---|---|
-| Test suite | all frameworks | one app-defined or repository suite |
-| Test suite collection | Katalon only | a collection of suites as one run — the timeout covers the whole collection and the collection is one run for overlap decisions |
-| Selection from discovery | all non-Katalon frameworks | items picked from the discovered inventory |
-| Plan | all frameworks | the plan's entries in order |
+Each choice, in plain words, with an example.
+
+| Value | Available for | What it runs, in plain words | Example |
+|---|---|---|---|
+| Test suite | all frameworks | exactly one suite — either one you built in the app or one from the repository | "nightly regression" every day at 2am |
+| Test suite collection | Katalon only | several suites bundled as one single run — one timeout covers everything, and it counts as one run for overlap | a Katalon collection of smoke + login suites |
+| Selection from discovery | all non-Katalon frameworks | the tests you ticked in the discovered inventory | the three API collections you selected |
+| Plan | all frameworks | the plan's entries one after another, in order | "release candidate" plan: first smoke, then full regression |
 
 The picker filters itself by framework — Katalon-only choices never
 appear for other frameworks, and the server re-validates on save.
