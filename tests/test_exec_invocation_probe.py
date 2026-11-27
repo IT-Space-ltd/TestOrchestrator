@@ -71,3 +71,30 @@ def test_probe_sh_still_posix_clean():
     res = subprocess.run(["sh", "-n"], input=body.encode(),
                          capture_output=True)
     assert res.returncode == 0, res.stderr.decode()[:200]
+
+
+def test_create_execution_pins_binding_sha(app):
+    """Reproducibility: a headless caller that omits source_sha still
+    gets the binding's synced sha pinned in the snapshot — an unpinned
+    execution cannot be reproduced or audited."""
+    import json
+    from testorchestrator import dispatch as d
+    from testorchestrator.execution import (FrameworkProject, GitBinding,
+                                            Project)
+    from testorchestrator.extensions import db
+    with app.app_context():
+        p = Project(name="sha-pin")
+        db.session.add(p)
+        db.session.flush()
+        b = GitBinding(project_id=p.id, name="b", url="/x",
+                       worktree_path="/tmp/nowhere-sha-pin",
+                       last_synced_sha="abc123" + "0" * 34)
+        db.session.add(b)
+        db.session.commit()
+        ex = d.create_execution(
+            "u", None, binding=b,
+            run_config={"framework": "jest", "native_collect": True,
+                        "collect_roots": ["."]})
+        assert ex.source_sha == "abc123" + "0" * 34
+        snap = json.loads(ex.snapshot_json)
+        assert snap["source_sha"] == "abc123" + "0" * 34

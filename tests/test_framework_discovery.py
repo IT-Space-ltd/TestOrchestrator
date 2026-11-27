@@ -793,6 +793,43 @@ def test_apply_native_inventory_reconciles(app, tmp_path):
         assert fp.discovered_sha == "sha1"
 
 
+def test_apply_native_inventory_monorepo_prefix(app, tmp_path):
+    """Regression: collectors emit paths relative to the framework
+    project root (their cwd) — ingestion must re-prefix the root so
+    native rows merge with static rows instead of duplicating them
+    with rootless or absolute worker paths (matrix wave: jest collect
+    ingested '/opt/.../build/src/jest/x.js' as-is)."""
+    with app.app_context():
+        wt = _write(tmp_path, PYTREE)
+        p, b, fp = _mk(app, wt, test_roots=["tests"])
+        gitsync.sync_framework_project(fp, b)
+        before = {(i.kind, i.path, i.name) for i in
+                  DiscoveredItem.query.filter_by(
+                      framework_project_id=fp.id)}
+        ex = _ex_for(fp, b)
+        cj = tmp_path / "collect.json"
+        cj.write_text(json.dumps({"items": [
+            {"kind": "test", "path": "test_math.py",
+             "name": "test_param", "parent": "",
+             "node_id": "tests/test_math.py::test_param[1]",
+             "granularity": "test", "tags": [],
+             "parent2": "test_math.py"}]}))
+        out = gitsync.apply_native_inventory(ex, cj)
+        assert not out.get("error")
+        rows = DiscoveredItem.query.filter_by(
+            framework_project_id=fp.id).all()
+        paths = {r.path for r in rows}
+        # no rootless or absolute junk paths
+        assert "test_math.py" not in paths
+        assert not any(pth.startswith("/") for pth in paths)
+        # merged: the static row upgraded in place, not duplicated
+        match = [r for r in rows
+                 if r.path == "tests/test_math.py"
+                 and r.name == "test_param"]
+        assert len(match) == 1, [(r.path, r.name) for r in rows]
+        assert match[0].selectable
+
+
 def test_native_collect_runtime_gate(app, tmp_path):
     """request_native_collection rejects a runtime whose kind can't
     host the framework's collector (server-side gate)."""

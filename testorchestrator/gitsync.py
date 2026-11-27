@@ -657,6 +657,21 @@ def apply_native_inventory(ex, collect_path) -> dict:
         return {"error": f"collect.json unreadable: {exc}"}
     items = doc.get("items") or []
     warnings = doc.get("warnings") or []
+    # Collectors emit paths relative to the framework project root
+    # (their exec cwd). Inventory paths are REPO-relative like static
+    # discovery ('jest/smoke.test.js') — re-prefix the project root
+    # for monorepo layouts so native rows merge with static rows
+    # instead of duplicating them. Paths already carrying the prefix
+    # pass through unchanged.
+    _roots = [str(r).strip("/") for r in (fp.test_roots() or [])]
+    _fp_root = next((r for r in _roots if r and r != "."), "")
+    if _fp_root:
+        for _it in items:
+            for _k in ("path", "parent2"):
+                _v = (_it.get(_k) or "").strip()
+                if _v and _v != _fp_root \
+                        and not _v.startswith(_fp_root + "/"):
+                    _it[_k] = _fp_root + "/" + _v
     if doc.get("noop"):
         # By-design no-op collector (cypress has no native list
         # command): informational only — never touches inventory or

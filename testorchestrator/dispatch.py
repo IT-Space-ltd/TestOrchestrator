@@ -269,6 +269,11 @@ def create_execution(username: str, suite: Suite = None,
                 "this project")
 
     rc = dict(run_config or {})
+    if not source_sha and binding is not None:
+        # Reproducibility: the snapshot must pin the exact content it
+        # runs against. UI callers pass this explicitly; headless/API
+        # callers get the same pin from the binding's synced state.
+        source_sha = (binding.last_synced_sha or "")
     if "deps_prepare" in rc and not _role_may_set_deps_prepare(username):
         raise DispatchError(
             "setting or changing deps_prepare requires the test manager "

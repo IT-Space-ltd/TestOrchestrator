@@ -348,6 +348,15 @@ for (const p of ["node_modules/jest-cli/bin/jest.js",
 const jestArgv = (jestCli
   ? [process.execPath, jestCli]
   : [NPX, "--no-install", "jest"]);
+// jest reports absolute paths — inventory is framework-root-relative
+// (the collector runs with cwd = the framework project root), with
+// forward slashes on every platform.
+const pathmod = require("path");
+const toRel = (p) => {
+  if (!p) return "";
+  const r = pathmod.isAbsolute(p) ? pathmod.relative(process.cwd(), p) : p;
+  return r.split(pathmod.sep).join("/");
+};
 const warnings = [];
 let items = [];
 function emit() {
@@ -368,10 +377,13 @@ try {
       jestArgv[0],
       jestArgv.slice(1).concat(["--listTests", "--json"]),
       { encoding: "utf-8", timeout: 600000, shell: SHELL });
-    items = (JSON.parse(lout || "[]")).map(rel => ({
-      kind: "suite", path: rel, name: rel.split("/").pop(),
-      node_id: rel, granularity: "file", parent: "",
-      tags: [], warnings: "" }));
+    items = (JSON.parse(lout || "[]")).map(p0 => {
+      const rel = toRel(p0);
+      return {
+        kind: "suite", path: rel, name: rel.split("/").pop(),
+        node_id: rel, granularity: "file", parent: "",
+        tags: [], warnings: "" };
+    });
     warnings.push("--collectTests unavailable (" + e.message +
       ") — file-level inventory only; per-test selection " +
       "requires a jest version that supports --collectTests");
@@ -383,7 +395,7 @@ try {
 const doc = JSON.parse(out || "{}");
 const seen = {};                       // duplicate fullName index
 for (const tr of (doc.testResults || [])) {
-  const rel = tr.name || tr.testFilePath || "";
+  const rel = toRel(tr.name || tr.testFilePath || "");
   items.push({ kind: "suite", path: rel,
     name: rel.split("/").pop(), node_id: rel,
     granularity: "file", parent: "", tags: [], warnings: "" });
