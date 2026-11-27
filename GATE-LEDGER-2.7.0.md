@@ -1265,3 +1265,26 @@ over the final Linux `.tar.gz`/`.run`, final Windows setup EXE, both
 corresponding-source archives, both final manual PDFs, `docs`, `Manuals-Doc`,
 `README.md`, `CHANGELOG.md`, `dist/release/SHA256SUMS.txt`, and this ledger
 completed with **0 hits**, exit 0. Log `/tmp/exposure-final-publication.log`.
+
+## 2026-11-27 — manual PDF diagram-rendering correction
+
+Post-release review found that the first generated PDFs rendered Mermaid
+flowchart source as plain text. The manuals were regenerated with Mermaid
+11.12.0 in headless Chromium: the Admin Manual's two Mermaid blocks now render
+as live SVG diagrams (2/2 rendered), suitable for zooming as vector content;
+the User Manual was regenerated in the same lane and contains no Mermaid
+blocks. PDF validation after regeneration: zero `flowchart LR`/Mermaid-source
+strings in extracted PDF text, embedded screenshot raster images still present
+(Admin 39, User 94), page counts Admin 61 / User 113.
+
+Replacement PDF hashes:
+
+- Admin Manual PDF sha256 `8a9524ba47958a4053f6811e9e6494bfa8cc3f8310b5669acd1f66a8799e3ea7`, size 7800119 bytes
+- User Manual PDF sha256 `5b5007e8358a8132a23d57aec59dfc10d9aa6e9003dbeec60299bf5521067b53`, size 10553743 bytes
+
+`dist/release/SHA256SUMS.txt` was refreshed and locally verified with
+`sha256sum -c`; every listed asset OK. The fixed-string licensed-key exposure
+scan was rerun over the final publication artifact set, both replacement PDFs,
+`docs`, `Manuals-Doc`, `README.md`, `CHANGELOG.md`, the refreshed checksum file,
+and this ledger: **0 hits**, exit 0. Log
+`/tmp/exposure-final-pdf-correction.log`.
