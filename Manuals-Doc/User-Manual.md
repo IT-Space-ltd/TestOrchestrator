@@ -2513,15 +2513,18 @@ cancellable rows cancel, others are skipped with a per-row note.
 
 ### B.13 The execution page — actions
 
-| Action | What it does |
-|---|---|
-| **Cancel execution** | requests cancel; cancel intent governs the terminal state even across retries |
-| **Retry (new attempt)** | starts a new attempt of the same immutable snapshot |
-| **Publish / retry** | republishes results for reporting after a fixed pipeline problem |
-| **Refresh report collection** | re-runs artifact collection when the store was temporarily unreachable |
-| **Resolve UNKNOWN** | administrative resolution of an UNKNOWN outcome — does NOT stop any process; use only after verifying the target is really done |
-| `confirm_stopped` | the typed confirmation for destructive resolution |
-| `retry store` | retry artifact upload to the destination store |
+Each button on the execution page, in plain words, with an example of
+when you would press it.
+
+| Action | What it does, in plain words | When you would use it — example |
+|---|---|---|
+| **Cancel execution** | asks the run to stop; once canceled, the decision stands even if you retry later | you started the wrong suite by mistake |
+| **Retry (new attempt)** | starts the exact same run again — same tests, same settings | the first attempt hit a network glitch |
+| **Publish / retry** | sends the results to reporting again after the pipeline problem is fixed | the report store was down and is back |
+| **Refresh report collection** | collects the artifacts again when they could not be gathered the first time | the artifact store was temporarily unreachable |
+| **Resolve UNKNOWN** | tells the server you have checked the run yourself and it is really finished — it does NOT stop any process | after a server restart, when you verified on the worker that the run completed |
+| `confirm_stopped` | the words you must type to confirm a destructive resolution — a small barrier against accidents | typing it confirms you really mean it |
+| `retry store` | tries the artifact upload again | the upload failed the first time |
 
 ### B.14 Admin — integrations
 
