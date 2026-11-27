@@ -1391,6 +1391,89 @@ diagnostic commands is §21.
 | Import says `staging checkout expired` | Staging was cleaned — rerun the preview; pending candidates were not committed. |
 | Node-framework run ends `no result data`, step log shows `bad option: --no-install` or `unrecognized option` | The runtime's executable path points at `node` instead of `npx`. Node-framework runtimes (Jest, Cypress, Playwright) must name **npx** (or the platform shim `npx.cmd`) because dispatch invokes `<exe> --no-install <framework> …` — `node` does not understand `--no-install`. Fix the runtime's executable path; the readiness probe tests this exact invocation shape and reports `exec_invocation=incompatible` when misconfigured. |
 
+## 10A. Status screens — what healthy and unhealthy look like
+
+Every screen below names what you should see, what it means, and what
+to do when it differs. Screenshots come from the reference install;
+the unhealthy states are staged deliberately.
+
+### 10A.1 The infrastructure page
+
+**System → Infrastructure** is the machine room overview: execution
+targets on top, runtimes below, worker installers at the bottom.
+
+![The infrastructure page with one healthy target and its runtimes](shots/ad-status-infra-ok.png)
+
+Healthy looks like this: every target shows **online** in green, every
+runtime shows a readiness state. If a target shows **offline** in grey,
+the worker machine is down or cannot reach the controller — check that
+the host is up and that TCP 9989 is open on the controller (§6).
+
+![The infrastructure page with one target offline](shots/ad-status-infra-offline.png)
+
+### 10A.2 Runtime probe states
+
+Each runtime carries one state. Read them like traffic lights:
+
+| State | What it means | What to do |
+|---|---|---|
+| `checking` | The probe is running right now | Wait a minute, reload |
+| `ready-discovery` | Tools present, inventory may be collected | For node frameworks: ready except execution validation |
+| `ready-execution` | Probe passed and a proof run succeeded | Nothing — this is the good state |
+| `missing-dependency` | A needed tool is absent | Read the message on the runtime — it names exactly what is missing and how to install it |
+| `failed` | The probe itself could not run | Open the runtime detail — the probe log is attached |
+
+![A runtime in the ready-execution state](shots/ad-status-runtime-ready.png)
+
+![A runtime in the missing-dependency state with the message visible](shots/ad-status-runtime-missing.png)
+
+A common one: `exec_invocation=incompatible` on a node framework means
+the runtime executable points at `node` instead of `npx` — see §10.
+
+### 10A.3 Worker online and offline
+
+A **buildbot-worker** target is online when its worker process on the
+remote host is connected. The connection is outbound from the worker,
+so online does not prove anything about inbound firewalls on the
+worker — it proves the worker service runs and can reach the
+controller.
+
+![Worker target online with the connected-since time](shots/ad-status-worker-online.png)
+
+![Worker target offline](shots/ad-status-worker-offline.png)
+
+Offline checklist, in order:
+
+1. Is the host up? (ping / remote console)
+2. Is the worker service running? (`systemctl status` on Linux,
+   Services on Windows)
+3. Can the host reach the controller on TCP 9989?
+4. Did the controller restart with a different PB port or address?
+
+### 10A.4 Service status on Linux
+
+```bash
+systemctl status testorchestrator-web testorchestrator-worker \
+    testorchestrator-buildbot-master testorchestrator-buildbot-local
+```
+
+![Terminal showing all four services active and green](shots/ad-status-systemd-ok.png)
+
+Healthy: all four `active (running)`. If one is `inactive` or
+`failed`, `journalctl -u <name> -n 50` shows why.
+
+### 10A.5 Service status on Windows
+
+Open **Services** (type `services.msc` in Start). The TestOrchestrator
+services are named `TestOrchestrator *`. Healthy: Status column shows
+**Running** for each.
+
+![Windows Services with the TestOrchestrator services running](shots/ad-status-winsvc-ok.png)
+
+If one is stopped, right-click → Start. If it stops again, open
+**Event Viewer → Windows Logs → Application** and look for the service
+name.
+
 ## 11. Demonstrated worker flow used for these docs
 
 Every §6 step above ran on the isolated doc install:
