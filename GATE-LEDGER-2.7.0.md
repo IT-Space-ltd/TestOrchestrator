@@ -882,3 +882,11 @@ failure states in status library; incremental rewrite acceptance.
 build #6 -> guest install -> wave3: sync+discover+probes+validate+6 cells
 (positive selection now file-level: .js/.json/.bru only)+jest collect
 -> watch with artifact-file evidence. Scripts: m5wave3.py/m5watch3.py on guest.
+
+### BUILD #6 provenance
+- head `c807b3889ff05ebf8b4cc9323dcaf52f5bae5c38` (product 50529d49 + ledger docs)
+- sha256 `f33d5b6914e9d57f25931b96fd892c23ce170ee3b9346590742be16d233be531`
+- unit suite sign-off green on this head: 1186 passed / 0 failed / 18 skipped (637s)
+- guest automation launched 09:2x — install over the same data dir, then wave3
+  (all six cells file-level + jest collect) — evidence lands in guest6.log +
+  /tmp/m5watch output -> pulled to ledger next session/checkpoint.
