@@ -969,3 +969,32 @@ artifacts verified on disk per cell (jest.json/manifest, postman+junit, bruno ht
 json/junit). jest-collect build exited 0 with correct workdir+argv (fix verified
 mechanically) but ingestion consumed absolute paths -> inventory defect found+fixed.
 Option A 7/7 PASS on build #7.
+
+## Build #8 — IN FLIGHT
+
+- Suite sign-off (quiet, serial): `1193 passed / 0 failed / 18 skipped`, 661s.
+- Build #8: head `fdeef9fa5016d0b3f6061da5f378882a66cf4e52`, sha256
+  `06ee522903b8515f4e0ff7bfd0f7d0d3c8b5d89084a1b3eb05cd0ed35120e518`
+  (/home/szefi/build7.env — chain reuses the filename).
+- Includes: collect-path rebase + ingestion prefix + sha pinning +
+  exec-invocation probe + manuals revision wave 1 + coverage gate extension.
+- Guest automation launched ~11:50. Wave: opta + 7 core cells + matrix5b +
+  watch7 consolidated evidence. Evidence capture: /home/ubuntu/guest7.log,
+  watch /tmp/jestwave-style outputs, stepstdout.py for per-cell stdout.
+
+## Resume-critical remaining work after this wave
+
+1. Verify jest-collect ingests repo-relative paths (the fix validation) and
+   re-check inventory rows merge.
+2. bruno-negative artifact re-verification (owner requirement).
+3. matrix5b test-level/subdir cell evidence.
+4. Real 2.6.0 upgrade cell (script staged /home/szefi/upgrade-cell.sh, needs
+   completion: seed260.py + systemd unit staging) — stray-process determination
+   is the 2.7.0-blocker question.
+5. Freeze decision, exposure scan (scripts/exposure_scan.py ready), final clean
+   build + SHA256SUMS.txt.
+6. Windows install cells + captures (VM approved, one-VM rule, prompt before
+   destructive) — then Linux captures on final build.
+7. Manuals completion: remaining chapters + capture execution + gate green.
+8. Acceptance incl. full e2e-ui (tests/e2e-ui ready, needs pw venv).
+9. Release notes final. Stop before merge/tag/publish.
