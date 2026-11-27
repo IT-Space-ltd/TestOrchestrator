@@ -10,6 +10,7 @@ import json
 import os
 import re
 import subprocess
+import shlex
 import time
 from pathlib import Path
 import pytest
@@ -155,7 +156,7 @@ def _seed_items():
             ["ssh", "-i", APP_KEY, "-o", "BatchMode=yes",
              "-o", "StrictHostKeyChecking=accept-new",
              f"{APP_USER}@{APP_HOST}",
-             "sudo", "bash", "-lc", remote],
+             "sudo", "bash", "-lc", shlex.quote(remote)],
             capture_output=True, text=True, timeout=60)
     else:
         r = subprocess.run(
