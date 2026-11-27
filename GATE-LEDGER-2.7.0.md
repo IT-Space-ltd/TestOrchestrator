@@ -981,9 +981,14 @@ Session progress since build #6:
   testorchestrator-* units before copy + refuse busy trees
   (tests/test_installer_upgrade_defense.py 8/8); manual §8.4 corrected
   (ssh unit in stop/start lists, post-stop survivor check, safety-net
-  note). VERIFICATION PENDING: clean re-run of the full upgrade cell
-  on the post-fix build incl. migration preservation (users/projects/
-  secrets/bindings roundtrip) — seed invocation fixed (venv python).
+  note). VERIFIED — clean re-run on build #10 (2026-11-27): STRAY-SURVIVOR-COUNT=0;
+  users/password/projects/bindings preserved exactly (counts identical
+  pre/post); the 2.6.0-encrypted secret decrypts correctly under 2.7.0
+  (secret roundtrip ok); alembic at head p5c6d7e8f9a0; HTTPS 200; all
+  services active. UPGRADE-RC=0. Note: the documented procedure's stop
+  meant the installer defense had nothing to stop — defense validated
+  by unit tests; the cell proves the documented path end-to-end.
+  BLOCKER CLOSED.
 - **Open**: (superseded — see resolution above)
   bruno-negative artifact re-verify; Windows cells; freeze; capture pipeline;
   matrix5b results.
