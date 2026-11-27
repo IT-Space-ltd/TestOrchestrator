@@ -998,3 +998,55 @@ Option A 7/7 PASS on build #7.
 7. Manuals completion: remaining chapters + capture execution + gate green.
 8. Acceptance incl. full e2e-ui (tests/e2e-ui ready, needs pw venv).
 9. Release notes final. Stop before merge/tag/publish.
+
+## Build #9 — FULL MATRIX EVIDENCE (counting-rules compliant)
+
+Build #9: head `de820482a8ab21b4ed3f96de2196ad96aee9393f`, sha256
+`ad64be0ff3f19dfa496cc847ebc1a132cf8f381df0acdb51003b25662d2110ff`.
+Suite sign-off (quiet serial): `1194 passed / 0 failed / 18 skipped`, 647s.
+All executions pinned source_sha `e70ea9ef4e8222323dbe8c934be8dd07f3945b44`
+(fixture commit — sha-pinning fix verified live).
+
+Per-cell evidence (state/outcome/results/artifacts/brid):
+- postman-positive `47088f46ca9e4f91be4c4d1f670df7b3` — completed/PASSED,
+  2 results passed, artifacts junit/newman.xml+postman.json+manifest.json,
+  stdout: `newman run postman/collec…` exit 0 in build/src. COUNTED.
+- postman-negative `ed48e923b600426dbda2b579595bc2ae` — completed/FAILED
+  expected (`Failed 1 times`), 3 artifacts. COUNTED.
+- bruno-positive `37e465ca28b1405e85ae44daa1b17bf9` — completed/PASSED,
+  2 results passed, artifacts bruno.html+bruno.json+junit/bruno.xml+manifest,
+  stdout: `bru run smoke.bru` in build/src/bruno exit 0. COUNTED.
+- bruno-negative `4064568229824b649a37b1c6feb498fe` — completed/FAILED
+  expected (`expected 200 to equal 500`), 4 artifacts — owner-required
+  re-verification DONE. COUNTED.
+- jest-positive `8cb64534054641edb00c1cd7893a023f` — completed/PASSED,
+  1 result passed, artifacts jest.json+manifest, stdout:
+  `/usr/local/bin/npx --no-install jest …` in build/src/jest, exit 0,
+  `Test results written to: Reports/jest.json`. COUNTED.
+- jest-negative `efbbca9bd3d34ccab78ba0942c5aa350` — completed/FAILED
+  expected (`expect(received).toBe(expected)`), 2 artifacts. COUNTED.
+- jest-collect `d4045f66a9414b5fbff4d7a162cf618f` — completed/PASSED
+  (outcome-semantics fix verified live), artifacts collect.json+manifest,
+  stdout: `node ../.to_collect.js` in build/src/jest exit 0 (relpath fix
+  verified); inventory ingestion merged native rows repo-relative
+  (jest/smoke.test.js etc — monorepo prefix fix verified). COUNTED.
+- 5b-postman-testlevel `4b25aea7f1ed4258ba2089be15b050c5` — PASSED, 2 results.
+- 5b-jest-testlevel `a5baa079c28a4a3189a98e580ce3e053` — PASSED, 1 result.
+- 5b-bruno-testlevel `f8610cb613d447a8899c366d76f68fbc` — FAILED with correct
+  semantics (selection `bruno` includes the negative file; both pass+fail
+  results present — evidence of correct per-file execution).
+
+Option A rerun on build #9: PASS lines in guest7.log (verify before citing
+count — grep OPTA). Stray-process check post-install: exactly 4 processes,
+all current-build paths, started at service-start time — no strays when
+services are stopped before install per the documented procedure. The
+installer-behavior question (does the installer itself stop them) remains
+for the real 2.6.0 upgrade cell.
+
+## Build #9 fix list (all in de820482)
+
+Monorepo workdir+lockfile+spec rebase, artifact subdir collection,
+collect script relpath, collect outcome semantics, error_text persistence
+(latent error_message bug), ingestion monorepo prefix, jest collector
+cwd-relative paths, sha pinning, exec-invocation probe, worker-loop probe
+advancement. 1194 tests green.
