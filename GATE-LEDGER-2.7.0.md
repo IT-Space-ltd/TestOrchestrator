@@ -1147,3 +1147,55 @@ No longer never-green; preview must be seeded+running for them to execute
 (they skip when absent — documented behavior).
 
 ### Exposure scan (owner item 5) — dry run zero hits over docs/manuals/ledger/artifacts. Rerun on final artifacts pending.
+
+## 2026-11-27 — Windows controller acceptance cells (build #11/#12 fixes)
+
+Windows guest `to-accept-win` (libvirt session) ran the controller install,
+upgrade, credential-launcher process-kill, and PowerShell probe cells. Linux
+guest remained stopped under the one-VM rule.
+
+- **Windows taskkill / credential wrapper — real defect fixed and verified.**
+  First fixed-candidate helper `scripts/kre_cred_exec.ps1` sha256
+  `ef89c5e220390dbb2f5fee62e97e63cd8473f9838db43d1d6598665a4ab8c126` at
+  product commit `db0eff277d1ccf0abe139e69f5e51a7782ddad7a`.
+  Evidence `win-accept/uploads/064-taskkill-final.log` +
+  `064-wrapper.out/.err`: sha pinned, fake KRE child alive before
+  `taskkill /F /PID <wrapper>`, dead after; credential file absent pre/post;
+  fixed key absent from logs; stdout carries `-apiKey=***REDACTED***`;
+  `TASKKILL_CELL_PASS`. Root cause was PowerShell nested-struct copy semantics
+  leaving `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` unset. Product fix committed
+  `db0eff27`; regression coverage in `test_kre_cred_helper_source_is_portable`.
+- **PowerShell probe parse — PASS on final helper.** Evidence
+  `win-accept/uploads/069-psprobe-final.log`, `069-probe.txt`,
+  `069-probe-console.txt`: `probe.cmd` sha256
+  `5adba80d437d9233ca36bc704d18e74112abd4900374220e5cad435730aaaffd`,
+  helper sha256 `ef89c5e220390dbb2f5fee62e97e63cd8473f9838db43d1d6598665a4ab8c126`,
+  `helper_launcher=powershell`, `helper_exec=ok`, `workspace_write=ok`,
+  `done=1`, `PSPROBE_CELL_PASS`.
+- **Clean Windows controller install 2.6.0 — PASS.** Installer sha256 verified
+  before execution: `f9d520e813d2eb183e893225277e21c44b9a0f9a100aa19af574748369212755`.
+  Evidence `win-accept/uploads/066-install-260.log`: preinstall no controller
+  ProgramFiles/env; installer exit 0; ARP 2.6.0; five controller scheduled tasks
+  present; ports 8443/8080/9989/8010 listening; HTTPS `/api/v1/ping` 200;
+  `INSTALL260_PASS`. Screenshot `win-accept/screenshots/066-installing.png`.
+- **True 2.6.0→2.7.0 Windows upgrade — defect found, fixed, verified.**
+  The first 2.7.0 candidate installer at commit
+  `db0eff277d1ccf0abe139e69f5e51a7782ddad7a`, sha256
+  `cad3a5efdd9fc0758a4d9d4da29d6873a6972a751c4ebe97b03e94052f547778`,
+  preserved database user `upgradekeeper`, sentinel file, Buildbot credentials,
+  migrations through `p5c6d7e8f9a0`, tasks, ports, and HTTPS, but regenerated
+  `TO_SECRET_KEY`/`TO_INSTALL_ID` (`b3a75a…` → `cd44bf…`), failing the cell
+  (`068-upgrade-270.log`). Root cause: NSIS rewrote `testorchestrator.env`
+  before `init_env.py` could preserve generated secrets. Owner approved the
+  blocker fix; committed `0acdc045` and recorded in CHANGELOG/release notes
+  (`3c918d05`). Rebuilt installer sha256
+  `c87c0e5445e02565afcddf8d66636c256cd9c204fae28b0630742c69388befc1`
+  (build manifest product commit `0acdc0458e39`; corresponding-source sha256
+  `7fcca27e7fb1217d6d28b2b7233908ed2f4967f55fe2a8445ef709fb6d41b567`).
+  Fixed-cell evidence `win-accept/uploads/070-upgrade-270-fixed.log`:
+  installer sha pinned, exit 0, install-id fingerprint unchanged
+  `cd44bf514b3349a8736b80b3439471a1c334fa1315f51e4716a5ef53e75d63e7`,
+  `upgradekeeper-count=1`, sentinel intact, helper sha256
+  `ef89c5e220390dbb2f5fee62e97e63cd8473f9838db43d1d6598665a4ab8c126`,
+  ARP 2.7.0, five tasks present, ports listening, HTTPS 200, install log says
+  `[init_env] … secrets preserved`; `UPGRADE270FIXED_PASS`.
