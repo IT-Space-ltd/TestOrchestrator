@@ -183,7 +183,9 @@ try {
 $job = [ToJob]::CreateJobObject([IntPtr]::Zero, $null)
 if ($job -ne [IntPtr]::Zero) {
     $info = New-Object 'ToJob+JOBOBJECT_EXTENDED_LIMIT_INFORMATION'
-    $info.BasicLimitInformation.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+    $limits = $info.BasicLimitInformation
+    $limits.LimitFlags = 0x2000  # KILL_ON_JOB_CLOSE
+    $info.BasicLimitInformation = $limits
     $len = [Runtime.InteropServices.Marshal]::SizeOf(
         [type]'ToJob+JOBOBJECT_EXTENDED_LIMIT_INFORMATION')
     if ([ToJob]::SetInformationJobObject($job, 9, [ref]$info, $len)) {

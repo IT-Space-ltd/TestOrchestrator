@@ -642,6 +642,10 @@ def test_kre_cred_helper_source_is_portable():
     ps = ps_src.read_text(encoding="utf-8")
     assert "AssignProcessToJobObject" in ps
     assert "KILL_ON_JOB_CLOSE" in ps or "0x2000" in ps
+    assert "$limits = $info.BasicLimitInformation" in ps
+    assert "$limits.LimitFlags = 0x2000" in ps
+    assert "$info.BasicLimitInformation = $limits" in ps
+    assert "$info.BasicLimitInformation.LimitFlags = 0x2000" not in ps
 
 
 def test_prep_script_echo_is_not_a_retry_block(
