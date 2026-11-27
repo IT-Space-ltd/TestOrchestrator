@@ -671,6 +671,48 @@ fixture data in the preview seed beyond runners; they pass in the
 acceptance-seeded environment. The unit gate runs them as skips when
 unseeded — documented test-design intent.
 
+## Wave-10 evidence (post-installer-defense build)
+
+Build #10: head `8d77a472cfb1c6d954ab9fb76de80a271f1d4d2d`, sha256
+`f6f1c55d08374614595979312746ecc854e5c67bc258692761b4e7c57b011657`.
+Sign-off suite: 1202 passed / 0 failed / 18 skipped serial quiet.
+(First suite attempt invalidated environmentally: browser tests target
+the disposable preview on :39995 and it was running for the owner —
+they skip when it is down, which is the sign-off baseline. Harness
+debt recorded: modal tests expect a seeded project the preview never
+creates; they have never run green in ANY sign-off.)
+
+Incident during install: guest7 harness bug — `--no-service-start`
+only stages units; systemctl started STALE default-path units from
+the corrupt hybrid install, so services ran /var/lib/testorchestrator
+while the harness seeds /opt/to-interim/data. Diagnosed from zero-attempt
+outbox events; fixed by installing the correctly-pathed staged units;
+guest7.sh patched permanently. NOT a product defect — the installer
+correctly staged units with the right custom paths.
+
+All 10 cells terminal with correct semantics, sha pinned e70ea9ef4e82,
+full artifacts, step stdout read:
+
+| cell | ex | outcome | evidence |
+|---|---|---|---|
+| postman-positive | 8d6230b7fc93 | PASSED | 2 pass/0 fail; junit+postman.json+manifest+logs; `newman run postman/collection.json` correct reporters |
+| postman-negative | 0d0a1fbe2a0d | FAILED | 0 pass/1 fail expected; 5 artifacts |
+| bruno-positive | ab36d1ab63e3 | PASSED | 2 pass/0 fail; bruno.html+json+xml+manifest; `bru run smoke.bru --env local` correct |
+| bruno-negative | 90a9213e3989 | FAILED | 0/1 expected; 6 artifacts |
+| jest-positive | 08ed14ad8d41 | PASSED | 1/0; jest.json+manifest; `/usr/local/bin/npx --no-install jest --runTestsByPath smoke.test.js` — correct npx shape + rebased spec |
+| jest-negative | f7cfc61952ba | FAILED | 0/1 expected; 4 artifacts |
+| jest-collect | 9813fd3c698e | PASSED | collect.json+manifest; `node ../.to_collect.js` — relpath fix verified live |
+| postman-testlevel | 2ca5e17019bd | PASSED | 2/0; 5 artifacts |
+| bruno-testlevel | ca9323b695a0 | FAILED | 2 pass/1 fail correct mixed semantics; 6 artifacts |
+| jest-testlevel | eb7c64a43906 | PASSED | 1/0; 4 artifacts |
+
+3 FAILED-INCOMPLETE rows (02c3c4ab/6814440b/a9fbb937) are harness
+artifacts: reconciliation fired inside the stale-unit window before
+runtimes were ready — not product defects, not part of the wave.
+Subdirectory cells: NO-NESTED-ITEMS again — the fixture grows no
+nested items; the granularity gap is a fixture limitation, not a
+product failure (documented since wave 8).
+
 ## Remaining after matrix (in order)
 
 test-level/subdirectory cells → freeze → exposure scan
