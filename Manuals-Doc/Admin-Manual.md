@@ -2333,15 +2333,18 @@ deliberate fail-closed choice, not a missing feature.
 
 ## 19. Credential and certificate lifecycle
 
-| Secret | Lives | Replace/rotate | Restart needed |
+Every secret the system uses, where it lives, and what replacing it
+looks like — in plain words, with examples.
+
+| Secret | Where it lives | How you replace it | Does anything need a restart |
 |---|---|---|---|
-| Repository deploy key/token | **Credentials** (encrypted under `secret.key`) | Edit the credential; bindings pick it up next sync | no |
-| Worker agent token | runner record — SHA-256 only | **Issue token** re-generates; old token revoked | worker restart with new token |
-| Buildbot credentials | `config/buildbot/secrets.json` (0600) + portal `buildbot_credential_ref` + per-worker SecretRefs | installer reruns **preserve** provisioned credentials; rotate per-worker secrets with **Issue secret** in Admin UI | buildbot + web |
-| KRE licence/API key | **worker host only** (never the portal — `credential_file` carries just a path) | on the worker per Katalon's docs | worker executions pick it up next run |
-| TLS certificate | `data/certs/` + `certificate_*` settings | **Network & certificates** → generate/import → Apply (`previous_good` rollback if the new config breaks) | via staged apply |
-| `TO_SECRET_KEY` | `web.env` | rotate only if you're willing to invalidate all sessions | web |
-| `secret.key` | `data/secret.key` (0600) — **master key for stored secrets** | no rotation supported — losing it = re-enter every credential | n/a |
+| Repository deploy key or token | in **Credentials**, encrypted under the master key | edit the credential; repositories pick it up at the next sync — example: rotate a leaked git token in one place and every binding heals | no |
+| Worker agent token | on the runner record — only its fingerprint is stored | press **Issue token** — the old token dies the moment the new one is generated | the worker restarts with the new token |
+| Job-runner credentials | `config/buildbot/secrets.json` plus internal references | reinstalling **keeps** them; rotate worker secrets with **Issue secret** in the Admin UI | job runner + web |
+| Katalon licence / API key | **only on the worker machine** — the portal never holds it, just the file path | replace it on the worker following Katalon's own documentation | the next run picks it up |
+| TLS certificate | `data/certs/` plus the certificate settings | **Network & certificates** → generate or import → Apply — if the new setup breaks, it rolls back to the last working one by itself | applies in stages, no manual restart |
+| `TO_SECRET_KEY` | `web.env` | only if you accept that everyone is logged out at once — example: after a suspected leak | web |
+| `secret.key` | `data/secret.key` — **the master key for every stored secret** | there is no rotation — losing it means typing every credential in again, so it must be in every backup | n/a |
 
 After a restore: every stored secret returns intact **only if**
 `secret.key` was backed up — the DB alone cannot decrypt them.
