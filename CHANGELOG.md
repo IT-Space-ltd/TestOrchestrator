@@ -1,10 +1,10 @@
 # Changelog
 
-## [Unreleased] — 2.7.0 draft (PR #5)
+## [Unreleased] — 2.7.0 final candidate (PR #5)
 
-Work in progress on branch `feature/2.7.0-repository-discovery`.
-Not tagged, not published — this section records what the draft
-delivers so far. Schema changes so far: `projects.retention_json`
+Final candidate on branch `feature/2.7.0-repository-discovery`.
+Not tagged, not published — owner sign-off is still required.
+Schema changes so far: `projects.retention_json`
 (project-level retention overrides); earlier 2.7.0 migrations add
 `framework_projects`, `discovered_items` framework/selector/
 provenance columns, `artifact_stores`, and discovery fingerprints.
@@ -621,18 +621,16 @@ this acceptance; no engine-coverage residuals remain.
   `jmespath`, `python-dateutil`, `s3transfer`, `six` — vendored in
   `3rdparty/python-wheels/` with license texts + notices.
 
-### Known limitations (2.7.0 draft)
+### Known limitations (2.7.0)
 
 - **Windows worker installer is unsigned** (owner decision — no signing
   step, no certificate, output name unchanged). Windows SmartScreen
   will show a warning on first run ("Windows protected your PC").
   To install anyway: click **More info** then **Run anyway** — the
   publisher shows as "Unknown" because the binary is unsigned.
-  Before running, verify the download against the published SHA-256:
-  `bbecac56087449e6b216573cf1aad1b8d4b14039e3c7a7fbfc8f7911f21476e9`
-  (`TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`;
-  `Get-FileHash .\TestOrchestrator-Buildbot-Worker-Setup-4.3.0-UNSIGNED.exe`
-  in PowerShell). **Code signing is a future item, owner-blocked,
+  Before running, verify the download with `Get-FileHash` in
+  PowerShell against the SHA-256 published for the exact worker
+  installer artifact. **Code signing is a future item, owner-blocked,
   with no work planned for 2.7.0.**
 - **Timeout classification** (owner decision): timeout-killed
   executions classify failure-kind `execution` with outcome

@@ -8,15 +8,15 @@ execution orchestration, Katalon Runtime Engine (KRE) execution via
 managed execution targets, and reporting-labs single-file reports —
 a pure-Python backend with no bundled Node.js.
 
-**Status: 2.6.0 released** ([CHANGELOG](CHANGELOG.md) ·
+**Status: 2.7.0 final candidate** on PR #5 — not tagged or published yet;
+**2.6.0 remains the latest published release** ([CHANGELOG](CHANGELOG.md) ·
 [release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.6.0)).
-A **2.7.0 draft** is in progress on PR #5 — repository discovery,
-execution-level runtime readiness, durable artifact stores
-(local/mounted/S3-compatible), and separate artifact/metadata
-retention. See `docs/requirements-ledger-2.7.0.md` for the
-per-requirement implementation/acceptance status — the draft is not
-released and nothing below marked "2.7.0" is final.
-2.6.0 adds **Playwright Test, Cypress, Robot Framework, and pytest**
+The 2.7.0 candidate adds repository discovery, execution-level runtime
+readiness, durable artifact stores (local/mounted/S3-compatible), and
+separate artifact/metadata retention. Final-candidate evidence is in
+`GATE-LEDGER-2.7.0.md`; owner sign-off is still required.
+
+The published 2.6.0 series added **Playwright Test, Cypress, Robot Framework, and pytest**
 as first-class runtime kinds alongside KRE — all on the same
 Buildbot/SSH execution paths, with per-framework readiness probes
 and reporting-labs generated reports. Execution orchestration is
@@ -43,7 +43,7 @@ and the public frontend is the in-process **Cheroot** HTTPS tier.
   browser, or execution mode is supported — unsupported
   combinations are refused server-side with an explanation.
 
-## Runtime profiles and readiness (2.7.0 draft)
+## Runtime profiles and readiness (2.7.0 final candidate)
 
 Execution **targets** (where jobs run: local worker, remote
 Buildbot worker over PB, or agentless SSH) are separate from
@@ -70,7 +70,7 @@ targets. Static preview never executes repository code; native
 collection runs only on the approved isolated target; dependencies
 are never installed automatically.
 
-## Durable storage (2.7.0 draft)
+## Durable storage (2.7.0 final candidate)
 
 Under a project's storage tab, destinations keep result files
 available after workers are removed:
@@ -733,40 +733,30 @@ reconciled ledger `docs/acceptance-2.6.0.md`:
   JavaScript (SSH-target fields, confirm gates), and a retry-block
   marker false-positive that misclassified real build failures.
 
-## Validation (2.7.0 draft — PR #5, in progress)
+## Validation (2.7.0 final candidate — PR #5)
 
-Real-framework matrix on a disposable Linux VM
-(`to-accept-linux`, Ubuntu 24.04) against the packaged build at
-`a3ebeeed` (sha256 `e5b31c97…`, `install.sh`, 5 units active). Fixture =
-controlled local `file://` git repo with real content per framework
-(committed gtest binaries; Groovy-backed Katalon cases; local HTTP
-stub for postman/bruno — no external services or repositories):
+Final-candidate acceptance evidence is recorded in
+`GATE-LEDGER-2.7.0.md` with exact artifact hashes and caveats:
 
-- **13 frameworks × {registered-worker, agentless-SSH} pass cells all
-  green** — pytest 9.2.0, pytest-bdd, behave 1.3.3, robot 7.5.1,
-  jest 30.5.2, gtest (libgtest 1.14), playwright 1.65.1,
-  playwright-pytest, cypress 13.15.0, newman 6.2.1, postman-cli
-  1.94.0, bru 2.14.1, KRE 11.7.0 (suite + suite-collection, licensed
-  via the supplied API key — `apiKey` stays `********` in all evidence).
-  Each cell: discover → select → dispatch → real toolchain exec →
-  report ingest → artifact collection.
-- **26 assertion-failure cells honest** — every framework on both
-  transports completes exit≠0 with `failed` outcome and parsed failed
-  TestResult rows (no false passes).
-- **Failure-path cells**: timeout kill at the configured bound,
-  mid-run `request_cancel` → `canceled`, empty `-k` selection,
-  import/collection error, missing executable (127), KRE missing
-  credential → clean `config` classification.
-- **SSH-only proven independent of the registered worker**: cells ran
-  green with `testorchestrator-buildbot-local` stopped.
-- **7 product defects found and fixed** during the matrix — see
-  CHANGELOG (extglob matching, probe markers, Reports dir, jest spec
-  mapping + ingest, KRE license classification, gtest flag guard).
-- Open rows recorded honestly: crafted malformed-report cells,
-  adversarial executed-identity fixtures, local-vs-SSH classification
-  asymmetry for exit-5/127, and the **Windows worker matrix (Phase B,
-  pending)** — full ledger:
-  `~/to-acceptance-evidence/matrix/ACCEPTANCE-REPORT-3.md`.
+- Serial unit/integration suite: **1220 passed, 2 skipped**.
+- Browser e2e-ui acceptance on the installed Linux package:
+  **44 passed, 1 skipped** in one clean run.
+- Linux and Windows release builds completed from clean commit
+  `473ecc745a0277b2f9d468c7a0d088db2d690dc1`; both package-validation
+  manifests pass and `SHA256SUMS.txt` files are present.
+- Linux final `.run` artifact was sha256-verified, installed on the
+  acceptance guest, all five controller units became active, and the
+  HTTPS ping endpoint returned 200.
+- Windows controller install, true 2.6.0→2.7.0 upgrade, credential
+  process-tree kill, and PowerShell probe cells passed on the same
+  product code; the final rebuild changed docs/harness only.
+- Manuals coverage gate: **500/500** inventory items documented,
+  **54/54** tutorial steps screenshot-backed, **116/116** image embeds
+  with alt text, zero missing or orphan screenshot files.
+- Fixed-string licensed-key exposure scan over the final Linux and
+  Windows artifacts, docs, manuals, and gate ledger: **0 hits**.
+- The real-framework matrix and subdirectory/test-level cells are
+  recorded in the gate ledger with execution ids and artifact evidence.
 
 ## Deferred checks & limitations
 
@@ -775,9 +765,9 @@ Explicitly deferred — **not** passed:
 - Windows interactive checklist W1–W18 and the independent Group B
   review — product-owner items, tracked in
   `docs/acceptance-2.6.0.md`.
-- Real licensed-KRE suite execution — demonstrated on Linux in the
-  2.7.0 matrix stage (suite + collection, both transports; see
-  Validation 2.7.0 above); Windows KRE still pending Phase B.
+- Live licensed-KRE acceptance cells were **not run** for the final
+  candidate by owner decision after the license-key exposure incident;
+  the dispatch pre-flight guard ships instead.
 - Azure DevOps repo interoperability — gated on an authorized
   repository.
 - Import duplicate matching scans per-project history at classify
