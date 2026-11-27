@@ -2489,15 +2489,18 @@ reviewed publishes.
 
 Editing a runtime exposes:
 
-| Field | What it is | Notes |
+Each field of the runtime form, in plain words, with an example you
+could type.
+
+| Field | What it is, in plain words | Example value |
 |---|---|---|
-| `exec_location` | where executions land on the target | must exist and be writable by the worker |
-| `max_procs` | maximum concurrent processes the runtime accepts | capacity control — partitioning never exceeds it |
-| `project_ids` | project allowlist for this runtime | empty = all projects; use it to dedicate runners |
-| `license_refs` | credential references for licensed engines | secret-store names, never values |
-| `licensing_mode` | `online — API-key credential`, `offline — machine-bound .lic`, or `private — API key + private license server` | see §24 (Admin) |
-| `license_server_url` | the private license server address | private mode only; HTTPS in production |
-| framework checkboxes | which frameworks the runtime offers — e.g. `KRE (desktop engine)`, `Behave BDD (Python)`, `Bruno (bru CLI)` | a framework unchecked here never dispatches to this runtime |
+| `exec_location` | the folder on the target machine where runs unpack and execute | `/opt/to-exec` — must exist and be writable by the worker |
+| `max_procs` | how many test processes may run at the same time on this runtime | `4` on a small machine, `16` on a big one |
+| `project_ids` | which projects may use this runtime; empty means every project | leave empty normally; fill in to reserve a runner for one project |
+| `license_refs` | the names of stored credentials for licensed engines — names only, never the secret values | `katalon-api-key` |
+| `licensing_mode` | how the licensed engine proves itself: `online` uses an API key, `offline` uses a machine-bound licence file, `private` uses your own licence server | `online — API-key credential` |
+| `license_server_url` | the address of your private licence server — only in private mode | `https://licenses.example.com` |
+| framework checkboxes | which test frameworks this runtime offers | tick `Bruno (bru CLI)` — a framework left unticked never runs here |
 
 ### B.12 Executions list — bulk controls and filters
 
