@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import time
+from pathlib import Path
 import pytest
 from playwright.sync_api import expect
 
@@ -18,6 +19,12 @@ VM_HOST = os.environ.get("TO_VM_HOST", "10.97.0.121")
 VM_USER = os.environ.get("TO_VM_USER", "ubuntu")
 VM_KEY = os.environ.get(
     "TO_VM_KEY", os.path.expanduser("~/.ssh/id_to_worker"))
+APP_HOST = os.environ.get("TO_APP_HOST", "")
+APP_USER = os.environ.get("TO_APP_USER", VM_USER)
+APP_KEY = os.environ.get("TO_APP_KEY", VM_KEY)
+APP_ENV_FILE = os.environ.get(
+    "TO_APP_ENV_FILE", "/opt/to-final/config/web.env")
+SEED_SCRIPT = Path(__file__).with_name("host_seed.py")
 
 # (name, kind, runner row text, executable on the VM, credential_file)
 RUNTIMES = [
@@ -121,12 +128,42 @@ def _probe(page, name):
 
 
 def _seed_items():
-    r = subprocess.run(
-        ["sudo", "env",
-         "PYTHONPATH=/opt/testorchestrator",
-         "/opt/testorchestrator/venv/bin/python",
-         "/home/szefi/vm-e2e-tmp/host-seed.py"],
-        capture_output=True, text=True, timeout=60)
+    """Seed framework inventory rows in the installed app database.
+
+    The original host-server topology ran this helper locally with sudo.
+    In the release VM topology the application itself is inside the
+    guest, so TO_APP_HOST/USER/KEY can point the helper at that remote
+    install. User actions remain browser-driven; this seeds test data
+    only (documented in the suite README).
+    """
+    if APP_HOST:
+        cp = subprocess.run(
+            ["scp", "-i", APP_KEY, "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=accept-new",
+             str(SEED_SCRIPT),
+             f"{APP_USER}@{APP_HOST}:/tmp/to-host-seed.py"],
+            capture_output=True, text=True, timeout=60)
+        assert cp.returncode == 0, cp.stdout + cp.stderr
+        remote = (
+            f"set -a; . {APP_ENV_FILE}; set +a; "
+            "cd /opt/testorchestrator; "
+            "runuser -u testorchestrator -- env "
+            "PYTHONPATH=/opt/testorchestrator "
+            "/opt/testorchestrator/venv/bin/python "
+            "/tmp/to-host-seed.py")
+        r = subprocess.run(
+            ["ssh", "-i", APP_KEY, "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=accept-new",
+             f"{APP_USER}@{APP_HOST}",
+             "sudo", "bash", "-lc", remote],
+            capture_output=True, text=True, timeout=60)
+    else:
+        r = subprocess.run(
+            ["sudo", "env",
+             "PYTHONPATH=/opt/testorchestrator",
+             "/opt/testorchestrator/venv/bin/python",
+             str(SEED_SCRIPT)],
+            capture_output=True, text=True, timeout=60)
     assert r.returncode == 0, r.stdout + r.stderr
     assert "SEEDED-ITEMS" in r.stdout
 

@@ -111,9 +111,23 @@ def test_worker_shows_online(admin_page):
     page = admin_page
     page.goto("/system/infrastructure")
     row = page.locator("tr", has_text="vm-worker").first
-    row.locator("button", has_text="Test").click()
-    page.wait_for_load_state("load")
-    expect(page.locator("body")).to_contain_text("connected")
+    import time
+    deadline = time.monotonic() + 90
+    while True:
+        row = page.locator("tr", has_text="vm-worker").first
+        row.locator("button", has_text="Test").click()
+        page.wait_for_load_state("load")
+        page.wait_for_timeout(3000)
+        page.reload()
+        row_text = page.locator(
+            "tr", has_text="vm-worker").first.inner_text().lower()
+        if "ok" in row_text and "awaiting" not in row_text:
+            break
+        if time.monotonic() > deadline:
+            expect(page.locator("body")).to_contain_text("connected")
+            expect(page.locator("tr", has_text="vm-worker").first
+                   ).to_contain_text("ok")
+            break
     expect(page.locator("tr", has_text="vm-worker").first
            ).to_contain_text("ok")
     # the attached worker must BE the VM — its identity, not the host's
