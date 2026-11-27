@@ -890,3 +890,44 @@ build #6 -> guest install -> wave3: sync+discover+probes+validate+6 cells
 - guest automation launched 09:2x — install over the same data dir, then wave3
   (all six cells file-level + jest collect) — evidence lands in guest6.log +
   /tmp/m5watch output -> pulled to ledger next session/checkpoint.
+
+## 2026-11-27 — build #7 wave (in flight)
+
+Session progress since build #6:
+
+- **Suite sign-off for build #7**: `1191 passed / 0 failed / 18 skipped` serial
+  (641s), `--ignore=tests/e2e-ui` as before, on code head `6a02a771` (+docs-only
+  manuals commits). xdist is NOT installed in the venv — all sign-offs are serial.
+- **Build #7**: head `169b4d1eb2d40789da97cf1aec82e07dddcc52c6`, sha256
+  `29118a3b43b901fbcc8f12275315d134794d31387a0e406edf9016c69e7a0419`
+  (recorded /home/szefi/build7.env). Guest automation (guest7.sh) launched:
+  install → opta → wave3 setup → matrix5b cells → watch7 consolidated evidence.
+- **Build-#6 wave evidence (pipeline validation, not counted)**:
+  postman-pos/neg, bruno-pos/neg, jest-pos/neg all terminal with correct
+  semantics; jest-pos PASSED results=1 artifacts jest.json+manifest;
+  jest-collect failed incomplete — root-caused to product defect, fixed.
+- **Fixes since build #6** (in build #7):
+  - `a3d08104` native collect script path in monorepo subdirs (`.to_collect.js`
+    MODULE_NOT_FOUND — posixpath.relpath fix + regression test).
+  - `6a02a771` probe detects npx-incompatible runtime executables
+    (exec_invocation marker, readiness failure, Admin Manual trap doc,
+    tests/test_exec_invocation_probe.py 4/4).
+- **Owner decisions this round**: evidence re-count on final build with full
+  40-char head + full sha256; bruno-negative artifacts re-verify in wave7;
+  code changes after sign-off ⇒ rerun suite (applied — killed+reran);
+  Windows VM approved inside one-VM rule with pre-destructive prompt;
+  simple style applies to whole manuals incl. reference tables with worked
+  example values; manuals-revision-report.md approved as plan.
+- **Manuals revision wave 1 committed**: first-run tutorial (12 screenshot
+  refs), jest/postman/bruno/pytest/robot/behave/katalon walkthroughs.
+  Screenshots pending capture on final build.
+- **Lane interference analysis**: host chain and guest automation strictly
+  sequential; single fixture repo read-only during runs; one VM
+  (to-accept-linux) — verified `multipass list`.
+- **Open**: stray-process determination (awaits real 2.6.0 upgrade cell);
+  bruno-negative artifact re-verify; Windows cells; freeze; capture pipeline;
+  matrix5b results.
+
+Chain scripts: /home/szefi/chain7.sh, guest /home/ubuntu/guest7.sh,
+logs /home/szefi/chain7.log + /home/ubuntu/guest7.log,
+watch output /tmp jestwave/watch7.out on guest.
