@@ -2070,44 +2070,52 @@ flags (one-time, at `install.sh`).
 
 ### 14.1 Environment variables (set in `web.env` / service unit)
 
-| Variable | Purpose | Default | Secret | Restart |
-|---|---|---|---|---|
-| `TO_INSTANCE_DIR` | Instance data dir — the state root | `<payload>/instance` | no | yes |
-| `TO_SECRET_KEY` | Flask session/CSRF signing key — **must be stable across restarts** or sessions invalidate | ephemeral per process | **yes** | yes |
-| `TO_SECRET_KEY_FILE` | Path of the key file protecting stored secrets (`secret.key` in the data dir) | `$TO_INSTANCE_DIR/secret.key` | no (file is 0600) | yes |
-| `TO_DATABASE_URI` | SQLAlchemy URI | `sqlite:///<instance>/testorchestrator.db` | may contain creds | yes |
-| `TO_ADMIN_PASSWORD` | Bootstrap password used **once** at first provisioning (≥12 chars) — replaces `Admin`/`Admin` | unset → `Admin`/`Admin` + forced change | yes | first start only |
-| `TO_SECURE_COOKIES` | `Secure` cookie flag (`1`/`0`) — `0` only for plain-HTTP dev | `1` | no | yes |
-| `TO_SESSION_LIFETIME_HOURS` | Session lifetime | `8` | no | yes |
-| `TO_WAITRESS_LISTEN` | Waitress bind (`host:port`) | `127.0.0.1:18080` | no | yes |
-| `TO_TRUSTED_PROXIES` | Comma-separated peers whose forwarding headers are honoured | `127.0.0.1,::1` | no | yes |
-| `TO_CERT_DIR` | Protected key/cert store (0700/0600) | `$TO_INSTANCE_DIR/certs` | no | yes |
-| `TO_INSTALL_ID` | Install identity — written by the installer; `toctl` refuses to service a foreign install | generated | no | yes |
-| `TO_UPDATE_KEY` | Trusted public key path for signed update packages (`toctl update`) | unset | no | per-invocation |
-| `TO_SERVICE_UNITS` / `TO_SERVICE_SCOPE` | Unit names + `--user`/system scope used by **Health → Restart services** | `testorchestrator-*` / `system` | no | yes |
-| `TO_LICENCE_CODE` | Licence code for the installer (never logged) | required at install | yes | n/a |
-| `TO_GIT_BACKEND` | `dulwich` \| `cli` git engine | `dulwich` | no | yes |
+These are the settings the service reads when it starts. You edit them
+in `/etc/testorchestrator/web.env`, then restart the web service. Each
+row says what the setting is for in plain words, and shows a real
+example value you could type.
 
-| `TO_SEED_<ROLE>_PASSWORD` | Test/demo account seeding | unset | yes | first start |
+| Variable | What it does, in plain words | Example value | Secret | Restart needed |
+|---|---|---|---|---|
+| `TO_INSTANCE_DIR` | The folder where the server keeps all its data (database, uploads, certificates) | `/var/lib/testorchestrator` | no | yes |
+| `TO_SECRET_KEY` | The secret stamp the server uses to sign login sessions. If it changes, everyone is logged out. Never share it | `TO_SECRET_KEY=9f2c...` (64 random letters) | **yes** | yes |
+| `TO_SECRET_KEY_FILE` | The file that holds the key protecting your stored credentials | `/var/lib/testorchestrator/secret.key` | no (file is 0600) | yes |
+| `TO_DATABASE_URI` | Where the database lives. You almost never change this | `sqlite:////var/lib/testorchestrator/testorchestrator.db` | may contain creds | yes |
+| `TO_ADMIN_PASSWORD` | The very first admin password, used once at install time. After first login you must pick your own | `TO_ADMIN_PASSWORD=correct-horse-29!` | yes | first start only |
+| `TO_SECURE_COOKIES` | Whether login cookies are only sent over encrypted HTTPS. Keep it `1`; use `0` only on a throwaway dev box | `1` | no | yes |
+| `TO_SESSION_LIFETIME_HOURS` | How many hours a login stays valid before you must sign in again | `8` — sign in once per workday | no | yes |
+| `TO_WAITRESS_LISTEN` | The internal address the application server listens on, behind the HTTPS front end | `127.0.0.1:18080` | no | yes |
+| `TO_TRUSTED_PROXIES` | Which machines are allowed to pass on visitor addresses — usually just the server itself | `127.0.0.1,::1` | no | yes |
+| `TO_CERT_DIR` | The folder where the TLS certificate and its private key are stored | `/var/lib/testorchestrator/certs` | no | yes |
+| `TO_INSTALL_ID` | A fingerprint the installer writes so the tools can recognise this exact installation | generated — looks like `7f3a…` | no | yes |
+| `TO_UPDATE_KEY` | The public key used to check that an update package is genuine | `/etc/testorchestrator/update.pub` | no | per-invocation |
+| `TO_SERVICE_UNITS` / `TO_SERVICE_SCOPE` | Which systemd services the **Health → Restart services** button restarts | `testorchestrator-*` / `system` | no | yes |
+| `TO_LICENCE_CODE` | Your licence code, given once to the installer. It is never written to logs | `TO-LIC-…` | yes | n/a |
+| `TO_GIT_BACKEND` | Which git engine the server uses to read repositories. Leave at `dulwich` unless support tells you otherwise | `dulwich` | no | yes |
+| `TO_SEED_<ROLE>_PASSWORD` | Passwords for demo accounts on test installs. Never use in production | unset | yes | first start |
 
 ### 14.2 Persisted settings (DB — edited in the Admin UI)
 
-| Key | Purpose | Default | Where |
+These settings live in the database. You change them in the Admin UI —
+no file editing, no restart. Each row says what the setting does in
+plain words and shows a real example.
+
+| Key | What it does, in plain words | Example value | Where in the UI |
 |---|---|---|---|
-| `setup_completed` | Bootstrap gate — loopback-only until true | `false` | set by first-password flow |
-| `local_host` / `external_host` / `external_enabled` | Access aliases; external traffic is refused until enabled | `localhost` / `""` / `false` | **Network & certificates** |
-| `bind_addresses` / `allowed_hosts` | Listeners + host allowlist (403 outside it) | loopback + `localhost` | **Network & certificates** |
-| `advertised_base_url` | Public URL used in generated links/launchers | `https://localhost` | **Network & certificates** |
-| `https_port` / `http_port` / `http_mode` | Public ports; `http_mode` = `redirect` \| `disabled` \| `development-insecure` | `443` / `8080` / `redirect` | **Network & certificates** |
-| `internal_app_host` / `internal_app_port` | Waitress side of the proxy | `127.0.0.1` / `18080` | **Network & certificates** |
-| `certificate_mode` / `certificate_reference` / `certificate_public_metadata` | TLS material selection (`""`/`local`/`imported`) — paths + public fields only, never key bytes | unset | **Network & certificates** |
-| `previous_good_config` / `network_config_version` | Last-good network snapshot + apply counter — powers rollback | `{}` / `0` | automatic |
-| `buildbot_endpoint` | Portal → Buildbot REST URL (loopback) | `http://127.0.0.1:8010` | install-provisioned |
-| `buildbot_credential_ref` / `buildbot_username` | Credential reference (secret name) + API user — value lives in **Credentials**, not here | `buildbot-api` / `to-api` | install-provisioned |
-| `buildbot_pb_port` | Worker-facing PB port | `9989` | install-provisioned |
-| `reportinglabs_enabled` | Enhanced reportingLabs generation on executions | `true` | **Reporting** |
-| `logs_retention_days` / `logs_max_rows` | Operational-log pruning bounds | `30` / `20000` | **Reporting** / logs |
-| `logs_export_inline_max` / `logs_export_max_rows` / `logs_export_ttl_minutes` | CSV export: stream-vs-job threshold, hard cap (refused beyond), temp-file lifetime | `10000` / `250000` / `60` | **System** / logs |
+| `setup_completed` | Marks that the first-run setup is finished. Until then, only the server machine itself can open the portal | `true` after setup | set by the first-password flow |
+| `local_host` / `external_host` / `external_enabled` | The names the server answers to, and whether people outside the machine may connect at all | `localhost` / `portal.example.com` / `true` | **Network & certificates** |
+| `bind_addresses` / `allowed_hosts` | Which network addresses the server listens on, and which host names it accepts in requests | `127.0.0.1` + `portal.example.com` | **Network & certificates** |
+| `advertised_base_url` | The public address written into links the server generates (launchers, exports) | `https://portal.example.com` | **Network & certificates** |
+| `https_port` / `http_port` / `http_mode` | The ports people use, and what happens to plain-HTTP visits — normally redirected to HTTPS | `443` / `8080` / `redirect` | **Network & certificates** |
+| `internal_app_host` / `internal_app_port` | The internal corner where the real application runs, behind the public front end | `127.0.0.1` / `18080` | **Network & certificates** |
+| `certificate_mode` / `certificate_reference` / `certificate_public_metadata` | Which TLS certificate the server uses — its own generated one or one you imported. Only public details are stored here, never the private key | `local` | **Network & certificates** |
+| `previous_good_config` / `network_config_version` | The last working network setup, so a broken change can be rolled back. Written automatically — do not edit | `{}` / `3` | automatic |
+| `buildbot_endpoint` | Where the portal talks to the job runner, on the same machine | `http://127.0.0.1:8010` | written at install |
+| `buildbot_credential_ref` / `buildbot_username` | Which stored credential the portal uses for the job runner. The secret value itself lives in **Credentials**, never here | `buildbot-api` / `to-api` | written at install |
+| `buildbot_pb_port` | The port workers use to collect their jobs | `9989` | written at install |
+| `reportinglabs_enabled` | Whether executions produce the enhanced report format | `true` | **Reporting** |
+| `logs_retention_days` / `logs_max_rows` | How long operational logs are kept and how many rows at most | `30` days / `20000` rows | **Reporting** / logs |
+| `logs_export_inline_max` / `logs_export_max_rows` / `logs_export_ttl_minutes` | CSV log exports: small ones download at once (up to 10000 rows), big ones become a background job (hard limit 250000), and the file is kept for 60 minutes | `10000` / `250000` / `60` | **System** / logs |
 | `logs_json_enabled` / `logs_json_dir` / `logs_json_max_bytes` / `logs_json_max_files` / `logs_stdout_enabled` | Optional structured NDJSON output for external collectors — off until configured | `false` / `""` / `10485760` / `5` / `false` | env `TO_LOGS_JSON_*` / settings |
 | `git_export_repo` / `git_export_credential_ref` / `git_export_ref` | Optional evidence-export target repo + credential ref + branch | `""` / `""` / `main` | **Reporting** |
 
