@@ -109,10 +109,12 @@ artifacts happens at RC-build time per docs/acceptance-2.5.0.md.
 
 ## 5. Approval checklist
 
-- [ ] Confirm the separate-process/wire-protocol boundary is the
+Owner approval recorded in the 2.7.0 release session on 2026-11-27.
+
+- [x] Confirm the separate-process/wire-protocol boundary is the
       intended posture (it is — no linking, no modified sources)
-- [ ] Accept the GPLv2 §3(a) accompanying-source route (archive ships
+- [x] Accept the GPLv2 §3(a) accompanying-source route (archive ships
       beside every binary offer) with the §3(b) written offer retained
       only as residual for onward copies
-- [ ] Approve notice files above
-- [ ] Then: `TO_BUILDBOT_GPL_APPROVED=1` for the RC build only
+- [x] Approve notice files above
+- [x] Then: `TO_BUILDBOT_GPL_APPROVED=1` for the final clean build only
