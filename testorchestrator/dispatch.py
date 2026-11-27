@@ -2563,16 +2563,50 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                   or (f"{int(rc['shard_index'])}/{int(rc['shard_total'])}"
                       if rc.get("shard_index") else ""))
         _specs = _unit.get("specs") or []
+        # Monorepo layout (D-NODE-SUBDIR-WORKDIR): the framework
+        # project root inside the repo (fp.test_roots, e.g. 'jest') is
+        # the directory npm ci and the framework CLI must run FROM —
+        # node_modules resolution, jest config discovery and the
+        # lockfile are all cwd-relative. Discovered spec paths are
+        # repo-root-relative, so they are rebased against the root.
+        # Repos with the project at the root ('.') are unaffected.
+        fp_root = ""
+        from .execution import FrameworkProject as _FP
+        from .execution import DiscoveredItem as _DI
+        _fp = None
+        if rc.get("fp_id"):
+            _fp = db.session.get(_FP, rc["fp_id"])
+        elif st.get("item_id"):
+            _it = db.session.get(_DI, st["item_id"])
+            if _it is not None and getattr(
+                    _it, "framework_project_id", ""):
+                _fp = db.session.get(_FP, _it.framework_project_id)
+        if _fp is not None:
+            _roots = [str(r).strip("/") for r in (_fp.test_roots() or [])]
+            fp_root = next((r for r in _roots if r and r != "."), "")
+
+        def _rebase_node(p):
+            p = (p or "").strip()
+            if fp_root and p == fp_root:
+                return ""
+            if fp_root and p.startswith(fp_root + "/"):
+                return p[len(fp_root) + 1:]
+            return p
+        node_wd = "build/src" + ("/" + fp_root if fp_root else "")
         if rc.get("native_collect"):
             # node collectors are .js scripts — run under `node`,
             # not npx.
             node_args = [".to_collect.js"]
             npx_path = "node"        # collector interpreter
+            rc["collect_roots"] = [
+                _rebase_node(r) or "." for r in
+                (rc.get("collect_roots") or ["."])]
         else:
             node_args = nodefw.build_args(
                 node_kind, browser_val,
-                spec=(",".join(_specs) if _specs
-                      else str(rc.get("spec") or "")),
+                spec=(",".join(_rebase_node(s) for s in _specs)
+                      if _specs
+                      else _rebase_node(str(rc.get("spec") or ""))),
                 workers=_pw_workers,
                 shard=_shard,
                 projects=rc.get("projects") or (),
@@ -2616,6 +2650,8 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             _base0 = _pl2.Path(_b0.worktree_path or "") if _b0 else None
             if _b0 is not None and _b0.subdirectory:
                 _base0 = _base0 / _b0.subdirectory
+            if fp_root:
+                _base0 = _base0 / fp_root
             vendored = bool(_base0 and _base0.is_dir()
                             and (_base0 / "node_modules").is_dir())
             if not vendored:
@@ -2632,6 +2668,11 @@ def _submit_buildbot(ex: Execution, runner: Runner,
             base = _pl.Path(_bnd.worktree_path or "")
             if _bnd.subdirectory:
                 base = base / _bnd.subdirectory
+            # npm ci runs in the exec workdir — the framework project
+            # root for monorepo layouts (D-NODE-SUBDIR-WORKDIR) — so
+            # the lockfile is valid exactly there.
+            if fp_root:
+                base = base / fp_root
             lock = any((base / lf).is_file() for lf in
                        ("package-lock.json", "npm-shrinkwrap.json")) \
                 if base.is_dir() else False
@@ -2659,9 +2700,10 @@ def _submit_buildbot(ex: Execution, runner: Runner,
                 pass
         if runner.target_type == "ssh":
             buildbot_cfg.materialize_ssh_key(runner)
-            extra = {"exec_subdir": "src", "env": node_env,
+            _sub = "src" + ("/" + fp_root if fp_root else "")
+            extra = {"exec_subdir": _sub, "env": node_env,
                      "deps_argv": deps_argv,
-                     "report_rel": "proj/src/Reports"}
+                     "report_rel": "proj/" + _sub + "/Reports"}
             npx_dir = str(Path(npx_path).parent)
             if Path(npx_path).is_absolute() and npx_dir != ".":
                 extra["path_prefix"] = npx_dir
@@ -2677,7 +2719,7 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         else:
             spec = buildbot_cfg.node_exec_spec(
                 ex, npx_path, node_args, env=node_env,
-                deps_argv=deps_argv, posix=not win)
+                deps_argv=deps_argv, posix=not win, workdir=node_wd)
             buildbot_cfg.run_specs_dir().mkdir(parents=True,
                                                exist_ok=True)
             (buildbot_cfg.run_specs_dir() / f"{ex.id}.spec.json"
