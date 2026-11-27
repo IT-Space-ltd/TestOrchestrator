@@ -931,3 +931,41 @@ Session progress since build #6:
 Chain scripts: /home/szefi/chain7.sh, guest /home/ubuntu/guest7.sh,
 logs /home/szefi/chain7.log + /home/ubuntu/guest7.log,
 watch output /tmp jestwave/watch7.out on guest.
+
+## Flake triage — suite run 2 (build #8 cycle)
+
+First serial run: `2 failed, 1191 passed` — failures:
+- `test_sigint_kills_descendant_too` (known timing flake class, previously fixed
+  for the same harness-timeout pattern at b1770621)
+- `test_pipeline.py::test_run_config_profile_browser_reach_invocation` —
+  execution stuck `dispatched` instead of `completed` (worker timing)
+
+Evidence: both pass individually (2/2 in 2.5s) and both files pass complete
+(33/33 in 20s). The failing run happened while the host was under concurrent
+load (parallel pytest batches, node syntax checks, multipass guest commands).
+Serial suite + parallel host work = worker timing windows missed. Classified:
+harness timing flakes, not product regressions. Suite rerun in quiet conditions
+(no parallel test/load activity) — result pending.
+
+## Fixes committed since build #7 (all in build #8)
+
+- `<pending-sha>` native collect inventory paths: jest collector emitted absolute
+  worker-local paths ingested verbatim (inventory pollution); now framework-root-
+  relative + ingestion re-prefixes fp root for monorepo merge. Regression test
+  `test_apply_native_inventory_monorepo_prefix`.
+- `<pending-sha>` same commit: create_execution pins binding.last_synced_sha when
+  caller omits source_sha (reproducibility for headless dispatch). Test
+  `test_create_execution_pins_binding_sha`.
+- Coverage gate extended (owner item D): per-step screenshot, alt text, file
+  existence/orphan rules. 36 capture-pending shots tracked.
+- Capture pipeline scripts/capture_screenshots.py (dry-run verified).
+- Harness fixes: matrix5b/watch7 ids write to /tmp (permission fix);
+  stepstdout.py extractor staged on guest for per-cell stdout evidence.
+
+## Wave-7 evidence (build #7 — pipeline validation, not counted)
+
+postman-pos/neg, bruno-pos/neg, jest-pos/neg all terminal with correct semantics;
+artifacts verified on disk per cell (jest.json/manifest, postman+junit, bruno html/
+json/junit). jest-collect build exited 0 with correct workdir+argv (fix verified
+mechanically) but ingestion consumed absolute paths -> inventory defect found+fixed.
+Option A 7/7 PASS on build #7.
