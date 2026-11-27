@@ -17,7 +17,7 @@ ITEMS = [
     ("pytest-fail", "pytest/test_fail.py", "pytest"),
     ("smoke.robot", "tests/smoke.robot", "robot"),
     ("fail.robot", "tests/fail.robot", "robot"),
-    ("pw.spec.js", "tests/pw.spec.js", "playwright"),
+    ("pw.spec.js", "playwright/smoke.spec.js", "playwright"),
     ("cy.cy.js", "cypress/e2e/cy.cy.js", "cypress"),
 ]
 
@@ -43,6 +43,10 @@ with app.app_context():
         # separately; dispatch requires the validated flag.
         fp.discovery_status = "ok"
         fp.discovered_sha = sha
+        fp.project_root = fw if fw in ("playwright", "cypress") else ""
+        fp.test_roots_json = (
+            '["' + fw + '"]' if fw in ("playwright", "cypress")
+            else '["."]')
         fps[fw] = fp
     db.session.flush()
 

@@ -50,7 +50,7 @@ ITEM_PATHS = {
     "pytest-fail": "pytest/test_fail.py",
     "smoke.robot": "tests/smoke.robot",
     "fail.robot": "tests/fail.robot",
-    "pw.spec.js": "tests/pw.spec.js",
+    "pw.spec.js": "playwright/smoke.spec.js",
     "cy.cy.js": "cypress/e2e/cy.cy.js",
 }
 
@@ -355,7 +355,14 @@ def test_framework_cell(admin_page, item, runtime, want):
 def test_vm_exec_evidence(admin_page):
     """The cells above ran ON the VM: worker-side artifacts exist under
     the VM's worker dirs and nowhere on the host."""
-    r = _ssh("sudo find /var/lib/to-buildbot-worker /tmp/to-ssh "
+    find_roots = "/var/lib/to-buildbot-worker /tmp/to-ssh"
+    if APP_HOST == VM_HOST:
+        # Release acceptance uses one Linux guest for both portal and
+        # worker under the one-VM rule. Worker build dirs are cleaned
+        # after upload, so the retained evidence is in the master
+        # artifact store on that same guest.
+        find_roots += " /opt/to-final/data/buildbot/artifacts"
+    r = _ssh("sudo find " + find_roots + " "
              "-name 'junit*.xml' -o -name 'output.xml' 2>/dev/null | "
              "head -10; hostname")
     assert r.returncode == 0
