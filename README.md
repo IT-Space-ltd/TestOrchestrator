@@ -8,13 +8,12 @@ execution orchestration, Katalon Runtime Engine (KRE) execution via
 managed execution targets, and reporting-labs single-file reports —
 a pure-Python backend with no bundled Node.js.
 
-**Status: 2.7.0 final candidate** on PR #5 — not tagged or published yet;
-**2.6.0 remains the latest published release** ([CHANGELOG](CHANGELOG.md) ·
-[release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.6.0)).
-The 2.7.0 candidate adds repository discovery, execution-level runtime
+**Status: 2.7.0 released** ([CHANGELOG](CHANGELOG.md) ·
+[release](https://github.com/IT-Space-ltd/TestOrchestrator/releases/tag/2.7.0)).
+2.7.0 adds repository discovery, execution-level runtime
 readiness, durable artifact stores (local/mounted/S3-compatible), and
-separate artifact/metadata retention. Final-candidate evidence is in
-`GATE-LEDGER-2.7.0.md`; owner sign-off is still required.
+separate artifact/metadata retention. Release evidence is in
+`GATE-LEDGER-2.7.0.md`.
 
 The published 2.6.0 series added **Playwright Test, Cypress, Robot Framework, and pytest**
 as first-class runtime kinds alongside KRE — all on the same
@@ -43,7 +42,7 @@ and the public frontend is the in-process **Cheroot** HTTPS tier.
   browser, or execution mode is supported — unsupported
   combinations are refused server-side with an explanation.
 
-## Runtime profiles and readiness (2.7.0 final candidate)
+## Runtime profiles and readiness
 
 Execution **targets** (where jobs run: local worker, remote
 Buildbot worker over PB, or agentless SSH) are separate from
@@ -70,7 +69,7 @@ targets. Static preview never executes repository code; native
 collection runs only on the approved isolated target; dependencies
 are never installed automatically.
 
-## Durable storage (2.7.0 final candidate)
+## Durable storage
 
 Under a project's storage tab, destinations keep result files
 available after workers are removed:
@@ -733,9 +732,9 @@ reconciled ledger `docs/acceptance-2.6.0.md`:
   JavaScript (SSH-target fields, confirm gates), and a retry-block
   marker false-positive that misclassified real build failures.
 
-## Validation (2.7.0 final candidate — PR #5)
+## Validation (2.7.0)
 
-Final-candidate acceptance evidence is recorded in
+Release acceptance evidence is recorded in
 `GATE-LEDGER-2.7.0.md` with exact artifact hashes and caveats:
 
 - Serial unit/integration suite: **1220 passed, 2 skipped**.

@@ -1,9 +1,8 @@
 # Changelog
 
-## [Unreleased] — 2.7.0 final candidate (PR #5)
+## [2.7.0] — 2026-11-27
 
-Final candidate on branch `feature/2.7.0-repository-discovery`.
-Not tagged, not published — owner sign-off is still required.
+Released on `main` from the merged repository-discovery branch.
 Schema changes so far: `projects.retention_json`
 (project-level retention overrides); earlier 2.7.0 migrations add
 `framework_projects`, `discovered_items` framework/selector/

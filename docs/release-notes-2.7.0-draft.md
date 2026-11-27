@@ -1,8 +1,7 @@
 # TestOrchestrator 2.7.0 — Release notes
 
-Status: final candidate for owner sign-off. Not tagged, not published.
-The final clean build and exposure scan are complete; evidence and
-artifact hashes are recorded in `GATE-LEDGER-2.7.0.md`.
+Status: released. Evidence and artifact hashes are recorded in
+`GATE-LEDGER-2.7.0.md`.
 
 ## Headline
 
@@ -103,7 +102,7 @@ All verified by regression tests; details in the changelog.
 - Known limitations are listed in the changelog's 2.7.0 section,
   including the Buildbot-master SQLite state remaining local-only.
 
-## Verification summary (final-candidate build)
+## Verification summary
 
 - Serial unit/integration suite: **1220 passed, 2 skipped**.
 - Browser e2e-ui acceptance on the installed Linux package:
