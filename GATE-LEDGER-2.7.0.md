@@ -733,3 +733,59 @@ suite(run2) -> chain5.sh -> build #5 (head+sha256 recorded to /home/szefi/build5
 ### Evidence rules reminder (owner)
 Only PASS counts: positive=PASSED+artifacts, negative=expected-FAILED+artifacts.
 Read step stdout per cell. Cite exact head+full sha256 per cell.
+
+## BUILD #5 MATRIX — state at session end (resume-critical)
+
+### Fixed facts
+- Unit suite sign-off GREEN on final head: 1184 passed / 0 failed / 18 skipped
+  (600s). Head `6056e7d10078af971bcb41959e4c1ab46081098e`.
+- Build #5: sha256 `3d1c0abfc4b6196745acc1095dbe0c3f2d7bfb105b7f22b6fc4bb06c7507c0b9`
+  (/home/szefi/build5.env). Installed on guest — release.json confirms build 6056e7d1.
+  INSTALL/UPGRADE PATH WORKS (in-place over 33c95ae3: db migrated, secrets preserved).
+- Option A rerun on build #5: 7/7 PASS (role-gate, audit-lockfile-hash,
+  ssh-deps-timeout, buildbot-deps-timeout, form-toggle, run-detail-visibility,
+  lockfile-refusal) — evidence in guest matrix5_evidence.log.
+- Static discovery on correct binding sha eee3dbd: jest 4, postman 5, bruno 5 items.
+- Probes: postman + bruno ready-discovery → validated → ready-execution (validate
+  output `[]` — zero failed checks). jest probe: target-unavailable (see below).
+
+### Matrix cells dispatched on build #5 (execution ids)
+- postman-positive `f9485c502d7d4c7bb6536f67877fee02`
+- postman-negative `a3329cf809bd494f8d292498629dbe89`
+- bruno-positive   `8bb89605eedc47f9b81d563129c257b5`
+- bruno-negative   `872f9c3ebf0844af8465c4cfa04448b2`
+- jest-collect     `e2828a9087b8…` (failed/incomplete — probe never passed)
+Cells were stuck dispatched/queued for ~20min — root-caused to environment,
+NOT product: stale pre-reinstall processes (Nov26 PIDs 23472-23475) survived the
+upgrade — old web held :9443 (new web crash-looped), old worker+master competed
+for the same SQLite queue with old code. Killed all four; services restarted clean
+at ~01:20. RESUME: check cell states first — they may now complete. If still stuck,
+the stall is a real product defect — investigate worker claim path next.
+NOTE: install.sh upgrade path does NOT kill stray pre-existing processes —
+consider hardening in 2.8.0 (backlog candidate).
+
+### Product behavior confirmations (positive evidence)
+- Readiness gate correctly refused dispatch while probes 'checking' — exact
+  refusal text in matrix5_evidence.log; ISS-016 pattern NOT present (no poisoning).
+- Probe completion is UI-render-driven (poll_all_pending only called from
+  system/routes.py:1588). Headless automation must call it explicitly (drivers do).
+  LEDGER-OBSERVATION: API-only/headless operation never advances probes — design
+  gap to confirm with owner (2.8.0 backlog candidate, not a 2.7.0 regression).
+- upload-reports step succeeds in builds (twistd.log 00:55) — artifact path live.
+
+### Open product questions for next session
+1. jest probe: connectivity/node/npx OK but jest=missing via `npx --no-install`
+   AND latest probe 'produced no markers' (probe.txt not found in artifact
+   candidates) — probe_json has stale content from earlier run. Investigate:
+   does the probe write probe.txt where report_src now looks? Interaction with
+   the D-ARTIFACT-SUBDIR fix (0aed0da2) must be verified — possible regression.
+2. jest cells blocked on (1). jest-collect cell failed/incomplete same cause.
+3. If cells complete post-restart: collect step stdout per cell, artifacts count,
+   cite head 6056e7d1 + sha256 3d1c0abf… per cell as required.
+
+### Not done (in owner order)
+matrix5b test-level/subdir cells; freeze; exposure scan (script ready, verified);
+final clean build; SHA256SUMS; fresh-guest install + 2.6.0 upgrade verification;
+acceptance; release-notes final (3 statements drafted in
+docs/release-notes-2.7.0-draft.md). Manuals: text 500/500 done; screenshots pending
+frozen build (capture.py ready). NOTHING merged/tagged/published.
