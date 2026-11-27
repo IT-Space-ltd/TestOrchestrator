@@ -1,8 +1,8 @@
-# TestOrchestrator 2.7.0 — Release notes (DRAFT, pre-release)
+# TestOrchestrator 2.7.0 — Release notes
 
-Status: draft for the release gate. Not tagged, not published.
-This document is finalized only after the final clean build, the
-exposure scan, and owner sign-off.
+Status: final candidate for owner sign-off. Not tagged, not published.
+The final clean build and exposure scan are complete; evidence and
+artifact hashes are recorded in `GATE-LEDGER-2.7.0.md`.
 
 ## Headline
 
@@ -103,8 +103,15 @@ All verified by regression tests; details in the changelog.
 - Known limitations are listed in the changelog's 2.7.0 section,
   including the Buildbot-master SQLite state remaining local-only.
 
-## Verification summary (updated at final build)
+## Verification summary (final-candidate build)
 
-- Unit suite: counts recorded in the gate ledger on the final head.
-- Framework matrix, Option A checks, acceptance evidence: gate ledger.
-- Manuals coverage gate: 500/500 UI inventory items documented.
+- Serial unit/integration suite: **1220 passed, 2 skipped**.
+- Browser e2e-ui acceptance on the installed Linux package:
+  **44 passed, 1 skipped** in one clean run.
+- Framework matrix, installer-defense, upgrade, Windows taskkill and
+  probe cells: passed; evidence and caveats are in the gate ledger.
+- Manuals coverage gate: **500/500** UI inventory items documented,
+  **54/54** tutorial steps screenshot-backed, **116/116** image embeds
+  with alt text, zero missing or orphan screenshot files.
+- Fixed-string licensed-key exposure scan over the final Linux and
+  Windows release artifacts, docs, manuals and gate ledger: **0 hits**.

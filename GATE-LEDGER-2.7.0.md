@@ -1216,3 +1216,20 @@ guest remained stopped under the one-VM rule.
   Buildbot/Paramiko stack for the final clean build. Approval is recorded
   in `docs/redistribution-review.md`; use `TO_BUILDBOT_GPL_APPROVED=1`
   for the final Linux and Windows build commands only.
+
+## 2026-11-27 — final-candidate build, capture, e2e-ui, exposure evidence
+
+- **Product-code freeze evidence:** `git diff --name-only ac3535f4..473ecc74` contains only manuals, screenshots, capture provenance, and e2e-ui harness files; product paths (`testorchestrator`, production `scripts`, `packaging`, migrations, deploy, requirements, release) have **0 changed files**. The earlier final-build runtime/execution evidence therefore remains valid for the same product code.
+- **e2e-ui acceptance:** clean full run on the installed Linux package completed **44 passed, 1 skipped in 168.64s**. Harness-only commits `99029ef4`, `175aa7d4`, `5e3549b6` supported the portal-in-VM topology and corrected seed data; no product-code change.
+- **Manuals/capture gate:** `python3 scripts/check_manual_coverage.py` reports **COVERAGE OK**: 500/500 inventory items documented, 54/54 tutorial steps screenshot-backed, 116/116 image embeds with alt text, 0 missing screenshot files, 0 orphans. Windows status capture is a headless render of real PowerShell output from `to-accept-win`; no visible terminal was used. The Admin Manual was corrected to describe Scheduled Tasks rather than `services.msc`.
+- **Final clean builds:** built from clean commit `473ecc745a0277b2f9d468c7a0d088db2d690dc1` with `TO_BUILDBOT_GPL_APPROVED=1`; both build commands exited 0.
+  - Linux tar sha256 `779e25a8350725d4d121b2748814c9a1a854a0bf776798acf86b608b87c97bb5`
+  - Linux run sha256 `78205e8835f893f57cd22531e65e488fc54a01afef7b790e773af009f0079bc4`
+  - Linux corresponding sources sha256 `bcd9abf8bb76fa52aede0bef1fd55ef8aa5566a4919c046a35bddcbab2f24a18`
+  - Windows installer sha256 `70bf61125d1f02c33b24d9ba106bfca546c28bfd0219ca054ae599ed00287e35`
+  - Windows corresponding sources sha256 `7d63ab5bb0457d7d77fd12764bdc118606e4711a06a8dfa1c306c8d72ebc67c5`
+  - `SHA256SUMS.txt` and `build-manifest.json` exist in both `dist/release/linux/` and `dist/release/windows/`; package validations are true in the manifests.
+- **Linux final-artifact install validation:** sha256-verified `.run` copied to `to-accept-linux`. First run correctly refused overwrite while the external test worker still referenced the payload tree (installer defense working). After stopping that test worker, reinstall exited 0, all five controller units were `active`, and `https://localhost/api/v1/ping` returned 200 `{"ok":true}`. Operational note: the defense scan is intentionally conservative; the probing shell must not itself contain the payload path in its command line.
+- **Windows install/upgrade evidence:** final installer behavior is covered by the previously recorded clean install, true upgrade, taskkill, and probe cells on the same product code (`0acdc045`); the final rebuild changed docs/harness only. Package-level validation of the final Windows installer passed in the build manifest.
+- **Exposure scan on final artifacts:** `python3 scripts/exposure_scan.py --key-file /home/szefi/Documents/api-key.txt` over both final Linux artifacts, both final Windows artifacts, corresponding-source archives, `docs`, `Manuals-Doc`, and this ledger completed **0 hits**, exit 0. Log `/tmp/exposure-final.log`.
+- **Release notes:** `docs/release-notes-2.7.0-draft.md` is final-candidate text for owner sign-off; still not tagged or published.
