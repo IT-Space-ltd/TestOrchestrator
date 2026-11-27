@@ -15,6 +15,7 @@ Dispatch and collection run in `flask worker`, outside request handlers.
 import hashlib
 import json
 import os
+import posixpath
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -2595,8 +2596,11 @@ def _submit_buildbot(ex: Execution, runner: Runner,
         node_wd = "build/src" + ("/" + fp_root if fp_root else "")
         if rc.get("native_collect"):
             # node collectors are .js scripts — run under `node`,
-            # not npx.
-            node_args = [".to_collect.js"]
+            # not npx. The script is staged at the src root while the
+            # exec cwd may be a framework subdirectory (monorepo), so
+            # the reference is relative to the actual workdir.
+            node_args = [posixpath.relpath("build/src/.to_collect.js",
+                                           node_wd)]
             npx_path = "node"        # collector interpreter
             rc["collect_roots"] = [
                 _rebase_node(r) or "." for r in
