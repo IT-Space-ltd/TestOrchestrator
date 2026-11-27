@@ -1389,6 +1389,7 @@ diagnostic commands is §21.
 | Execution `failed` with `Activation failed` in the run log | KRE licence/API key missing on the worker — environment problem, fix on the worker. Full licensing checklist + diagnosis order: §6.9. |
 | `rl_status=failed`, log shows `No module named 'reporting_labs'` | The vendored package is missing from the installed payload — reinstall the package (the installer copies `3rdparty/reporting_labs` and aborts loudly if any required payload file is absent), then **Regenerate**; original artifacts are untouched. |
 | Import says `staging checkout expired` | Staging was cleaned — rerun the preview; pending candidates were not committed. |
+| Node-framework run ends `no result data`, step log shows `bad option: --no-install` or `unrecognized option` | The runtime's executable path points at `node` instead of `npx`. Node-framework runtimes (Jest, Cypress, Playwright) must name **npx** (or the platform shim `npx.cmd`) because dispatch invokes `<exe> --no-install <framework> …` — `node` does not understand `--no-install`. Fix the runtime's executable path; the readiness probe tests this exact invocation shape and reports `exec_invocation=incompatible` when misconfigured. |
 
 ## 11. Demonstrated worker flow used for these docs
 

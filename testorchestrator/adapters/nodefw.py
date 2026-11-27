@@ -206,6 +206,17 @@ else
 fi
 command -v sftp-server >/dev/null 2>&1 || command -v /usr/lib/sftp-server >/dev/null 2>&1
 [ $? -eq 0 ] && p "sftp=ok" || p "sftp=not verified"
+# The dispatch invocation runs the runtime's configured executable
+# with npx-style flags (--no-install <framework> ...). Probe that exact
+# shape: a runtime mistakenly pointed at `node` passes the PATH checks
+# above but dies at run time with 'bad option: --no-install'.
+XE="%EXE%"
+[ -z "$XE" ] && XE=npx
+if "$XE" --no-install --version >/dev/null 2>&1; then
+  p "exec_invocation=ok ($XE)"
+else
+  p "exec_invocation=incompatible - the configured executable '$XE' cannot consume npx-style arguments (--no-install); point the runtime executable_path at npx, not node"
+fi
 p "done=1"
 """
 
@@ -253,6 +264,12 @@ goto appdone
 :noappurl
 call :p app_url=not-configured
 :appdone
+rem Same invocation-shape check for Windows: the configured executable
+rem must accept npx-style flags.
+set XE=%EXE%
+if "%XE%"=="" set XE=npx
+call "%XE%" --no-install --version >nul 2>&1
+if errorlevel 1 (echo TO-PROBE exec_invocation=incompatible - the configured executable '%XE%' cannot consume npx-style arguments; point the runtime executable_path at npx, not node & >>"%L%" echo TO-PROBE exec_invocation=incompatible - configured executable cannot consume npx-style arguments) else (echo TO-PROBE exec_invocation=ok & >>"%L%" echo TO-PROBE exec_invocation=ok)
 call :p done=1
 exit /b 0
 :p
@@ -271,13 +288,18 @@ exit /b 0
 """
 
 
-def probe_scripts(kind: str, app_url: str = "") -> dict:
-    """Filename -> content for the staged readiness source."""
+def probe_scripts(kind: str, app_url: str = "", exe: str = "") -> dict:
+    """Filename -> content for the staged readiness source. ``exe`` is
+    the runtime's configured executable_path — the probe verifies it
+    can consume the npx-style invocation dispatch will use."""
+    exe = (exe or "").strip()
     return {
         "probe.sh": PROBE_SH.replace("%KIND%", kind)
-                            .replace("%APP_URL%", app_url or ""),
+                            .replace("%APP_URL%", app_url or "")
+                            .replace("%EXE%", exe),
         "probe.cmd": PROBE_CMD.replace("%KIND%", kind)
                               .replace("%APP_URL%", app_url or "")
+                              .replace("%EXE%", exe)
                               .replace("\n", "\r\n"),
         "browserchk.cmd": BROWSERCHK_CMD.replace("\n", "\r\n"),
     }

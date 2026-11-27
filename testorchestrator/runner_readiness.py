@@ -69,7 +69,9 @@ def submit(runtime, app_url: str = "",
     elif kind == robotfw.KIND:
         scripts = robotfw.probe_scripts(app_url.strip())
     else:
-        scripts = nodefw.probe_scripts(kind, app_url.strip())
+        scripts = nodefw.probe_scripts(
+            kind, app_url.strip(),
+            exe=(runtime.executable_path or "").strip())
     buildbot_cfg.stage_probe_source(rid, scripts)
     probe_env = {}
     if pyfw:
@@ -169,6 +171,11 @@ def _summarize(probe: dict, kind: str) -> str:
             problems.append(f"{kind} not resolvable and npm absent — "
                             "install Node.js+npm on the target")
         # else: informational — npm ci will provide it at run time
+    ei = probe.get("exec_invocation", "")
+    if ei.startswith("incompatible"):
+        problems.append("configured executable cannot run the "
+                        "npx-style invocation dispatch uses — " +
+                        ei.split("—", 1)[-1].strip()[:160])
     if kind == "cypress" and probe.get("cypress_binary", "ok") != "ok":
         problems.append("Cypress binary not available to the worker "
                         "account")
