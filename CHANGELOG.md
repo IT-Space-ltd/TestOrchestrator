@@ -179,6 +179,26 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   activate/health-check flow.
 
 ### Fixed
+- **Windows KRE cancellation/process-tree kill.** The PowerShell
+  credential launcher set `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` through
+  a nested-struct member assignment, which PowerShell writes to a copy;
+  the limit silently remained zero and a force-killed wrapper could
+  leave the KRE child alive. The launcher now copies the nested limit
+  struct out, mutates it, and copies it back. Verified on the Windows
+  acceptance guest: `taskkill /F` on the wrapper killed the child,
+  removed the staged credential before launch, and leaked no fixed-key
+  material into wrapper output. Regression coverage pins the copy-back
+  contract.
+
+- **Windows controller upgrade preserves install identity and sessions.**
+  The NSIS installer rewrote `testorchestrator.env` before invoking
+  `init_env.py`, erasing the existing generated `TO_SECRET_KEY` and
+  `TO_INSTALL_ID`; every upgrade regenerated them and invalidated
+  sessions/install identity. Deterministic installer wiring is now
+  merged into the existing env file, preserving generated secrets and
+  operator-added lines while still updating installer-owned keys.
+  Regression coverage pins the merge behaviour.
+
 - **Upgrade blocker — installer payload-copy defense (owner ruling from
   the production-like 2.6.0 upgrade cell).** A service unit missing
   from the documented stop list (`testorchestrator-buildbot-ssh`)

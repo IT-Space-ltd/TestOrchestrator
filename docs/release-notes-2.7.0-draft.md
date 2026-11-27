@@ -68,6 +68,14 @@ cross-framework suite generalization, plan polymorphism.
 
 All verified by regression tests; details in the changelog.
 
+- Windows KRE cancellation now kills the child process tree: the
+  PowerShell credential launcher's Job Object close-kill limit is
+  actually persisted (verified with `taskkill /F` on the acceptance
+  guest), while credential-file removal and output redaction remain
+  intact.
+- Windows controller upgrades preserve the generated install secret and
+  install id instead of regenerating them, so sessions and install
+  identity survive the installer env refresh.
 - Node framework execution in monorepo subdirectories: the execution
   workdir, lockfile check and spec paths now follow the framework
   project root; reports are collected from the correct subdirectory.
