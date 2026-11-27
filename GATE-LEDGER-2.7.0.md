@@ -924,7 +924,25 @@ Session progress since build #6:
 - **Lane interference analysis**: host chain and guest automation strictly
   sequential; single fixture repo read-only during runs; one VM
   (to-accept-linux) — verified `multipass list`.
-- **Open**: stray-process determination (awaits real 2.6.0 upgrade cell);
+- **RESOLVED — stray-process determination (real 2.6.0 upgrade cell,
+  first pass, 2026-11-27)**: stray CONFIRMED. Real 2.6.0 release
+  tarball (sha256 d421a8fbed487c760625e65e77d2296f0e03eeec64f8356d7ed3a024ce014ebb)
+  installed production-like (default paths, services running), documented
+  procedure followed exactly. Pre-upgrade PID 68795 (ssh dispatcher
+  worker, unit `testorchestrator-buildbot-ssh` — absent from the manual's
+  stop list) survived; held python3.12 busy; the payload copy crashed
+  mid-write (ETXTBSY) leaving a half-written hybrid install, all
+  services down. Verdict components: (a) docs defect — manual omitted
+  the ssh unit; (b) installer fragility — no self-stop, no busy-tree
+  preflight, no rollback. Owner ruling: BLOCKER, fix = C (both).
+  FIXED in this branch: both install paths stop all active
+  testorchestrator-* units before copy + refuse busy trees
+  (tests/test_installer_upgrade_defense.py 8/8); manual §8.4 corrected
+  (ssh unit in stop/start lists, post-stop survivor check, safety-net
+  note). VERIFICATION PENDING: clean re-run of the full upgrade cell
+  on the post-fix build incl. migration preservation (users/projects/
+  secrets/bindings roundtrip) — seed invocation fixed (venv python).
+- **Open**: (superseded — see resolution above)
   bruno-negative artifact re-verify; Windows cells; freeze; capture pipeline;
   matrix5b results.
 
