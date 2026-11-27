@@ -2544,11 +2544,11 @@ A Katalon Runtime Engine (KRE) runtime declares its licensing mode
 explicitly. The mode is set on the runtime connection and cannot be
 left ambiguous:
 
-| Mode | What it means | What you configure |
+| Mode | What it means, in plain words | What you configure — example |
 |---|---|---|
-| `online` | KRE talks to Katalon's license server over the internet | the `-apiKey` credential — unchanged from earlier versions |
-| `offline` | KRE uses genuine Katalon-issued `.lic` files | the `.lic` files placed on the runner — no API key |
-| `private` | KRE validates against your own private license server | the license server URL plus its credential |
+| `online` | Katalon checks the licence over the internet, against Katalon's own server | the API-key credential stored in **Credentials** — same as before 2.7.0 |
+| `offline` | the engine uses real licence files Katalon issued for that machine — no internet needed | the `.lic` files placed on the runner itself — no API key at all |
+| `private` | the engine asks *your own* licence server instead of Katalon's | the server address, e.g. `https://licenses.example.com`, plus its credential |
 
 Existing runtimes created before 2.7.0 migrate to `online` unchanged
 — their behaviour is identical.
