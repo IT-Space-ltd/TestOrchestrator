@@ -1199,3 +1199,20 @@ guest remained stopped under the one-VM rule.
   `ef89c5e220390dbb2f5fee62e97e63cd8473f9838db43d1d6598665a4ab8c126`,
   ARP 2.7.0, five tasks present, ports listening, HTTPS 200, install log says
   `[init_env] … secrets preserved`; `UPGRADE270FIXED_PASS`.
+
+## 2026-11-27 — post-fix serial suite + redistribution approval
+
+- Serial unit/integration suite after both Windows product fixes:
+  `.venv/bin/python -m pytest -q tests --ignore=tests/e2e-ui` completed
+  **1220 passed, 2 skipped** in 706.87s; exit code 0. This excludes the
+  browser e2e-ui directory deliberately; that directory is part of the
+  later final-acceptance lane. Log `/tmp/to-suite-postwin.log`, rc file
+  `/tmp/to-suite-postwin.rc` on the build host.
+- Manuals reference-table conversion completed in docs-only commits
+  through `a9dc6c20`; `scripts/check_manual_coverage.py` reports
+  **500/500 inventory items documented**. Screenshot-specific findings
+  remain pending capture by design until final-build screenshot phase.
+- Owner explicitly approved GPL redistribution of the bundled
+  Buildbot/Paramiko stack for the final clean build. Approval is recorded
+  in `docs/redistribution-review.md`; use `TO_BUILDBOT_GPL_APPROVED=1`
+  for the final Linux and Windows build commands only.
