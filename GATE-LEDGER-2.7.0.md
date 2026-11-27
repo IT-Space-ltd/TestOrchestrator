@@ -1233,3 +1233,35 @@ guest remained stopped under the one-VM rule.
 - **Windows install/upgrade evidence:** final installer behavior is covered by the previously recorded clean install, true upgrade, taskkill, and probe cells on the same product code (`0acdc045`); the final rebuild changed docs/harness only. Package-level validation of the final Windows installer passed in the build manifest.
 - **Exposure scan on final artifacts:** `python3 scripts/exposure_scan.py --key-file /home/szefi/Documents/api-key.txt` over both final Linux artifacts, both final Windows artifacts, corresponding-source archives, `docs`, `Manuals-Doc`, and this ledger completed **0 hits**, exit 0. Log `/tmp/exposure-final.log`.
 - **Release notes:** `docs/release-notes-2.7.0-draft.md` is final-candidate text for owner sign-off; still not tagged or published.
+
+## 2026-11-27 — final publication rebuild after version-reference corrections
+
+The owner found stale current-release version references in README and both
+manuals. Those references were corrected in commit `202108f57b9e78e24c1a2c64532dafb1b350f6d2`
+(`docs(release): align manuals and README with 2.7.0`), the User/Admin PDFs
+were regenerated from the corrected markdown, and a fresh full Linux+Windows
+release build was run from that clean commit with `TO_BUILDBOT_GPL_APPROVED=1`.
+Both build manifests record `dirty=false`, `branch=main`, and passing package
+validations. The packaged Linux README/User Manual/Admin Manual were spot-checked
+after extraction: no stale `testorchestrator-2.6.0` asset references and no
+draft/release-candidate notice remain; current-release install/download text
+uses 2.7.0. Historical upgrade references such as 2.6.0→2.7.0 intentionally
+remain.
+
+Final publication asset set (`dist/release/SHA256SUMS.txt` verified locally
+with `sha256sum -c`; every listed asset OK):
+
+- Linux `.run` sha256 `f1d17fbc93ea6676d992c659757e47bdbcf091502c383c3d637c1e0aff5865cc`, size 236646908 bytes
+- Linux `.tar.gz` sha256 `db7b8698c6e7abe032d3101a9138bd40745d7a231a8bafdac503a2de6ae2a534`, size 236644904 bytes
+- Windows unsigned setup EXE sha256 `7ec9e89eda18678dfa8488b88f7da5c1b2b22af294ae30bf8f2a0a2a0af8666d`, size 133219335 bytes
+- Buildbot corresponding sources sha256 `d988120e3b07b593baaff64e53413f017d6611f6db72a723b906b7fcc544309c`, size 4711885 bytes
+- Admin Manual PDF sha256 `02bc24070413e041a113337b10ebb6fe6703a6e4bef3d38cf0e4d79291e09bfa`, size 7743940 bytes
+- User Manual PDF sha256 `60d3ab820125780a0ae7f678fc785f8321ab92d156c3027845ee1b66124e8910`, size 10553743 bytes
+
+The Linux and Windows corresponding-source archives have identical member
+content; the Linux archive is the single published corresponding-source asset,
+matching the 2.6.0 release layout. The fixed-string licensed-key exposure scan
+over the final Linux `.tar.gz`/`.run`, final Windows setup EXE, both
+corresponding-source archives, both final manual PDFs, `docs`, `Manuals-Doc`,
+`README.md`, `CHANGELOG.md`, `dist/release/SHA256SUMS.txt`, and this ledger
+completed with **0 hits**, exit 0. Log `/tmp/exposure-final-publication.log`.
