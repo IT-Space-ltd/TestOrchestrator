@@ -1,16 +1,16 @@
 # TestOrchestrator 2.7.0 — Administrator Manual
 
-Applies to **TestOrchestrator 2.6.0** (release 2.7.0).
+Applies to **TestOrchestrator 2.7.0**.
 
 **How to read the validation markers** — every procedure carries one:
 
 | Marker | What it means — example |
 |---|---|
-| **[verified]** | Someone really executed this against the release install package. Example: the evidence is in `docs/acceptance-2.5.0.md` or `docs/acceptance-2.6.0.md`. |
+| **[verified]** | Someone really executed this against the release install package. Example: the evidence is in `GATE-LEDGER-2.7.0.md` or the earlier acceptance ledgers. |
 | **[code/CI]** | This is documented from installer source and CI evidence, but not interactively validated in this manual. Treat it as checked logic, not a click-by-click witness. |
 | **[doc-env]** | This was demonstrated on the isolated documentation environment with fixture data. The procedure is real; the names and values are examples. |
 
-Screenshots were captured from the 2.6.0 codebase — the
+Screenshots were captured from the 2.7.0 codebase — the
 index lists each frame's provenance.
 
 ---
@@ -258,7 +258,7 @@ them. Evidence that never reached the repository cannot be recreated
 ### 2.2 Windows
 
 - Windows amd64 can host the **controller itself** —
-  `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` installs
+  `testorchestrator-2.7.0-windows-amd64-setup-UNSIGNED.exe` installs
   the same Cheroot portal, embedded Python, and Buildbot 4.3.0 stack
   (master + `to-local` + `to-ssh-dispatcher`) as the Linux packages,
   lifecycle-managed via Scheduled Tasks under
@@ -276,13 +276,13 @@ them. Evidence that never reached the repository cannot be recreated
 
 ## 3. Package selection and verification
 
-Download from the GitHub release `2.5`:
+Download from the GitHub release `2.7.0`:
 
 | Asset | What you use it for — example |
 |---|---|
-| `testorchestrator-2.6.0-linux-x86_64.tar.gz` | The normal Linux installer package. Example: extract it, then run `install.sh`. |
-| `testorchestrator-2.6.0-linux-x86_64.run` | The same Linux payload in one self-extracting file. Example: use it when you want one executable download. |
-| `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` | The Windows controller installer (§5.1). Example: run it on a Windows Server that hosts the portal. |
+| `testorchestrator-2.7.0-linux-x86_64.tar.gz` | The normal Linux installer package. Example: extract it, then run `install.sh`. |
+| `testorchestrator-2.7.0-linux-x86_64.run` | The same Linux payload in one self-extracting file. Example: use it when you want one executable download. |
+| `testorchestrator-2.7.0-windows-amd64-setup-UNSIGNED.exe` | The Windows controller installer (§5.1). Example: run it on a Windows Server that hosts the portal. |
 | `TestOrchestrator-Buildbot-Sources-4.3.0.tar.gz` | The corresponding source code for the bundled GPL components. Keep it with the release for license compliance. |
 | `SHA256SUMS.txt` | The checksum list. Example: `sha256sum -c SHA256SUMS.txt --ignore-missing` proves the download was not corrupted or swapped. It also covers the bundled worker `.exe`. |
 | `build-manifest.json` | The build receipt: source commit, dirty flag, tool versions. Example: use it to prove exactly which commit produced the package. |
@@ -297,10 +297,10 @@ release asset.
 Verify before installing **[verified]**:
 
 ```bash
-curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/SHA256SUMS.txt
-curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.5/testorchestrator-2.6.0-linux-x86_64.tar.gz
+curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.7.0/SHA256SUMS.txt
+curl -LO https://github.com/IT-Space-ltd/TestOrchestrator/releases/download/2.7.0/testorchestrator-2.7.0-linux-x86_64.tar.gz
 sha256sum -c SHA256SUMS.txt --ignore-missing
-# testorchestrator-2.6.0-linux-x86_64.tar.gz: OK
+# testorchestrator-2.7.0-linux-x86_64.tar.gz: OK
 ```
 
 The manifest pins the exact source commit and the bundled Buildbot
@@ -324,14 +324,14 @@ tarball and check it before anything runs:
 
 ```bash
 sha256sum -c SHA256SUMS.txt
-# testorchestrator-2.6.0-linux-x86_64.tar.gz: OK
+# testorchestrator-2.7.0-linux-x86_64.tar.gz: OK
 ```
 
 **Step 2 — extract and run the installer:**
 
 ```bash
-tar -xzf testorchestrator-2.6.0-linux-x86_64.tar.gz
-cd testorchestrator-2.6.0-linux-x86_64
+tar -xzf testorchestrator-2.7.0-linux-x86_64.tar.gz
+cd testorchestrator-2.7.0-linux-x86_64
 
 # interactive — licence prompt is optional (Enter skips it)
 sudo bash install.sh
@@ -554,7 +554,7 @@ across the failed apply.
 
 Procedure:
 
-1. Download `testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe`
+1. Download `testorchestrator-2.7.0-windows-amd64-setup-UNSIGNED.exe`
    and verify it against `SHA256SUMS.txt` (`certutil -hashfile <file>
    SHA256` on the Windows host). The installer is **unsigned** —
    SmartScreen will warn; the checksum is the trust anchor.
@@ -570,7 +570,7 @@ Procedure:
    public desktop (opens the portal in the default browser) and
    offers a finish-page option to launch it directly.
 
-`testorchestrator-2.6.0-windows-amd64-setup-UNSIGNED.exe` installs the
+`testorchestrator-2.7.0-windows-amd64-setup-UNSIGNED.exe` installs the
 complete controller on a Windows amd64 host — the same product the
 Linux packages install:
 
@@ -879,7 +879,7 @@ interruption, 255 internal — an invalid invocation is never shown
 as ordinary test failures, and a missing `junit.xml` can never
 pass as a zero-test run. Suite-level parallelism uses Pabot
 (`--processes=N`) when the optional dependency probed
-`opt_pabot=ok` on the target. Out of scope for 2.6.0: custom
+`opt_pabot=ok` on the target. Out of scope for 2.7.0: custom
 listeners, keyword-level browsing.
 
 **Check runner readiness** probes — under the real execution

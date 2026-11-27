@@ -4,9 +4,8 @@ Applies to **TestOrchestrator 2.7.0** (feature release — repository
 discovery, inventory, and the Node.js frameworks Jest, Postman/Newman
 and Bruno join the existing runners).
 
-> **Draft notice:** this edition describes the 2.7.0 release candidate.
-> Screenshots will be refreshed on the frozen build before release;
-> provenance (head + sha256) is recorded in the Screenshot Index.
+> Screenshots were captured on the release-candidate build; provenance
+> (head + sha256) is recorded in the Screenshot Index.
 
 All screenshots were captured from a real Linux install of the
 package or a seeded documentation instance of the same codebase —
@@ -372,7 +371,7 @@ executed during discovery.
 #### All other frameworks
 
 pytest, pytest-bdd, Behave, Robot Framework, Cypress, Playwright,
-GoogleTest and Katalon carry their 2.6.0 settings unchanged — see
+GoogleTest and Katalon carry their existing settings forward unchanged — see
 the framework sections in chapter 5.
 
 
@@ -866,7 +865,7 @@ implemented settings:
   empty).
 - **Runner** — which configured runner to dispatch to.
 - **Runtime** — which registered runtime the target invokes. Entries
-  tagged `[robot]` are Robot Framework runtimes (2.6.0): they launch
+  tagged `[robot]` are Robot Framework runtimes: they launch
   `python -m robot` with the configured Python interpreter inside the
   staged project **on the selected target**. Robot Framework and the
   project's libraries must already exist in that interpreter — there
@@ -875,7 +874,7 @@ implemented settings:
   file/directory, `--test`/`--suite` names and `--include`/`--exclude`
   tags. Native `output.xml`, `log.html`, `report.html` and the console
   log appear under **Artifacts** alongside the normalized cases.
-  Entries tagged `[pytest]` are pytest runtimes (2.6.0): they launch
+  Entries tagged `[pytest]` are pytest runtimes: they launch
   `python -m pytest --junitxml Reports/junit.xml` with the configured
   Python interpreter inside the staged project **on the selected
   target** — pytest and the project's dependencies must already exist
@@ -883,7 +882,7 @@ implemented settings:
   (keyword expression) and `-m` (marker expression); there is no
   browser selector (browsers belong to the test project's fixtures).
   Entries tagged `[playwright]` or `[cypress]` are the Node.js browser
-  runners (2.6.0): they launch `npx playwright test` /
+  runners: they launch `npx playwright test` /
   `npx cypress run` inside the staged project **on the selected
   target** — the tests and the browser run there, not on the
   controller. Node.js, the project's framework dependencies, and
@@ -1201,13 +1200,13 @@ owns; evidence another execution also references is kept.
 ## 10. Fixture-vs-licensed statement for these screenshots
 
 All screens in this manual were captured on a packaged Linux
-installation running the released 2.5.0 codebase. Live-execution
+installation running the 2.7.0 release codebase. Live-execution
 screens used a **fixture** KRE stand-in
 emitting genuine Katalon-format output — they demonstrate dispatch,
 registration, execution plumbing, result/evidence return, and report
 generation, **not licensed KRE execution**. Licensed-KRE execution
 requires a valid Katalon licence/API key on the target host and was not
-validated in this environment. Imported-execution screens show
+validated in the final acceptance environment. Imported-execution screens show
 **real Katalon 11.7.0 output** produced by a licensed run elsewhere.
 
 ---
