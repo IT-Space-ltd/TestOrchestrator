@@ -1115,3 +1115,35 @@ collect script relpath, collect outcome semantics, error_text persistence
 (latent error_message bug), ingestion monorepo prefix, jest collector
 cwd-relative paths, sha pinning, exec-invocation probe, worker-loop probe
 advancement. 1194 tests green.
+
+## Post-freeze evidence (build #10, head 8d77a472cfb1c6d954ab9fb76de80a271f1d4d2d, sha256 f6f1c55d08374614595979312746ecc854e5c67bc258692761b4e7c57b011657)
+
+### Installer-defense live cases (owner item 1) — COMPLETE
+- Case A (running units left up): all four units active; installer logged
+  "stopping running services before the payload copy" naming all four;
+  RC=0, services active, readiness OK, HTTPS serving. Tarball sha verified
+  f6f1c55d pre/post extraction. NOTE: first attempt invalidly used a stale
+  scratch copy (77bf1886, pre-defense) and reproduced the original crash —
+  chain-of-custody audit confirmed the wave-10 install AND upgrade cell both
+  used /home/ubuntu/testorchestrator-2.7.0-linux-x86_64.tar.gz = build #10,
+  so all prior evidence stands. Rule recorded: sha-verify every artifact use.
+- Case B (non-unit stray): refusal before writing, pid 74521 named, payload
+  untouched; clean install RC=0 after cleanup (verified earlier).
+
+### Subdirectory + testlevel cells (owner item 2) — COMPLETE
+Fixture nested commit 8b753380a2d94e807aa955c7bcecb68c06070222; all cells sha-pinned to it:
+- postman-subdir 36801bfcaf08 COMPLETED/PASSED 2 pass, artifacts junit/newman.xml+postman.json+manifest+logs (5)
+- bruno-subdir aa13b702c3ff COMPLETED/PASSED 2 pass, bruno.html/json+junit+manifest+logs (6)
+- jest-subdir 0aff01612032 COMPLETED/PASSED 1 pass, jest.json+manifest+logs (4)
+- postman-testlevel f07d37e870db COMPLETED/PASSED 2 pass, 5 artifacts
+- bruno-testlevel 6de17408020d COMPLETED/FAILED correct mixed semantics 4 pass/1 fail, 6 artifacts
+- jest-testlevel 0db4b2e841b1 COMPLETED/PASSED 1 pass, 4 artifacts
+
+### Browser modal tests (owner item 4) — FIXED (harness-only, zero product-code diff)
+seed_preview.py now seeds fixed-id project 62d2f3e1b4654e5680fd187795c454f7
+plus authoring_writable binding (modal triggers require can_author).
+10/10 pass: test_modal_interactions.py + test_modal_dup_and_recovery.py.
+No longer never-green; preview must be seeded+running for them to execute
+(they skip when absent — documented behavior).
+
+### Exposure scan (owner item 5) — dry run zero hits over docs/manuals/ledger/artifacts. Rerun on final artifacts pending.
