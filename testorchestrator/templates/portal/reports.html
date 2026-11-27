@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Reports · TestOrchestrator{% endblock %}
+{% block content_class %}content-wide{% endblock %}
+{% block content %}
+<h1>Reports</h1>
+<p class="muted">Execution summary — preview and CSV export. Additional report types and export formats are part of the 2.8.0 backlog.</p>
+<form method="get" class="filter-bar card">
+  <div class="field"><label for="project_id">Project</label>
+    <select name="project_id" id="project_id"><option value="">All visible projects</option>
+      {% for p in projects %}<option value="{{ p.id }}" {% if filters.get('project_id')==p.id %}selected{% endif %}>{{ p.name }}</option>{% endfor %}
+    </select></div>
+  <div class="field"><label for="days">Period days</label>
+    <input type="number" min="1" max="365" name="days" id="days" value="{{ filters.get('days',30) }}"></div>
+  <div class="field"><label for="state">State</label>
+    <select name="state" id="state"><option value="">All</option>
+      {% for s in states %}<option value="{{ s }}" {% if filters.get('state')==s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+    </select></div>
+  <div class="field"><label for="outcome">Outcome</label>
+    <select name="outcome" id="outcome"><option value="">All</option>
+      {% for o in outcomes %}<option value="{{ o }}" {% if filters.get('outcome')==o %}selected{% endif %}>{{ o }}</option>{% endfor %}
+    </select></div>
+  <div class="field"><label for="environment">Environment</label>
+    <input type="text" name="environment" id="environment" value="{{ filters.get('environment','') }}"></div>
+  <div class="field"><label for="source_ref">Source ref</label>
+    <input type="text" name="source_ref" id="source_ref" value="{{ filters.get('source_ref','') }}"></div>
+  <div class="form-actions"><button class="button" type="submit">Preview</button>
+    <button class="button secondary" type="submit" name="format" value="csv">Export CSV</button>
+    <a class="button ghost" href="{{ url_for('portal.reports') }}">Clear</a></div>
+</form>
+<div class="metric-strip">
+  <div class="metric"><span class="metric-value">{{ report.total }}</span><span class="metric-label">executions</span></div>
+  <div class="metric"><span class="metric-value">{{ report.outcomes.get('passed',0) }}</span><span class="metric-label">passed</span></div>
+  <div class="metric"><span class="metric-value">{{ report.outcomes.get('failed',0) }}</span><span class="metric-label">failed</span></div>
+  <div class="metric"><span class="metric-value">{{ report.outcomes.get('incomplete',0) }}</span><span class="metric-label">incomplete</span></div>
+  <div class="metric"><span class="metric-value">{{ report.avg_duration_s if report.avg_duration_s is not none else '—' }}</span><span class="metric-label">avg duration s</span></div>
+</div>
+{% if report.truncated %}<p class="badge warn">Preview truncated to {{ report.max_rows }} rows; CSV uses the same disclosed limit.</p>{% endif %}
+<table class="data-table"><thead><tr><th>ID</th><th>Project</th><th>Suite</th><th>State</th><th>Outcome</th><th>Created</th><th>By</th><th>Environment</th></tr></thead><tbody>
+{% for e in report.rows %}<tr>
+<td><a href="{{ url_for('portal.execution_detail', execution_id=e.id) }}"><code>{{ e.id[:8] }}</code></a></td>
+<td>{{ e.project.name if e.project }}</td><td>{{ e.snapshot().get('suite_name','') }}</td>
+<td><span class="badge {{ e.state.value }}">{{ e.state.value }}</span></td>
+<td><span class="badge outcome-{{ e.outcome.value }}">{{ e.outcome.value }}</span></td>
+<td>{{ e.created_at|localtime_short }}</td><td>{{ e.created_by }}</td><td>{{ e.environment or '—' }}</td>
+</tr>{% else %}<tr><td colspan="8" class="muted">No executions match the selected filters.</td></tr>{% endfor %}
+</tbody></table>
+{% endblock %}

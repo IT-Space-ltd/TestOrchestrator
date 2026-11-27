@@ -189,3 +189,10 @@ After owner approval of the data-layer shape (and before export formats):
 
 This keeps the first product-code increment small while establishing the
 security and counting foundations required by backlog items 32–37.
+## Status update — first implementation slice
+
+Implemented on `feature/2.8.0-backlog`: the top-level Reports menu now exposes
+the execution-summary report preview and CSV export using the scoped query
+layer proposed above. It currently covers only the first report type and CSV;
+saved definitions, charts, scheduled generation, share links, PDF/docx/xlsx
+and the remaining report types remain open backlog work.

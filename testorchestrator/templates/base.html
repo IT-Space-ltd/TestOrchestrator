@@ -22,6 +22,7 @@
         <li><a href="{{ url_for('main.dashboard') }}">Dashboard</a></li>
         <li><a href="{{ url_for('portal.projects') }}">Projects</a></li>
         <li><a href="{{ url_for('portal.executions') }}">Executions</a></li>
+        <li><a href="{{ url_for('portal.reports') }}">Reports</a></li>
         {% if current_user.is_admin %}
         <li>
           <details class="nav-sub" open>

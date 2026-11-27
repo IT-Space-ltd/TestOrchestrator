@@ -1,5 +1,18 @@
 # Changelog
 
+## [Unreleased 2.8.0]
+
+### Added
+
+- **Reports main menu — first execution-summary slice.** A new top-level
+  Reports page provides a project-scoped execution-summary preview with
+  period/state/outcome/environment/source-ref filters, aggregate outcome
+  cards, a disclosed 5000-row limit, and CSV export. The query layer is
+  scoped to the signed-in user's visible projects before filtering; CSV
+  export is audited and spreadsheet-formula-leading text is escaped.
+  PDF/docx/xlsx and additional report types remain pending owner-approved
+  dependencies and later 2.8.0 slices.
+
 ## [2.7.0] — 2026-11-27
 
 Released on `main` from the merged repository-discovery branch.

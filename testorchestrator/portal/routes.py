@@ -100,6 +100,41 @@ def _suite_hash(suite: Suite) -> str:
     return hashlib.sha256(content.encode()).hexdigest()
 
 
+# ---------- reports ----------
+
+@portal_bp.route("/reports")
+@login_required
+def reports():
+    """Execution-summary report preview + CSV export (first 2.8.0 slice)."""
+    from ..reporting.queries import execution_csv, execution_summary, visible_project_ids
+    filters = {
+        "project_id": request.args.get("project_id", ""),
+        "days": request.args.get("days", "30"),
+        "state": request.args.get("state", ""),
+        "outcome": request.args.get("outcome", ""),
+        "suite_id": request.args.get("suite_id", ""),
+        "runner_id": request.args.get("runner_id", ""),
+        "schedule_id": request.args.get("schedule_id", ""),
+        "environment": request.args.get("environment", ""),
+        "source_ref": request.args.get("source_ref", ""),
+    }
+    report = execution_summary(current_user, filters)
+    if request.args.get("format") == "csv":
+        record_audit(current_user.username, "report.export",
+                     "execution-summary-csv "+
+                     f"rows={len(report['rows'])} total={report['total']}")
+        return Response(
+            execution_csv(report), mimetype="text/csv",
+            headers={"Content-Disposition":
+                     "attachment; filename=testorchestrator-execution-summary.csv"})
+    ids = set(visible_project_ids(current_user))
+    return render_template(
+        "portal/reports.html", report=report, filters=filters,
+        projects=[p for p in Project.query.all() if p.id in ids],
+        states=[s.value for s in ExecutionState],
+        outcomes=[o.value for o in Outcome])
+
+
 # ---------- projects ----------
 
 @portal_bp.route("/projects")
