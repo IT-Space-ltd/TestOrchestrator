@@ -34,6 +34,23 @@ def main():
                      role=Role.ADMIN)
             u.set_password("Review-Preview-#2026!")
             db.session.add(u)
+        # Fixed-id project the modal browser tests navigate to —
+        # without it they skip or fail on missing modal triggers.
+        from testorchestrator.execution import Project
+        PROJ = "62d2f3e1b4654e5680fd187795c454f7"
+        if not db.session.get(Project, PROJ):
+            db.session.add(Project(
+                id=PROJ, name="Preview-Project",
+                description="seeded project for the live browser tests"))
+        # authoring-enabled binding — the suite/collection modal triggers
+        # render only when can_author (an authoring_writable binding exists)
+        from testorchestrator.execution import GitBinding
+        if not GitBinding.query.filter_by(project_id=PROJ).first():
+            db.session.add(GitBinding(
+                project_id=PROJ, name="preview-binding",
+                url="https://example.invalid/preview/repo.git",
+                ref="main", authoring_writable=True,
+                report_writable=True))
         for rid in ("rem-1", "rem-2"):
             if not db.session.get(Runner, rid):
                 db.session.add(Runner(
