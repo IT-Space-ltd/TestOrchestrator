@@ -2134,16 +2134,20 @@ fresh install. §4.2.
 
 ## 15. Network and authentication matrix
 
-| Flow | Initiator → destination | Port (default) | Protocol | AuthN | Expose beyond localhost? | Verify |
-|---|---|---|---|---|---|---|
-| Browser → portal | Browser → **Cheroot** (in-process, §4.9) | 443 (+8080 redirect) | HTTPS | session cookie (CSRF per form — HTTPS posts need a matching `Referer`) | **yes** — the public edge | `curl -Ik https://<host>` |
-| App loopback | Cheroot → **Waitress** (same process; Waitress stays loopback) | 127.0.0.1:18080 | HTTP | none — loopback + host allowlist | never | `curl -s 127.0.0.1:18080/login` |
-| Portal → master | Flask → **Buildbot REST** | 8010/`buildbot_endpoint` | HTTP | per-install API credential via `buildbot_credential_ref` | **loopback only** | `curl -u <u>:<p> 127.0.0.1:8010/api/v2/masters` → 200/401 |
-| Worker → master | `buildbot-worker` → master PB | 9989/`buildbot_pb_port` | **PB/TCP** | per-worker password (SecretRef) provisioned in Admin UI | worker-reachable hosts | worker log: `connected`; portal shows registration |
-| Portal → repositories | app → git remote | 22 or 443 | SSH/HTTPS | deploy key or token from **Credentials** | no (outbound) | binding **Sync**; check fetched SHA |
-| Worker → KRE | worker → KRE binary | n/a (local exec) | process exec | KRE licence on the worker host | never | probe (local installs) or a smoke suite |
-| App → evidence export | app → `git_export_repo` | 22/443 | git | `git_export_credential_ref` | no (outbound) | Reporting settings test/export |
-| Agent → portal | worker agent → portal API | portal port | HTTP | one-time agent token (SHA-256 stored, shown once) | portal-reachable | runner row shows agent heartbeat |
+Every connection the system makes, in plain words: who calls whom,
+on which port, how they prove themselves, and whether the port must
+be reachable from other machines. Example checks included.
+
+| Who talks to whom | Port (default) | How they authenticate | Must other machines reach it? | How to check it |
+|---|---|---|---|---|
+| people's browsers → the portal | `443` (plus `8080` redirecting) | login session cookie; forms carry a CSRF token | **yes** — this is the one public door | `curl -Ik https://portal.example.com` answers |
+| the public front end → the application itself | `127.0.0.1:18080` | none needed — it only listens on the machine itself | never | `curl -s 127.0.0.1:18080/login` on the server |
+| portal → the job runner's API | `8010` | a per-install API credential created at install time | **loopback only** — never open it | `curl -u <user>:<pass> 127.0.0.1:8010/api/v2/masters` |
+| workers → the job runner | `9989` | each worker has its own password, issued in the Admin UI | yes, but only from your worker machines | the worker log shows `connected` |
+| portal → your git repositories | `22` or `443` outbound | a deploy key or token stored in **Credentials** | no — outbound only | press **Sync** on a binding and check the fetched SHA |
+| worker → the Katalon engine | none — a local program start | the Katalon licence living on the worker machine | never | run a small smoke suite |
+| portal → the evidence export repository | `22`/`443` outbound | the export credential from **Credentials** | no — outbound only | the test button in Reporting settings |
+| worker agent → the portal API | the portal's own port | a one-time token shown once at creation — only its fingerprint is stored | yes, from agent machines | the runner row shows a fresh heartbeat |
 
 Rules of thumb: only the HTTPS port(s) and the PB port
 must be reachable by *other machines*; everything else is loopback
