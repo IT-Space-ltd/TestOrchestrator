@@ -2396,19 +2396,22 @@ pre-upgrade backup; there are no downgrade migrations.
 
 Symptom → first checks. Exact commands/paths, no database surgery.
 
-| Symptom | Investigation path |
+Each row is one problem. Read the steps left to right — each arrow is
+the next thing to check when the one before looks fine.
+
+| What you see | What to check, step by step |
 |---|---|
-| Portal unavailable | `systemctl status testorchestrator-web` → `journalctl -u testorchestrator-web -n 50` → listener (`TO_HTTPS_PORT`/`TO_HTTP_PORT`) → cert validity under `data/certs` |
-| Worker absent | process on host → coordinator reachability (`--worker.coordinators` host:port) → credentials file (0600) → runner row heartbeat (>~2 min stale) → worker log |
-| Job stays `queued` | licence state (**System → Licence** — held queue needs licence + **Resume dispatch**) → live worker with matching `kre=<label>` → free slots (concurrency on runner + runtime) → overlap policy on schedules |
-| KRE exits before tests | executable path **on the worker** → file permissions → `Activation failed` = worker-side KRE licence → remote run log for the exact exit |
-| Execution done, results missing | worker run dir → transfer errors in coordinator/worker logs → `remote-runs/` evidence dir → execution row state (`UNKNOWN` = transfer/lease gap) |
-| reportingLabs generation fails | `report_status` on the execution → generation log → `import reporting_labs` resolves from `payload/3rdparty/` → `reportinglabs_enabled` setting → input JUnit/evidence present |
-| Import can't be confirmed | candidate row state → staging checkout expiry → per-item match decision (duplicate/ambiguous) → importer errors in operational log |
-| Disk filling | `du -sh data/*/` → `import-staging/` (expired candidates) → workspaces on workers → `reporting-labs/gen-*` generations → journald size → `toctl evidence-prune` dry-run |
-| `403` for everyone | host alias vs bare IP — `allowed_hosts`; loopback gate until `setup_completed` + `external_enabled` |
-| Sessions drop on restart | `TO_SECRET_KEY` unset/changed — pin it in `web.env` |
-| `UNKNOWN` executions | lease expired mid-run — inspect run log, verify results on the worker, rerun deliberately; the slot frees on resolution |
+| The portal does not open at all | is the web service running: `systemctl status testorchestrator-web` → its recent log: `journalctl -u testorchestrator-web -n 50` → is the port it should listen on free → are the certificates in `data/certs` still valid |
+| A worker does not appear in the list | is its process alive on the worker machine → can it reach the coordinator (`--worker.coordinators` host:port) → is its credentials file present and readable only by its user (0600) → is the runner row heartbeat stale (older than about 2 minutes) → read the worker log |
+| A job sits in `queued` forever | is dispatch held for licensing (**System → Licence** — the held queue needs a licence plus **Resume dispatch**) → is there a live worker whose label matches, for example `kre=<label>` → are the worker's slots full (concurrency on runner + runtime) → does the schedule's overlap policy block it |
+| Katalon stops before any test runs | is the executable path correct **on the worker** → are file permissions right → `Activation failed` means the worker's own Katalon licence is missing → the remote run log shows the exact exit |
+| Run finished but results are missing | look in the worker's run directory → transfer errors in coordinator/worker logs → the `remote-runs/` evidence folder → the execution row state (`UNKNOWN` means the transfer chain broke) |
+| reportingLabs report generation fails | `report_status` on the execution → the generation log → does `import reporting_labs` resolve from `payload/3rdparty/` → is the `reportinglabs_enabled` setting on → is the input evidence actually present |
+| An import cannot be confirmed | the candidate row's state → has the staging checkout expired → is a per-item decision waiting (duplicate/ambiguous) → importer errors in the operational log |
+| The disk is filling up | measure first: `du -sh data/*/` → expired candidates in `import-staging/` → workspaces on workers → old report generations `reporting-labs/gen-*` → journald size → `toctl evidence-prune` dry-run before any real prune |
+| Everyone gets `403` | are people browsing the configured host name instead of a bare IP — `allowed_hosts`; the loopback-only gate is on until `setup_completed` + `external_enabled` |
+| Everyone is logged out after each restart | `TO_SECRET_KEY` is unset or changed — pin one fixed value in `web.env` |
+| Executions show `UNKNOWN` | the run outlived its lease — read the run log, verify what happened on the worker, then rerun deliberately; the slot frees once you resolve it |
 
 ## 22. Secrets, credentials and scope settings
 
