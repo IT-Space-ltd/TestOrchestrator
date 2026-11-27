@@ -514,7 +514,7 @@ journalctl -u testorchestrator-web -u testorchestrator-worker \
 
 Stops to take, in order:
 
-1. `systemctl disable --now testorchestrator-web …` (all four units),
+1. `systemctl disable --now testorchestrator-web …` (all five units: web, worker, buildbot master, buildbot local, buildbot ssh),
    remove the unit files; stop any manually started
    coordinator/worker processes.
 2. Remove the **payload** directory — that removes the application
@@ -1330,7 +1330,10 @@ is the way back.
 
 ```bash
 sudo systemctl stop testorchestrator-web testorchestrator-worker \
-    testorchestrator-buildbot-master testorchestrator-buildbot-local
+    testorchestrator-buildbot-master testorchestrator-buildbot-local \
+    testorchestrator-buildbot-ssh
+# check nothing survived — the list must be empty:
+systemctl list-units --type=service --state=active 'testorchestrator-*'
 toctl backup --to /var/backups/testorchestrator
 ```
 
@@ -1359,6 +1362,14 @@ sudo bash install.sh --yes \
 
 ![Terminal showing the upgrade install completing](shots/ad-upgrade-02-install.png)
 
+The installer protects you here: before it copies anything it stops
+every running `testorchestrator-*` service itself, and if any process
+still uses the program directory afterwards, it refuses to install and
+tells you exactly which process to stop. Nothing is written in that
+case — re-run the same command after stopping the process it names.
+Stopping the services yourself in step 0 is still the right procedure:
+the installer's stop is the safety net, not the plan.
+
 You should see the installer finish without errors, and the release
 file shows the new build:
 
@@ -1381,8 +1392,8 @@ listed, stop it before continuing.
 
 ```bash
 sudo systemctl start testorchestrator-buildbot-master \
-    testorchestrator-buildbot-local testorchestrator-worker \
-    testorchestrator-web
+    testorchestrator-buildbot-local testorchestrator-buildbot-ssh \
+    testorchestrator-worker testorchestrator-web
 ```
 
 **Step 5 — verify the migration.** Open the portal and sign in. Check

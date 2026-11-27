@@ -179,6 +179,19 @@ New migration `n2b3c4d5e6f7` adds `secret_refs.scope_json` +
   activate/health-check flow.
 
 ### Fixed
+- **Upgrade blocker — installer payload-copy defense (owner ruling from
+  the production-like 2.6.0 upgrade cell).** A service unit missing
+  from the documented stop list (`testorchestrator-buildbot-ssh`)
+  survived the upgrade procedure, held the payload python busy, and
+  the copy crashed mid-write — a half-written hybrid install with all
+  services down. Both installers (source `scripts/install.py` and
+  frozen `toctl install`) now stop every active `testorchestrator-*`
+  unit themselves before copying, scan `/proc` for any process still
+  referencing the payload tree, and refuse to write until it is
+  stopped — no more brick-by-partial-copy. Regression tests
+  `tests/test_installer_upgrade_defense.py` (8/8). The Admin Manual
+  upgrade procedure gained the missing unit, a post-stop survivor
+  check, and a description of the installer safety net.
 
 - **D-NODE-SUBDIR-WORKDIR — node framework execution in monorepo
   subdirectories.** The execution workdir, the `package-lock.json`
