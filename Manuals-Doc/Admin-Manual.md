@@ -1480,7 +1480,7 @@ inspection is otherwise plain `du`/`find` under the managed roots.
 Quick-reference symptoms; the fuller incident matrix with
 diagnostic commands is §21.
 
-| Symptom | Check |
+| What you see | First check — with an example |
 |---|---|
 | `403` immediately after install | Host allowlist — browse the configured alias, not a bare IP; or loopback-only gate still on (setup incomplete / `external_enabled` unset). |
 | `licence … warn` at install | Code expired/not-yet-valid (UTC dates), wrong product, or corrupted paste — the code is `TO1.<payload>.<signature>`. Warning only; the install still completes and the app is fully usable. |
@@ -2277,16 +2277,16 @@ restore; export publishes selected evidence to a repo; pruning
 
 ## 18. Worker maintenance and failure recovery
 
-| Task | Supported procedure |
+| You want to… | Supported procedure — example |
 |---|---|
-| Take a worker offline safely | **Drain** on its runner row — stops new claims; in-flight executions finish. Then stop the process. |
-| Active execution during worker restart | The portal holds the lease; heartbeats renew it. If the lease **expires**, the execution is reconciled to **`UNKNOWN`** — never silently re-dispatched or double-run. Inspect it and rerun manually. `UNKNOWN` still consumes the runner's capacity slot until resolved. |
-| Coordinator restart | Queued work is durable (outbox). Workers reconnect and resume claiming; running executions follow the lease rule above. |
-| Stale registration | A stopped worker shows its last-seen heartbeat (>~2 min = not live). No auto-purge — **Edit**/**delete** the runner record deliberately. |
-| Interrupted result transfer | The worker keeps the run directory; results stay `UNKNOWN`/`running` until transfer completes or the lease expires — never partially marked passed. |
-| Replace a worker host | Drain → decommission → register the new runner (§12.1) reusing the `kre=<label>` so runtimes rebind automatically. |
-| Update the worker | Re-run the bundled installer of the new version over the existing install — identity and credentials are preserved (no duplicate target). |
-| Decommission | Drain → stop → delete the runner record → remove the host's credentials file and `workspaces/` — token re-issue revokes the old one (§12.1 step 2). |
+| take a worker offline safely | Click **Drain** on its runner row. New work stops; work already running finishes. Then stop the worker process. Example: drain before patching Windows. |
+| restart a worker during an active execution | The portal holds the lease while heartbeats continue. If the lease expires, the execution becomes **`UNKNOWN`** — it is never silently run twice. Inspect it and rerun manually. `UNKNOWN` still holds the runner capacity slot until resolved. |
+| restart the coordinator | Queued work is durable in the outbox. Workers reconnect and continue; running executions follow the same lease rule. |
+| clean up a stale registration | A stopped worker shows an old last-seen heartbeat (over about two minutes means not live). Nothing is auto-purged — edit or delete the runner record deliberately. |
+| recover from interrupted result transfer | The worker keeps the run directory. Results stay `UNKNOWN` or `running` until transfer finishes or the lease expires — a partial transfer is never marked passed. |
+| replace a worker host | Drain → decommission → register the new runner (§12.1), reusing `kre=<label>` so runtimes rebind automatically. |
+| update the worker | Run the new bundled installer over the existing install. Identity and credentials are preserved, so no duplicate target appears. |
+| decommission a worker | Drain → stop → delete the runner record → remove the host's credentials file and `workspaces/`. Re-issuing the token revokes the old one (§12.1 step 2). |
 
 Not implemented: automatic worker updates, auto-drain on version
 mismatch, re-dispatch of `UNKNOWN` executions — each is a manual,
@@ -2357,11 +2357,11 @@ After a restore: every stored secret returns intact **only if**
 
 Each is configured and consumed separately — do not conflate them:
 
-| Stage | Where auth is configured | How it is consumed |
+| Stage | Where you configure it | How it is used — example |
 |---|---|---|
-| Portal-side git ops (binding sync, case/suite listing) | stored `user:token` SecretRef (HTTPS) or host ssh | portal backend only |
-| Worker-side source checkout | `git_ssh_key_path` on the runtime — a path **on the worker** | worker's git SSH checkout; key material never crosses the wire |
-| Evidence publishing | `publish_repo_url` + publish credential (portal-side) | portal export write + read-back + delete probe |
+| Portal-side git operations (binding sync, case/suite listing) | a stored `user:token` SecretRef for HTTPS, or host SSH configuration | Only the portal backend uses it. Example: press **Sync** and the portal fetches the repository. |
+| Worker-side source checkout | `git_ssh_key_path` on the runtime — a path **on the worker** | The worker uses that local key for its SSH checkout. The key material never crosses the wire. |
+| Evidence publishing | `publish_repo_url` plus the publish credential on the portal | The portal writes, reads back, and deletes a probe before publishing real evidence. |
 
 Worker-side prerequisites — the portal cannot provision the deploy
 key. The administrator must:
@@ -2486,15 +2486,15 @@ legitimate packages require their install scripts — and it means:
 
 The controls around that risk:
 
-| Control | Behaviour |
+| Control | What it does, in plain words — example |
 |---|---|
-| Role gate | Setting or changing `deps_prepare` requires the **test manager or admin** role. Other roles cannot enable it — the dispatch layer refuses with "setting or changing deps_prepare requires the test manager or admin role". |
-| Audit event | Every preparation writes an audit event **including the lockfile hash** — you can prove afterwards exactly which dependency tree was installed. |
-| Lockfile required | Preparation is **refused without `package-lock.json`** — npm ci without a lockfile is never attempted. The refusal is early and explicit. |
-| Timeouts | The step is bounded (default 600 s, adjustable per run as `deps_timeout`; hard-capped by the ssh/buildbot timeout caps — the caps always win). |
-| Explicit failure | If deps preparation is **off** and the target has no vendored dependencies, the run **fails with a clear message** — it never silently skips the install and never produces a confusing downstream failure. |
-| Vendored exception | If the repository **vendors `node_modules`** (committed into the repo), no install runs at all. This is the deliberate exception: vendored dependencies are already repository content, reviewed like any other committed code. |
-| Schedule visibility | The schedule form shows the deps_prepare toggle state so a scheduled run's behaviour is visible at a glance — no hidden preparation. |
+| Role gate | Only a **test manager or admin** can set or change `deps_prepare`. Example: a tester cannot turn dependency installation on for a run. |
+| Audit event | Every preparation writes an audit event **including the lockfile hash**. Example: you can prove afterwards exactly which dependency tree was installed. |
+| Lockfile required | Preparation is refused without `package-lock.json`; npm ci without a lockfile is never attempted. Example: commit the lockfile, then rerun. |
+| Timeouts | The step is bounded — default 600 seconds, adjustable per run as `deps_timeout`; the ssh/buildbot hard caps still win. |
+| Explicit failure | If preparation is off and dependencies are not vendored, the run fails with a clear message instead of a confusing downstream error. |
+| Vendored exception | If `node_modules` is committed in the repository, no install runs at all. This is deliberate: vendored dependencies are reviewed repository content. |
+| Schedule visibility | The schedule form shows the deps_prepare state, so a scheduled run does not hide whether installation will happen. |
 
 ### 23.3 Where it applies
 
