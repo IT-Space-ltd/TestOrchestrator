@@ -2241,18 +2241,22 @@ when only the directory location changed**.
 
 ## 17. Storage lifecycle and capacity
 
-| Data dir entry | Class | Grows with | Cleanup |
+Every folder in the data directory has a different job. Some you must
+never touch, some the server can rebuild by itself, and some are
+temporary. This table tells you which is which, in plain words.
+
+| Folder or file | What it is, in plain words | Can I delete it? | How it is cleaned up |
 |---|---|---|---|
-| `testorchestrator.db` | required state | history, imports, audit | never delete manually — vacuum via backup |
-| `licence.json`, `secret.key`, `certs/` | required state | never | never — losing `secret.key` orphans every stored credential |
-| `bindings/` | derived state | repo size × bindings | re-sync rebuilds; safe to rebuild, wasteful to delete |
-| `imported-evidence/` | required state | imported runs | `toctl evidence-prune` (orphans only) |
-| `remote-runs/` | required state | live executions | evidence-prune for orphans; keep referenced dirs |
-| `import-staging/` | **transient** | in-flight imports | abandoned candidates expire — safe to prune per §9.4 |
-| `buildbot/` | required state | master db + worker state | managed by master |
-| `workspaces/` (on worker) | **transient** | concurrent runs | worker-side; safe to clear stopped run dirs |
-| `payload/reporting-labs/gen-*/` | derived output | report regenerations | older generations pruned per §9 |
-| service logs (`journald`, `data/*.log`) | diagnostic | traffic | journald rotation; `logs_retention_days`/`logs_max_rows` bound the in-app operational log |
+| `testorchestrator.db` | the database — everything the server knows: projects, runs, users | **never** — deleting it loses everything | shrinks only through the backup/vacuum flow |
+| `licence.json`, `secret.key`, `certs/` | the licence, the master key, and the certificates. Example of the worst loss: without `secret.key` every stored password becomes unreadable forever | **never** | does not grow; needs no cleanup |
+| `bindings/` | local copies of the connected git repositories | you can — the server re-downloads them on the next sync — but it wastes time | rebuilt by re-sync |
+| `imported-evidence/` | result files you imported from outside | only through the prune tool | `toctl evidence-prune` removes orphans only |
+| `remote-runs/` | the working files of executions | only through the prune tool | evidence-prune for orphans; folders a run still uses are kept |
+| `import-staging/` | half-finished imports — temporary by design | yes, abandoned ones expire on their own | automatic expiry, see §9.4 |
+| `buildbot/` | the job runner's own bookkeeping | no — managed by the job runner itself | managed by master |
+| `workspaces/` (on worker) | scratch folders for runs in progress — temporary | yes, but only folders of runs that already stopped | worker-side housekeeping |
+| `payload/reporting-labs/gen-*/` | regenerated report output — a new folder per regeneration | old generations only | automatic pruning, see §9 |
+| service logs (`journald`, `data/*.log`) | diagnostic logs — what the services did | rotate, don't delete the active one | journald rotation; `logs_retention_days`/`logs_max_rows` bound the in-app log |
 
 Automatic: operational-log bounds (`logs_retention_days`,
 `logs_max_rows`), report-generation pruning, import-staging expiry.
