@@ -1805,17 +1805,20 @@ different repository versions are the most common explanation.
 
 ## 12. Troubleshooting
 
-| Symptom | Most likely cause | What to do |
+Each row is one problem. Read what you see, why it usually happens,
+and what to do — with an example.
+
+| What you see | The usual cause | What to do — with an example |
 |---|---|---|
-| Discovery finds zero items | wrong project root | point the root at the folder the tests are actually in, rediscover |
-| Every API request fails in milliseconds | `{{variables}}` unresolved — no environment configured | set the environment file (Postman) or environment name (Bruno) — §5.4 |
-| "You can run only at the root of a collection" (Bruno) | project root above/below the collection root | point the project root exactly at the folder containing `bruno.json` |
-| Runtime missing from the run form | not execution-ready for this framework | check the runtime page — first run in the project stamps readiness evidence |
-| "deps_prepare requires a lockfile" | no `package-lock.json` committed | commit the lockfile or vendor `node_modules` |
-| "collect is not supported for this framework" | native collect requested for Postman/Bruno/Katalon | use static discovery — it is authoritative for these frameworks |
-| Execution INCOMPLETE but tests passed | artifact collection failed | report to your administrator — this is a pipeline defect, not a test result |
-| Item greyed out in selection | granularity limit of the framework | §4.4 — select the file or folder instead |
-| Stale badges after upstream renames | inventory predates the rename | rediscover — stale entries never drop silently |
+| Discovery finds zero items | the project root points at the wrong folder | point the root at the folder the tests are actually in — e.g. `tests/api` not the repository top — then Rediscover |
+| Every API request fails in milliseconds | placeholders like `{{variables}}` have no values — no environment configured | set the environment file (Postman) or environment name (Bruno) — §5.4 |
+| "You can run only at the root of a collection" (Bruno) | the project root sits one level above or below the collection root | point it exactly at the folder containing `bruno.json` |
+| A runtime is missing from the run form | it has not yet proven it can run this framework in your project | check the runtime page — the first run in the project stamps that proof automatically |
+| "deps_prepare requires a lockfile" | the repository has no `package-lock.json` committed | commit the lockfile, or vendor `node_modules` into the repository |
+| "collect is not supported for this framework" | native collect was requested for Postman, Bruno or Katalon | use static discovery — it is the authoritative inventory for these frameworks |
+| Execution INCOMPLETE but the tests passed | the artifact collection afterwards failed | report to your administrator — this is a pipeline defect, not a test result |
+| An item is greyed out in the selection | the framework can only select whole files, not single tests | §4.4 — select the file or folder instead |
+| Stale badges after upstream renames | the inventory still knows the old names | rediscover — stale entries warn but never drop silently |
 
 ## 13. Frequently asked questions
 
