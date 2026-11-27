@@ -1516,13 +1516,13 @@ the host is up and that TCP 9989 is open on the controller (§6).
 
 Each runtime carries one state. Read them like traffic lights:
 
-| State | What it means | What to do |
-|---|---|---|
-| `checking` | The probe is running right now | Wait a minute, reload |
-| `ready-discovery` | Tools present, inventory may be collected | For node frameworks: ready except execution validation |
-| `ready-execution` | Probe passed and a proof run succeeded | Nothing — this is the good state |
-| `missing-dependency` | A needed tool is absent | Read the message on the runtime — it names exactly what is missing and how to install it |
-| `failed` | The probe itself could not run | Open the runtime detail — the probe log is attached |
+| State | What it means, in plain words | Example of what you see | What to do |
+|---|---|---|---|
+| `checking` | the server is testing the runtime right now | a spinner next to the runtime | wait a minute, reload |
+| `ready-discovery` | the tools exist, so tests can be listed — but running them is not yet proven | a Jest runtime that can scan but has not run a proof test | for node frameworks: everything is fine except the final execution proof |
+| `ready-execution` | the probe passed and a small proof run really worked | green state in the runtime list | nothing — this is the good state |
+| `missing-dependency` | a tool the framework needs is not installed | "npx not found — install Node.js" | read the message on the runtime — it names exactly what is missing and how to install it |
+| `failed` | the probe itself could not even run | a red state with a probe log | open the runtime detail — the probe log is attached |
 
 ![A runtime in the ready-execution state](shots/ad-status-runtime-ready.png)
 
