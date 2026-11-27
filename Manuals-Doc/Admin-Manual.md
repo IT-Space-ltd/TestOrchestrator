@@ -2547,8 +2547,8 @@ left ambiguous:
 | Mode | What it means, in plain words | What you configure — example |
 |---|---|---|
 | `online` | Katalon checks the licence over the internet, against Katalon's own server | the API-key credential stored in **Credentials** — same as before 2.7.0 |
-| `offline` | the engine uses real licence files Katalon issued for that machine — no internet needed | the `.lic` files placed on the runner itself — no API key at all |
-| `private` | the engine asks *your own* licence server instead of Katalon's | the server address, e.g. `https://licenses.example.com`, plus its credential |
+| `offline` — shown in the UI as **offline — machine-bound .lic** | the engine uses real licence files Katalon issued for that machine — no internet needed | the `.lic` files placed on the runner itself — no API key at all |
+| `private` — shown in the UI as **private — API key + private license server** | the engine asks *your own* licence server instead of Katalon's | the server address, e.g. `https://licenses.example.com`, plus its credential |
 
 Existing runtimes created before 2.7.0 migrate to `online` unchanged
 — their behaviour is identical.
@@ -2655,6 +2655,13 @@ the connection; the readiness probe starts automatically after.
 entry-point (`/usr/bin/pytest`) instead of the interpreter for
 Python-family runtimes — the edit form validates this and explains
 the correct value.
+
+The advanced runtime editor stores the chosen framework in the
+`runtime_kind` field. The exact choices shown in the picker are:
+**KRE (desktop engine)**, **Playwright Test (Node.js)**, **Cypress E2E
+(Node.js)**, **Robot Framework (Python)**, **pytest (Python)**,
+**Behave BDD (Python)**, **GoogleTest (C/C++)**, **Postman (Newman /
+Postman CLI)**, **Bruno (bru CLI)**, and **Jest (Node.js)**.
 
 ### 25.7 Initial setup
 
