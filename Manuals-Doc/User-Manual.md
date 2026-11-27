@@ -1713,6 +1713,96 @@ without any licence, so you can inventory and plan around Katalon
 content. Execution requires the licensed runtime; ask your
 administrator.
 
+## 11H. Worked examples — plans, suites, schedules, artifacts
+
+Every example below uses the same sample project: repository
+`https://git.example.invalid/team/tests.git`, branch `main`, with a
+Jest framework project in the folder `jest`. Type the values as written
+the first time; change them when you know what they do.
+
+### Example 1 — a test plan that runs every night
+
+A *test plan* is a saved recipe: which tests, on which runtime, with
+which settings. A *schedule* runs the plan by the clock.
+
+**Step 1.** Open your project. Click **Test plans** → **New plan**.
+
+**Step 2.** Type these values:
+
+| Field | Value |
+|---|---|
+| Name | `nightly-jest` |
+| Framework project | `jest-tests` |
+| Runtime | your ready runtime |
+| Items | tick every file |
+
+Click **Save**. The plan appears in the list. From now on you never
+re-pick the selections — the plan remembers them.
+
+**Step 3.** On the plan, click **Add schedule**. Type these values:
+
+| Field | Value |
+|---|---|
+| When | `every day` |
+| Time | `02:30` |
+| Timezone | your own timezone |
+
+Click **Save**. Expected: the schedule line shows the next run time
+in the future. Tomorrow morning there is a new execution in the
+history — you did not click anything.
+
+> **Common mistake:** picking the wrong timezone — the schedule fires
+> while people are still working. The schedule shows the next fire
+> time converted into your timezone; read it once after saving.
+
+### Example 2 — a suite as a fixed snapshot
+
+A *suite* is a frozen list of test items — a snapshot you can run
+again and again, even when the repository changes.
+
+**Step 1.** In the project, open **Suites** → **New suite**.
+
+**Step 2.** Type the name `release-candidates`. In the item picker,
+tick the items that must pass before a release. Click **Save**.
+
+**Step 3.** Run the suite: **Run** → pick the suite, pick the runtime,
+**Start run**.
+
+Expected: the execution uses exactly the frozen item versions, even
+if newer commits changed those files. This is how you prove a release
+candidate did not regress — the same bytes every time.
+
+### Example 3 — reading artifacts after a run
+
+**Step 1.** Open **Executions**. Click any finished run.
+
+**Step 2.** Click **Artifacts**. Expected files for a Jest run:
+
+| File | What it is |
+|---|---|
+| `jest.json` | The framework's own result data |
+| `junit/*.xml` | The machine-readable report TestOrchestrator read |
+| `manifest.json` | The sealed list of everything the run produced, with hashes |
+| `logs/` | The run's own log files |
+
+**Step 3.** Click `jest.json`. Expected: the browser shows the file.
+The `sha256` in `manifest.json` proves the file you read is exactly
+the file the run machine wrote — nobody changed it afterwards.
+
+### Example 4 — reading history
+
+**Step 1.** Open **Executions**. This is the run history — every run
+your project ever did, newest first.
+
+**Step 2.** Use the filters: pick outcome **failed**. Expected: only
+failed runs remain. Click one and read its results table — the failed
+lines and their messages are kept forever, with the exact repository
+version (`sha`) the run used.
+
+**Step 3.** Compare two runs of the same test: when the same test
+passes in one and fails in the other, look at the sha lines first —
+different repository versions are the most common explanation.
+
 ## 12. Troubleshooting
 
 | Symptom | Most likely cause | What to do |
