@@ -1565,15 +1565,21 @@ Healthy: all four `active (running)`. If one is `inactive` or
 
 ### 10A.5 Service status on Windows
 
-Open **Services** (type `services.msc` in Start). The TestOrchestrator
-services are named `TestOrchestrator *`. Healthy: Status column shows
-**Running** for each.
+On Windows, TestOrchestrator runs through **Scheduled Tasks**. Open
+**Task Scheduler** (type `taskschd.msc` in Start) and look in **Task
+Scheduler Library**. The task names start with `TestOrchestrator`.
 
-![Windows Services with the TestOrchestrator services running](shots/ad-status-winsvc-ok.png)
+Healthy: `TestOrchestratorWeb`, `TestOrchestratorWorker`, and
+`TestOrchestratorBuildbotMaster` show **Running**. The two Buildbot
+worker launcher tasks may show **Ready** after they have started their
+background worker processes. You can also check the same state in
+PowerShell:
 
-If one is stopped, right-click → Start. If it stops again, open
-**Event Viewer → Windows Logs → Application** and look for the service
-name.
+![PowerShell showing the TestOrchestrator tasks, listening ports, and portal ping](shots/ad-status-winsvc-ok.png)
+
+If a task is stopped, right-click it → **Run**. If it stops again,
+open **Event Viewer → Windows Logs → Application** and look for the
+task or service name.
 
 ## 11. Demonstrated worker flow used for these docs
 

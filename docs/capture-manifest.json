@@ -13,7 +13,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:58:35Z"
+      "captured_at": "2026-11-27T14:58:35Z",
+      "shot_sha256": "44b4ef51391a7b45d8df4355fe11676fc66db7e6ae7cd31f1caee2d0fc478d82"
     },
     {
       "file": "shots/um-first-run-02.png",
@@ -26,7 +27,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:58:36Z"
+      "captured_at": "2026-11-27T14:58:36Z",
+      "shot_sha256": "44b4ef51391a7b45d8df4355fe11676fc66db7e6ae7cd31f1caee2d0fc478d82"
     },
     {
       "file": "shots/um-first-run-03.png",
@@ -39,7 +41,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:58:37Z"
+      "captured_at": "2026-11-27T14:58:37Z",
+      "shot_sha256": "762353eedbcf55573732649613cbd9b4b6216b959e00ee312fb963b36c78ff27"
     },
     {
       "file": "shots/um-first-run-04.png",
@@ -52,7 +55,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:58:39Z"
+      "captured_at": "2026-11-27T14:58:39Z",
+      "shot_sha256": "e76971141280f1594ac03fc2e48453088d2aa2cda1b1756b795e22dc1df60011"
     },
     {
       "file": "shots/um-first-run-05.png",
@@ -65,7 +69,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:58:40Z"
+      "captured_at": "2026-11-27T14:58:40Z",
+      "shot_sha256": "e76971141280f1594ac03fc2e48453088d2aa2cda1b1756b795e22dc1df60011"
     },
     {
       "file": "shots/um-first-run-06.png",
@@ -78,7 +83,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:58:40Z"
+      "captured_at": "2026-11-27T14:58:40Z",
+      "shot_sha256": "5f4132129de33a2183a416e26ad0effa2862e3d5ccea16c63be4b784d135bacf"
     },
     {
       "file": "shots/um-first-run-07.png",
@@ -91,7 +97,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T15:01:55Z"
+      "captured_at": "2026-11-27T15:01:55Z",
+      "shot_sha256": "470d03473ba7d802b2de8bef9f05208abb7f2cddd80558b44b1865205ecaf36b"
     },
     {
       "file": "shots/um-first-run-08.png",
@@ -104,7 +111,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:14Z"
+      "captured_at": "2026-11-27T14:59:14Z",
+      "shot_sha256": "79b1a42f137f580f5e8cd66b72538880c131b3b6b830693121942acedd95dd1f"
     },
     {
       "file": "shots/um-jest-01.png",
@@ -117,7 +125,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:15Z"
+      "captured_at": "2026-11-27T14:59:15Z",
+      "shot_sha256": "67f4ba930b8e3b48ec8358079e84462fe2fa732f5bb9d08360355a075425e57d"
     },
     {
       "file": "shots/um-first-run-09.png",
@@ -130,7 +139,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:16Z"
+      "captured_at": "2026-11-27T14:59:16Z",
+      "shot_sha256": "789ce6d936151c535ed126a2949c44013e4d296b76befc0bd57d1be474ac46b7"
     },
     {
       "file": "shots/ad-status-infra-ok.png",
@@ -143,7 +153,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:16Z"
+      "captured_at": "2026-11-27T14:59:16Z",
+      "shot_sha256": "789ce6d936151c535ed126a2949c44013e4d296b76befc0bd57d1be474ac46b7"
     },
     {
       "file": "shots/ad-status-runtime-ready.png",
@@ -156,7 +167,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:17Z"
+      "captured_at": "2026-11-27T14:59:17Z",
+      "shot_sha256": "789ce6d936151c535ed126a2949c44013e4d296b76befc0bd57d1be474ac46b7"
     },
     {
       "file": "shots/ad-status-worker-online.png",
@@ -169,7 +181,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:17Z"
+      "captured_at": "2026-11-27T14:59:17Z",
+      "shot_sha256": "789ce6d936151c535ed126a2949c44013e4d296b76befc0bd57d1be474ac46b7"
     },
     {
       "file": "shots/um-first-run-10.png",
@@ -182,7 +195,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:18Z"
+      "captured_at": "2026-11-27T14:59:18Z",
+      "shot_sha256": "e6f0f89b3091e220a2e4b4848a4bacf3ef0bd562febae55529b314107266daac"
     },
     {
       "file": "shots/um-first-run-11.png",
@@ -195,7 +209,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:19Z"
+      "captured_at": "2026-11-27T14:59:19Z",
+      "shot_sha256": "0fa8900f9d6955dec909274f0b8840a85d2e99b1ae5fec8299c4f7b391f69573"
     },
     {
       "file": "shots/um-first-run-12.png",
@@ -208,7 +223,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:20Z"
+      "captured_at": "2026-11-27T14:59:20Z",
+      "shot_sha256": "9f526ebee9b8ed3bbfc4caffb1390d40da7c19e22a4ae557bacc65995fcdc20b"
     },
     {
       "file": "shots/um-jest-03.png",
@@ -221,7 +237,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:20Z"
+      "captured_at": "2026-11-27T14:59:20Z",
+      "shot_sha256": "9f526ebee9b8ed3bbfc4caffb1390d40da7c19e22a4ae557bacc65995fcdc20b"
     },
     {
       "file": "shots/um-jest-02.png",
@@ -234,7 +251,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:21Z"
+      "captured_at": "2026-11-27T14:59:21Z",
+      "shot_sha256": "a5a8d9438ea8e1a6d568ace370e061c097835c2821bdf0365f8b5832496fef64"
     },
     {
       "file": "shots/um-postman-01.png",
@@ -247,7 +265,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:22Z"
+      "captured_at": "2026-11-27T14:59:22Z",
+      "shot_sha256": "2e7beed4f8287b8267c369ecc14b538a841c958baac7bed4abff63a155b8ef9c"
     },
     {
       "file": "shots/um-postman-02.png",
@@ -260,7 +279,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:23Z"
+      "captured_at": "2026-11-27T14:59:23Z",
+      "shot_sha256": "624bd7bc9babe0bbbe33e944b60eb6c2f5f27da418ae44f2430e6d21750fecd2"
     },
     {
       "file": "shots/um-bruno-01.png",
@@ -273,7 +293,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:24Z"
+      "captured_at": "2026-11-27T14:59:24Z",
+      "shot_sha256": "57d1dfeb2d826886fb61bdb3c8bc80fd6ef21c234bcf2d37c556757297556654"
     },
     {
       "file": "shots/ad-upgrade-03-portal.png",
@@ -286,7 +307,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T14:59:27Z"
+      "captured_at": "2026-11-27T14:59:27Z",
+      "shot_sha256": "74fe68f16e5d7defafac841bcbafbf7d4e3a43e2513b772505b54ebfa9bbf99d"
     },
     {
       "file": "shots/ad-status-infra-offline.png",
@@ -299,7 +321,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T15:02:18Z"
+      "captured_at": "2026-11-27T15:02:18Z",
+      "shot_sha256": "479326ce63f7f9642630568acdf0d2d8e826258b375d89f95b95f9dee3ee504d"
     },
     {
       "file": "shots/ad-status-worker-offline.png",
@@ -312,7 +335,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T15:02:18Z"
+      "captured_at": "2026-11-27T15:02:18Z",
+      "shot_sha256": "479326ce63f7f9642630568acdf0d2d8e826258b375d89f95b95f9dee3ee504d"
     },
     {
       "file": "shots/ad-status-runtime-missing.png",
@@ -325,7 +349,8 @@
       ],
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
-      "captured_at": "2026-11-27T15:04:53Z"
+      "captured_at": "2026-11-27T15:04:53Z",
+      "shot_sha256": "d75d7a9997d4fbe2e3ab5a3d3d58a19ba0820adbcc77d28456025c6b2b4ab625"
     },
     {
       "file": "shots/ad-status-systemd-ok.png",
@@ -339,7 +364,8 @@
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
       "repo_head_at_capture": "99029ef4c0c965b977a1d2bd19860489418e0b59",
-      "captured_at": "2026-11-27T15:28:30Z"
+      "captured_at": "2026-11-27T15:28:30Z",
+      "shot_sha256": "7dea9e9d4072f0f1460fcad82d218085c5f5e828f9e5fd4f6787d46500e41e0c"
     },
     {
       "file": "shots/ad-upgrade-01-backup.png",
@@ -353,7 +379,8 @@
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
       "repo_head_at_capture": "99029ef4c0c965b977a1d2bd19860489418e0b59",
-      "captured_at": "2026-11-27T15:28:30Z"
+      "captured_at": "2026-11-27T15:28:30Z",
+      "shot_sha256": "73b2353c7f0344375600385a0b608c95f88d874b64b193f58578de174fb5bb6e"
     },
     {
       "file": "shots/ad-upgrade-02-install.png",
@@ -367,7 +394,68 @@
       "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
       "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
       "repo_head_at_capture": "175aa7d496c3d873ce1ebdaf98d501759924a40b",
-      "captured_at": "2026-11-27T16:18:22Z"
+      "captured_at": "2026-11-27T16:18:22Z",
+      "shot_sha256": "7a7c5a94837a54f8d6926357b10be46393265f1e8a0a1543fc2c6f066989d51e"
+    },
+    {
+      "file": "shots/um-pytest-01.png",
+      "status": "captured",
+      "note": "pytest framework project discovery inventory on the final-build guest",
+      "url": "https://localhost:8443/framework-projects/6c4e505d4e2c49ec9d6c19bcfbe1e25a",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "repo_head_at_capture": "5e3549b60120617631455bfad2c5b13b28eb5c4d",
+      "shot_sha256": "e6623a654bd64bc8759615509ff03e92b2de04e5fd4bb93e79f6866737a31773",
+      "captured_at": "2026-11-27T16:22:00Z"
+    },
+    {
+      "file": "shots/um-robot-01.png",
+      "status": "captured",
+      "note": "Robot Framework project discovery inventory on the final-build guest",
+      "url": "https://localhost:8443/framework-projects/39240bdf8edb4b609c03d800056665bd",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "repo_head_at_capture": "5e3549b60120617631455bfad2c5b13b28eb5c4d",
+      "shot_sha256": "c65990181b4c0a1ac428aafa22244137b2e28a78c9e9aba640a9ad94de858c1d",
+      "captured_at": "2026-11-27T16:22:00Z"
+    },
+    {
+      "file": "shots/um-behave-01.png",
+      "status": "captured",
+      "note": "Behave framework project discovery inventory on the final-build guest",
+      "url": "https://localhost:8443/framework-projects/4dfa8772b0df4d3a8039661c9c597cad",
+      "viewport": [
+        1440,
+        960
+      ],
+      "package_sha256": "53d3e91e8e3b6b3c41a6caa8437e894ceb7d6bdb450ce2ee9dffb051640b76ea",
+      "package_head": "ac3535f43ee65e5b4ef84ba9415d1fba907f1954",
+      "repo_head_at_capture": "5e3549b60120617631455bfad2c5b13b28eb5c4d",
+      "shot_sha256": "076a5e0be129d999505b1a7b339e20c2315693fcfc5d4f2364f124cf1b9ec837",
+      "captured_at": "2026-11-27T16:23:00Z"
+    },
+    {
+      "file": "shots/ad-status-winsvc-ok.png",
+      "status": "captured-rendered-terminal",
+      "note": "rendered headlessly from live PowerShell scheduled-task/port/ping output on the Windows acceptance guest; no visible terminal used",
+      "url": "qemu:///session/to-accept-win",
+      "viewport": [
+        1285,
+        832
+      ],
+      "package_sha256": "c87c0e5445e02565afcddf8d66636c256cd9c204fae28b0630742c69388befc1",
+      "package_head": "0acdc0458e39597f2a3b2d072c2abd85a7befa88",
+      "repo_head_at_capture": "931cc800b10361aef7eb10ec1bbce5b4a261192f",
+      "shot_sha256": "3cb6c8a294e7955c4357797f9f609a490f9704c8a969550e9f2c455b4c268363",
+      "captured_at": "2026-11-27T16:31:00Z"
     }
   ]
 }
