@@ -1318,6 +1318,96 @@ delete executions, evidence, settings, or credentials; if a
 post-upgrade check shows missing history, stop and restore rather
 than re-migrating.
 
+### 8.4 Upgrade from 2.6.0 to 2.7.0 — step by step
+
+An upgrade replaces the program files and migrates the database. Your
+data — projects, results, secrets, users — stays where it is. Read the
+whole sequence once before you start; the first time, plan an hour.
+
+**Step 0 — backup first.** Stop the services and take a backup
+(§8.1). Do not skip this. If anything below surprises you, the backup
+is the way back.
+
+```bash
+sudo systemctl stop testorchestrator-web testorchestrator-worker \
+    testorchestrator-buildbot-master testorchestrator-buildbot-local
+toctl backup --to /var/backups/testorchestrator
+```
+
+![Terminal showing the backup command completing with the archive name](shots/ad-upgrade-01-backup.png)
+
+**Step 1 — verify the new package.** Download the 2.7.0 tarball and
+`SHA256SUMS.txt` next to it. Check before anything runs:
+
+```bash
+sha256sum -c SHA256SUMS.txt
+# testorchestrator-2.7.0-linux-x86_64.tar.gz: OK
+```
+
+**Step 2 — extract and install over the existing directories.** Use
+the **same** payload, data and config directories as the running
+install. The installer detects the existing installation, keeps your
+data and secrets, and stages the new program files:
+
+```bash
+tar -xzf testorchestrator-2.7.0-linux-x86_64.tar.gz
+cd testorchestrator-2.7.0-linux-x86_64
+sudo bash install.sh --yes \
+    --data /var/lib/testorchestrator \
+    --config /etc/testorchestrator
+```
+
+![Terminal showing the upgrade install completing](shots/ad-upgrade-02-install.png)
+
+You should see the installer finish without errors, and the release
+file shows the new build:
+
+```bash
+cat /opt/testorchestrator/release/release.json
+```
+
+**Step 3 — check for leftover processes.** Before starting the new
+services, make sure nothing from the old install is still running —
+an old process sharing the job queue is a data-integrity risk:
+
+```bash
+ps aux | grep -iE 'testorchestrator|buildbot' | grep -v grep
+```
+
+Expected: **no output** — everything stopped in step 0. If anything is
+listed, stop it before continuing.
+
+**Step 4 — start the services.**
+
+```bash
+sudo systemctl start testorchestrator-buildbot-master \
+    testorchestrator-buildbot-local testorchestrator-worker \
+    testorchestrator-web
+```
+
+**Step 5 — verify the migration.** Open the portal and sign in. Check
+the things that matter to you: projects present, runtimes listed,
+execution history visible. The database migrates automatically on
+first start — the first start can take a minute longer than usual.
+
+![The portal dashboard after upgrade with existing projects visible](shots/ad-upgrade-03-portal.png)
+
+**Step 6 — re-probe the runtimes.** Open **System → Infrastructure**.
+Runtimes re-check themselves; watch the states return to
+`ready-execution`. If one stays `missing-dependency`, open it — the
+message names what changed.
+
+> **Common mistakes — upgrading**
+>
+> - Skipping the backup because "it is a small upgrade". The backup
+>   takes minutes; a broken database takes days.
+> - Installing into **different** directories: that creates a second,
+>   empty installation instead of upgrading the first. Use the same
+>   paths as the running install — check the existing service unit
+>   files if unsure.
+> - Starting services before old processes are gone (step 3): two
+>   generations sharing one queue corrupts run state.
+
 ## 9. Evidence and storage maintenance
 
 ### 9.1 Ownership
