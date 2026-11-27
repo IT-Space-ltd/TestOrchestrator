@@ -54,6 +54,37 @@ the two-session overlap cell — **were not run** for this release, by
 owner decision. Deployments needing live KRE execution must resolve
 the exposure with Katalon first.
 
+## Deferred to 2.8.0
+
+The **Unified Test tab** — a read-only inventory tree across
+frameworks with stale badges, a last-result column and a schedule
+picker fed from the same inventory — is deferred to 2.8.0 by owner
+decision. No part of it ships in 2.7.0; the manuals do not describe
+it as available. Full scope and requirements: `docs/Backlog-2.8.0.md`.
+Also deferred in the same list: product-defined collections,
+cross-framework suite generalization, plan polymorphism.
+
+## Defects found and fixed during the release cycle
+
+All verified by regression tests; details in the changelog.
+
+- Node framework execution in monorepo subdirectories: the execution
+  workdir, lockfile check and spec paths now follow the framework
+  project root; reports are collected from the correct subdirectory.
+- Native collection in subdirectories: the collector script path is
+  referenced relative to the actual workdir; collected paths are
+  framework-root-relative and merged into inventory correctly
+  (previously absolute worker paths polluted inventory).
+- Native collection outcome now reflects the operation — a successful
+  collection no longer reads INCOMPLETE.
+- Execution snapshots pin the binding's synced sha even when a
+  headless caller omits it (reproducibility).
+- Readiness probes advance in the worker maintenance loop — probes no
+  longer depend on someone opening the infrastructure page.
+- Readiness probes detect a node-framework runtime whose executable
+  cannot consume npx-style arguments (e.g. pointed at `node`) and
+  fail with a clear message instead of dying at run time.
+
 ## Upgrade notes
 
 - In-place upgrade from 2.6.0 is supported; migrations are additive
