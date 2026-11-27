@@ -62,13 +62,13 @@ and records automated test runs for Katalon Studio projects:
 
 ### 1.2 Components and their responsibilities
 
-| Component | Role |
-|---|---|
-| **TestOrchestrator portal** | Web UI + API. Owns projects, Git bindings, users, the execution database, evidence, and reports. Serves the worker installer and the Linux worker archive to authenticated users. |
-| **Buildbot master** | Bundled orchestrator (v4.3.0). Accepts dispatched jobs from the portal and hands them to the selected execution target. Its REST API is loopback-only. |
-| **Execution target** | A local controller worker, a remote `buildbot-worker` (Windows/Linux), or an agentless SSH host. Managed entirely in Admin → Infrastructure. |
-| **KRE** | Katalon Runtime Engine — the licensed test executor. It must be installed and licensed **on the worker/host** where the suite actually runs. TestOrchestrator invokes it; it does not license it. |
-| **reportingLabs** | Bundled report generator (vendored, MIT). Converts stored results + evidence into a static HTML report per execution. |
+| Component | What it does for you | Example |
+|---|---|---|
+| **TestOrchestrator portal** | The web page and API you use. It keeps projects, Git bindings, users, the execution database, evidence, and reports. It also gives authenticated users the worker installer and the Linux worker archive. | You open `https://tests.example.com`, choose a suite, and press **Run**. |
+| **Buildbot master** | The bundled job dispatcher (v4.3.0). The portal hands it a job; the master hands that job to the chosen runner. Its REST API listens only on the portal machine itself. | You do not open it directly. The portal uses it after you press **Run**. |
+| **Execution target** | The machine that really runs the tests: a worker on the controller, a remote Windows/Linux `buildbot-worker`, or a host reached over SSH. An administrator manages these in Admin → Infrastructure. | A Windows worker runs a pytest suite while you watch the execution page. |
+| **KRE** | Katalon Runtime Engine — the licensed program that runs Katalon tests. It must be installed and licensed **on the worker/host** where the suite runs. TestOrchestrator starts it; it does not license it. | `katalonc` runs on the worker and writes the result files. |
+| **reportingLabs** | The bundled report generator (vendored, MIT). It turns stored results and evidence into one static HTML report for each execution. | You open an execution and choose the HTML report. |
 
 The portal never executes tests itself when a remote runtime is
 selected — the target does. The portal orchestrates, records, and
@@ -114,13 +114,17 @@ Sign out with the sign-out control in the sidebar footer.
 
 Four roles exist. The sidebar shows only what your role may use.
 
-| Capability | Admin | Test Manager | Tester | PO |
+| You want to… | Admin | Test Manager | Tester | PO |
 |---|---|---|---|---|
-| Sign in, view dashboard, projects, executions, reports | ✓ | ✓ | ✓ | ✓ |
-| Queue executions (run suites/collections) | ✓ | ✓ | ✓ | — |
-| Import historical results | ✓ | ✓ | — | — |
-| Edit projects, bindings, schedules; delete executions | ✓ | ✓ | — | — |
-| System pages: settings, users, workers, credentials, network, audit, logs | ✓ | — | — | — |
+| sign in and look at dashboards, projects, executions, and reports | ✓ | ✓ | ✓ | ✓ |
+| start a suite or collection now | ✓ | ✓ | ✓ | — |
+| import results that were produced somewhere else | ✓ | ✓ | — | — |
+| change projects, bindings, or schedules; delete executions | ✓ | ✓ | — | — |
+| use system pages such as settings, users, workers, credentials, network, audit, and logs | ✓ | — | — | — |
+
+Examples: a **Tester** can start a test run but cannot change the
+schedule. A **PO** can read the report but cannot start the run. Only an
+**Admin** can add a worker or change network settings.
 
 Passwords must be at least 12 characters. An administrator can reset
 your password to a temporary value — you will be forced to replace it

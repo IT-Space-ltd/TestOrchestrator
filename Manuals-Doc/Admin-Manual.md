@@ -113,25 +113,25 @@ amber = **not shipped** — KRE and worker-side files you install and
 licence yourself; blue = external services and agentless SSH hosts.
 
 
-| Piece | Ships as | Notes |
+| Piece | Do we install it? | What it does — example |
 |---|---|---|
-| Portal | Python 3.12 payload + offline venv | Flask/Waitress app behind in-process **Cheroot** HTTPS; SQLite (Alembic-migrated) in the instance dir |
-| Buildbot master + controller workers | Bundled Python packages **4.3.0** (`buildbot`, `buildbot-worker`, `buildbot-www`, `paramiko`) | Master REST is loopback-only (`127.0.0.1:8010`); workers authenticate per-worker passwords over PB `:9989` |
-| Remote workers | `buildbot-worker` via the bundled offline installers (Windows `.exe`, Linux script) | Outbound-only PB connection; created and credentialed in Admin → Infrastructure |
-| Agentless SSH path | Controller-side `paramiko` (bundled) on the `to-ssh-dispatcher` worker | Remote host needs **only** `sshd` + KRE — no installed worker or agent |
-| reportingLabs | Vendored package `reporting_labs` (MIT) | Generates per-execution HTML reports |
-| KRE | **Not shipped** | Install/license it on each execution host yourself |
+| Portal | **Yes** — Python 3.12 payload + offline venv | Serves the web UI. Flask/Waitress sits behind in-process **Cheroot** HTTPS; the SQLite database lives in the instance directory and is migrated by Alembic. Example: an admin opens `https://localhost:8443`. |
+| Buildbot master + controller workers | **Yes** — bundled Python packages **4.3.0** (`buildbot`, `buildbot-worker`, `buildbot-www`, `paramiko`) | Accepts jobs from the portal and runs them on the selected target. The master REST API is loopback-only (`127.0.0.1:8010`); workers use their own passwords over PB `:9989`. |
+| Remote workers | **Yes, as installers** — Windows `.exe` and Linux offline script | A machine you choose connects outward to PB and runs jobs. Example: a Windows QA PC connects to the controller; no inbound port is needed on that PC. Workers are created and credentialed in Admin → Infrastructure. |
+| Agentless SSH path | **Yes** — controller-side `paramiko` on the `to-ssh-dispatcher` worker | The controller connects to a host over SSH and runs there. The remote host needs **only** `sshd` + KRE — no installed worker or agent. |
+| reportingLabs | **Yes** — vendored `reporting_labs` (MIT) | Builds the static HTML report you open from an execution. |
+| KRE | **No — not shipped** | Install and license it on each execution host yourself. Example: install Katalon Runtime Engine on the Windows worker before registering that runtime. |
 
 ### What an install places on the host
 
 A supported install (tarball `install.sh` / `.run`, or the Windows
 installer) creates three trees plus service definitions:
 
-| Location | Contents |
+| Location | What lives there — example |
 |---|---|
-| **Payload** (`--payload`, default under the install root) | Application source (`testorchestrator/`, `wsgi.py`), `3rdparty/` (bundled `python-runtime`, `python-wheels` — including Buildbot wheels — `git`, `reporting_labs`), the app `venv/` built offline from the bundled wheels, `requirements.txt`, licences |
-| **Config** (`--config`) | `web.env` (service settings — not secrets), `buildbot/` master+worker config and `secrets.json` (0600), staged systemd units (`testorchestrator-web`, `-worker`, `-buildbot-master`, `-buildbot-local`, `-buildbot-ssh`) |
-| **Data** (`--data`) | SQLite instance DB (Alembic-migrated on upgrade), `buildbot/` runtime state (master + workers, PB :9989, REST :8010), `evidence/` per-execution artifacts, `certs/`, `logs/`, `workspaces/` per-run checkouts |
+| **Payload** (`--payload`, default under the install root) | The replaceable program files: application source (`testorchestrator/`, `wsgi.py`), `3rdparty/` (`python-runtime`, `python-wheels` including Buildbot wheels, `git`, `reporting_labs`), the offline-built app `venv/`, `requirements.txt`, and licences. Example: this is the tree an upgrade may replace. |
+| **Config** (`--config`) | The files that tell services how to start: `web.env` (settings, not secrets), Buildbot master/worker config, `secrets.json` (0600), and the systemd unit files (`testorchestrator-web`, `-worker`, `-buildbot-master`, `-buildbot-local`, `-buildbot-ssh`). Example: edit `web.env` only when the manual tells you to. |
+| **Data** (`--data`) | The state you must back up: SQLite instance DB, Buildbot runtime state, per-execution `evidence/`, `certs/`, `logs/`, and per-run `workspaces/`. Example: if you restore only the payload, your history and credentials are still missing. |
 
 Services: `testorchestrator-web` (Waitress :18080 loopback),
 `testorchestrator-buildbot-master` (REST + PB), `testorchestrator-buildbot-local`/`...-ssh` (controller workers), `testorchestrator-worker` (dispatch worker
