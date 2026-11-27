@@ -2468,15 +2468,17 @@ Katalon suites carry execution settings, edited in the authoring
 editor or the suite page. They map directly onto KRE command-line
 behaviour:
 
-| Setting | What it does |
-|---|---|
-| `setting_executionMode` | KRE execution mode passed through to the engine |
-| `setting_rerunFailedTestCasesOnly` | rerun only the test cases that failed in the previous run |
-| `setting_isRerun` / `setting_numberOfRerun` / `setting_rerunImmediately` | retry behaviour: whether to rerun, how many times, and whether immediately |
-| `setting_maxConcurrentInstances` / `setting_delayBetweenInstances` | parallelism inside the KRE run and the delay between starts |
-| `setting_pageLoadTimeout` | page-load timeout KRE applies |
-| `setting_tag` | Katalon tag filter |
-| `setting_description` | free-text description stored with the setting set |
+Each Katalon setting, in plain words, with an example value.
+
+| Setting | What it does, in plain words | Example value |
+|---|---|---|
+| `setting_executionMode` | how the engine runs — passed straight through to Katalon | `EXECUTION_MODE` |
+| `setting_rerunFailedTestCasesOnly` | when on, only the tests that failed last time run again | ticked after fixing a broken test |
+| `setting_isRerun` / `setting_numberOfRerun` / `setting_rerunImmediately` | the retry behaviour: whether failed runs repeat, how many times, and whether at once | rerun 2 times, immediately |
+| `setting_maxConcurrentInstances` / `setting_delayBetweenInstances` | how many Katalon copies run side by side, and the pause between their starts | `2` copies, `30` seconds apart |
+| `setting_pageLoadTimeout` | how long a page may take to load before it counts as stuck | `60` seconds |
+| `setting_tag` | only run the test cases carrying this tag | `smoke` runs just the smoke tests |
+| `setting_description` | a note for your team, stored with the settings | `nightly regression, full retry` |
 
 The editor workflow: **Save draft** stores work-in-progress without
 publishing; **Publish to branch** commits the definition to the
