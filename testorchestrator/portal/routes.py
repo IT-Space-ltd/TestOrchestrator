@@ -232,6 +232,16 @@ def reports():
             headers={"Content-Disposition":
                      f"attachment; filename={csv_name}"})
     ids = set(visible_project_ids(current_user))
+    from ..execution import Runner
+    visible_runners = []
+    if ids:
+        for runner in Runner.query.all():
+            try:
+                allowed = set(json.loads(runner.allowed_projects or "[]"))
+            except (TypeError, ValueError):
+                allowed = set()
+            if not allowed or allowed.intersection(ids):
+                visible_runners.append(runner)
     return render_template(
         "portal/reports.html", report=report, report_type=report_type,
         figs=figs, filters=filters,
@@ -239,6 +249,13 @@ def reports():
                         key=lambda p: p.name.lower()),
         states=[s.value for s in ExecutionState],
         outcomes=[o.value for o in Outcome],
+        suites=sorted((su for su in Suite.query.all()
+                       if su.project_id in ids),
+                      key=lambda su: su.name.lower()),
+        runners=sorted(visible_runners, key=lambda r: r.name.lower()),
+        schedules=sorted((sc for sc in Schedule.query.all()
+                          if sc.project_id in ids),
+                         key=lambda sc: sc.name.lower()),
         saved_filters=SavedReportFilter.query.filter_by(
             username=current_user.username).order_by(
                 SavedReportFilter.name).all(),

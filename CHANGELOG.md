@@ -49,7 +49,11 @@
 
 - **Reports saved filter sets — first private slice.** Signed-in users can
   save the currently applied Reports filters under a private per-user name,
-  apply them later, and delete them. Filter keys and value sizes are
+  apply them later, and delete them. The filter bar now also exposes the
+  already composable suite, runner, and schedule filters; suite/schedule
+  choices are project-scoped and runner choices are limited to runners whose
+  current project scope can run at least one visible project. Filter keys and
+  value sizes are
   server-side whitelisted, ownership is enforced on apply/delete, and save /
   delete actions are audited. Shared definitions, scheduled generation and
   share links remain later authorization-sensitive slices.

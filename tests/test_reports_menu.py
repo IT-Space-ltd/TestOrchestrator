@@ -1134,3 +1134,62 @@ def test_saved_report_filters_render_on_reports_page(app, client, login_as):
     assert "Saved filter sets" in body
     assert "mine" in body
     assert "Apply" in body
+
+
+def test_reports_exposes_scoped_suite_runner_schedule_filters(app, client, login_as):
+    with app.app_context():
+        visible = Project(name="FilterVisible")
+        hidden = Project(name="FilterHidden")
+        db.session.add_all([visible, hidden]); db.session.flush()
+        db.session.add_all([
+            Suite(project_id=visible.id, name="visible-suite-filter"),
+            Suite(project_id=hidden.id, name="hidden-suite-filter"),
+            Schedule(project_id=visible.id, name="visible-sched-filter",
+                     target_type="suite", kind="interval"),
+            Schedule(project_id=hidden.id, name="hidden-sched-filter",
+                     target_type="suite", kind="interval"),
+            Runner(name="wild-filter-runner", allowed_projects="[]"),
+            Runner(name="hidden-filter-runner",
+                   allowed_projects=json.dumps([hidden.id])),
+        ])
+        po = User.query.filter_by(username="po").one()
+        po.set_assigned_projects([visible.id])
+        db.session.commit()
+    login_as("po")
+    body = client.get("/reports").data.decode()
+    assert 'name="suite_id"' in body
+    assert 'name="runner_id"' in body
+    assert 'name="schedule_id"' in body
+    assert "visible-suite-filter" in body
+    assert "visible-sched-filter" in body
+    assert "wild-filter-runner" in body
+    assert "hidden-suite-filter" not in body
+    assert "hidden-sched-filter" not in body
+    assert "hidden-filter-runner" not in body
+
+
+def test_reports_suite_runner_schedule_filters_compose(app, client, login_as):
+    with app.app_context():
+        p = Project(name="ComposeFilters")
+        db.session.add(p); db.session.flush()
+        suite = Suite(project_id=p.id, name="compose-suite")
+        runner = Runner(name="compose-runner")
+        db.session.add_all([suite, runner]); db.session.flush()
+        sched = Schedule(project_id=p.id, name="compose-sched",
+                         target_type="suite", kind="interval")
+        db.session.add(sched); db.session.flush()
+        now = datetime.now(timezone.utc)
+        match = _terminal(p, Outcome.PASSED, now)
+        match.suite_id = suite.id
+        match.runner_id = runner.id
+        match.schedule_id = sched.id
+        other = _terminal(p, Outcome.PASSED, now)
+        db.session.commit()
+        mid, oid = match.id, other.id
+        sid, rid, scid = suite.id, runner.id, sched.id
+    login_as("admin")
+    resp = client.get(f"/reports?suite_id={sid}&runner_id={rid}"
+                      f"&schedule_id={scid}")
+    body = resp.data.decode()
+    assert mid[:8] in body
+    assert oid[:8] not in body

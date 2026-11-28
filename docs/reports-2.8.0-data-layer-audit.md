@@ -267,6 +267,10 @@ share links, whole-plan-run rollups, PDF/docx/xlsx and the remaining report
 types remain open backlog work. A first saved-filter-set slice is also
 implemented: filter sets are private to the owning user, server-side key and
 size whitelisting prevents arbitrary filter payloads, apply/delete enforce
-ownership, and save/delete actions are audited. This is deliberately not yet
-the shared saved-report-definition/share-link surface; those remain
+ownership, and save/delete actions are audited. The Reports filter bar now
+exposes the existing composable suite, runner and schedule filters instead of
+leaving them query-string-only. Suite/schedule choices are constrained to
+visible projects; runner choices use the same effective project-scope rule as
+utilization reporting. This is deliberately not yet the shared
+saved-report-definition/share-link surface; those remain
 authorization-sensitive backlog work.
