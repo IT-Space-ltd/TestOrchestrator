@@ -274,6 +274,11 @@ visible projects; runner choices use the same effective project-scope rule as
 utilization reporting. Release, created-by user and exact commit-SHA filters
 also compose through both the raw execution-summary query and logical-run
 reports (the logical-run path applies them to the final resolved attempt).
+Custom from/to date ranges are also implemented: both dates are required,
+they are interpreted as local calendar days in the viewer's timezone, valid
+ranges override the rolling day preset up to a bounded 366-day span, and the
+same bounds apply to execution-created-at, logical-run finish, utilization,
+schedule-event, and audit-event windows.
 Trigger filtering is not partially implemented: schedule/manual/API origin is
 not yet reliably attributable in the execution schema, so API-triggered runs
 must not be misclassified as manual. This is deliberately not yet the shared

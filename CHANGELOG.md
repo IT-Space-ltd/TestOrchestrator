@@ -54,8 +54,11 @@
   choices are project-scoped and runner choices are limited to runners whose
   current project scope can run at least one visible project. Release,
   created-by user, and exact commit-SHA filters are also exposed and compose
-  through both raw execution-summary queries and logical-run reports. Filter
-  keys and value sizes are
+  through both raw execution-summary queries and logical-run reports. Custom
+  from/to date ranges use the viewer's local calendar days, override the
+  rolling day preset when both dates are valid, and apply consistently to
+  execution, logical-run, utilization, schedule-event, and audit windows.
+  Filter keys and value sizes are
   server-side whitelisted, ownership is enforced on apply/delete, and save /
   delete actions are audited. Shared definitions, scheduled generation and
   share links remain later authorization-sensitive slices.

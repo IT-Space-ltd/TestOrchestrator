@@ -24,6 +24,10 @@
     </select></div>
   <div class="field"><label for="days">Period days</label>
     <input type="number" min="1" max="365" name="days" id="days" value="{{ filters.get('days',30) }}"></div>
+  <div class="field"><label for="from_date">Custom from</label>
+    <input type="date" name="from_date" id="from_date" value="{{ filters.get('from_date','') }}"></div>
+  <div class="field"><label for="to_date">Custom to</label>
+    <input type="date" name="to_date" id="to_date" value="{{ filters.get('to_date','') }}"></div>
   <div class="field"><label for="state">State</label>
     <select name="state" id="state"><option value="">All</option>
       {% for s in states %}<option value="{{ s }}" {% if filters.get('state')==s %}selected{% endif %}>{{ s }}</option>{% endfor %}
@@ -56,6 +60,7 @@
     <input type="text" name="source_ref" id="source_ref" value="{{ filters.get('source_ref','') }}"></div>
   <div class="field"><label for="source_sha">Commit SHA</label>
     <input type="text" name="source_sha" id="source_sha" value="{{ filters.get('source_sha','') }}"></div>
+  <div class="field wide"><span class="muted"><small>Custom range uses local calendar days in your display timezone and overrides Period days when both dates are valid; maximum span 366 days.</small></span></div>
   <div class="form-actions"><button class="button" type="submit">Preview</button>
     <button class="button secondary" type="submit" name="format" value="csv">Export CSV</button>
     <a class="button ghost" href="{{ url_for('portal.reports') }}">Clear</a></div>

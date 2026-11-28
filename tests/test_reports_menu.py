@@ -1227,3 +1227,97 @@ def test_reports_user_release_and_commit_filters_compose(app, client, login_as):
     assert 'name="release_id"' in body
     assert 'name="user"' in body
     assert 'name="source_sha"' in body
+
+
+def test_reports_custom_range_uses_viewer_local_days(app):
+    from zoneinfo import ZoneInfo
+    from testorchestrator.reporting.queries import (execution_summary,
+                                                    trend_report)
+    with app.app_context():
+        p = Project(name="CustomRange")
+        db.session.add(p); db.session.flush()
+        # 2026-01-02 02:00 UTC is still 2026-01-01 in New York.
+        when = datetime(2026, 1, 2, 2, 0, tzinfo=timezone.utc)
+        e = Execution(project_id=p.id, outcome=Outcome.PASSED,
+                      state=ExecutionState.COMPLETED, created_at=when,
+                      started_at=when - timedelta(seconds=5),
+                      finished_at=when, created_by="tester")
+        db.session.add(e); db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        filters = {"days": "30", "from_date": "2026-01-02",
+                   "to_date": "2026-01-02"}
+        assert execution_summary(user, filters, tz=ZoneInfo("UTC"))["total"] == 1
+        assert trend_report(user, filters, tz=ZoneInfo("UTC"))["total"] == 1
+        ny = ZoneInfo("America/New_York")
+        assert execution_summary(user, filters, tz=ny)["total"] == 0
+        assert trend_report(user, filters, tz=ny)["total"] == 0
+        filters["from_date"] = "2026-01-01"
+        filters["to_date"] = "2026-01-01"
+        assert execution_summary(user, filters, tz=ny)["total"] == 1
+        assert trend_report(user, filters, tz=ny)["total"] == 1
+
+
+def test_reports_custom_range_inputs_render_and_save(app, client, login_as):
+    login_as("admin")
+    resp = client.get("/reports?from_date=2026-01-01&to_date=2026-01-02")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert 'name="from_date"' in body and 'name="to_date"' in body
+    assert 'value="2026-01-01"' in body and 'value="2026-01-02"' in body
+    with app.app_context():
+        saved = SavedReportFilter(username="admin", name="range",
+                                  filters_json=json.dumps({
+                                      "from_date": "2026-01-01",
+                                      "to_date": "2026-01-02"}))
+        db.session.add(saved); db.session.commit()
+        sid = saved.id
+    applied = client.get(f"/reports/filters/{sid}/apply", follow_redirects=True)
+    assert applied.status_code == 200
+    assert 'value="2026-01-01"' in applied.data.decode()
+
+
+def test_audit_report_custom_range_bounds_events(app):
+    from zoneinfo import ZoneInfo
+    from testorchestrator.reporting.queries import audit_compliance_report
+    with app.app_context():
+        inside = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)
+        outside = datetime(2026, 1, 3, 12, 0, tzinfo=timezone.utc)
+        db.session.add_all([
+            AuditEvent(username="admin", event="inside.event", detail="",
+                       occurred_at=inside),
+            AuditEvent(username="admin", event="outside.event", detail="",
+                       occurred_at=outside),
+        ])
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = audit_compliance_report(
+            user, {"from_date": "2026-01-02", "to_date": "2026-01-02"},
+            tz=ZoneInfo("UTC"))
+        events = {row["event"] for row in report["rows"]}
+        assert "inside.event" in events
+        assert "outside.event" not in events
+        aggregates = {row["event"] for row in report["aggregates"]}
+        assert "inside.event" in aggregates
+        assert "outside.event" not in aggregates
+
+
+def test_custom_range_does_not_treat_superseded_head_as_final(app):
+    from zoneinfo import ZoneInfo
+    from testorchestrator.reporting.queries import trend_report
+    with app.app_context():
+        p = Project(name="RangeRetryBoundary")
+        db.session.add(p); db.session.flush()
+        head_at = datetime(2026, 1, 2, 12, 0, tzinfo=timezone.utc)
+        retry_at = datetime(2026, 1, 5, 12, 0, tzinfo=timezone.utc)
+        head = _terminal(p, Outcome.FAILED, head_at)
+        _terminal(p, Outcome.PASSED, retry_at, attempt=2, retry_of=head.id)
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        filters = {"from_date": "2026-01-02", "to_date": "2026-01-02"}
+        # The logical run belongs to the later final retry, so the in-range
+        # head must not be counted as a separate final failure.
+        assert trend_report(user, filters, tz=ZoneInfo("UTC"))["total"] == 0
+        filters = {"from_date": "2026-01-05", "to_date": "2026-01-05"}
+        report = trend_report(user, filters, tz=ZoneInfo("UTC"))
+        assert report["total"] == 1
+        assert report["rows"][0]["passed_runs"] == 1

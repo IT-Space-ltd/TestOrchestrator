@@ -131,6 +131,8 @@ def reports():
     filters = {
         "project_id": request.args.get("project_id", ""),
         "days": request.args.get("days", "30"),
+        "from_date": request.args.get("from_date", ""),
+        "to_date": request.args.get("to_date", ""),
         "state": request.args.get("state", ""),
         "outcome": request.args.get("outcome", ""),
         "suite_id": request.args.get("suite_id", ""),
@@ -223,7 +225,9 @@ def reports():
         csv_body = schedule_reliability_csv(report)
         csv_name = "testorchestrator-schedule-reliability.csv"
     else:
-        report = execution_summary(current_user, filters)
+        from .. import usertz as _utz
+        report = execution_summary(current_user, filters,
+                                   tz=_utz.user_zone(current_user))
         csv_body = execution_csv(report)
         csv_name = "testorchestrator-execution-summary.csv"
     if request.args.get("format") == "csv":
@@ -268,9 +272,10 @@ def reports():
         plain_form=PlainForm())
 
 
-_REPORT_FILTER_KEYS = ("project_id", "days", "state", "outcome", "suite_id",
-                       "runner_id", "schedule_id", "environment", "source_ref",
-                       "source_sha", "release_id", "user")
+_REPORT_FILTER_KEYS = ("project_id", "days", "from_date", "to_date", "state",
+                       "outcome", "suite_id", "runner_id", "schedule_id",
+                       "environment", "source_ref", "source_sha", "release_id",
+                       "user")
 
 
 def _clean_report_filters(raw):

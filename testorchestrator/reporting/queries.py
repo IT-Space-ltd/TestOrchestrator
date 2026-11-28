@@ -32,6 +32,33 @@ def _bounded_days(value):
     return max(1, min(days, 365))
 
 
+def _window_bounds(filters, tz=None):
+    """(since, until, days, custom) for report time windows.
+
+    Rolling windows keep `until=None` so existing behaviour is unchanged. A
+    custom range requires both local calendar dates, overrides the rolling
+    preset, uses the viewer's zone for day boundaries, and is capped at 366
+    days so logical-run resolution stays bounded. Invalid/incomplete input
+    falls back to the rolling preset rather than raising or silently producing
+    an empty report.
+    """
+    days = _bounded_days(filters.get("days"))
+    now = datetime.now(timezone.utc)
+    day_from = (filters.get("from_date") or "").strip()
+    day_to = (filters.get("to_date") or "").strip()
+    if day_from and day_to:
+        try:
+            from .. import usertz as _utz
+            lo, hi = _utz.local_day_bounds(day_from, day_to, tz or _utz.UTC)
+        except (TypeError, ValueError):
+            lo = hi = None
+        if lo is not None and hi is not None and lo < hi and \
+                hi - lo <= timedelta(days=366):
+            span_days = max(1, int((hi - lo).total_seconds() + 86399) // 86400)
+            return lo, hi, span_days, True
+    return now - timedelta(days=days), None, days, False
+
+
 def _filter_snapshot(filters):
     return {k: str(filters.get(k, ""))[:256] for k in sorted(filters)
             if str(filters.get(k, "")).strip()}
@@ -41,7 +68,7 @@ def visible_project_ids(user):
     return [p.id for p in Project.query.all() if user.project_allowed(p.id)]
 
 
-def scoped_executions(user, filters, windowed=True):
+def scoped_executions(user, filters, windowed=True, tz=None):
     """Execution query pre-scoped to the user's visible projects.
 
     `windowed=False` is for logical-run reports: retry chains must be
@@ -52,11 +79,12 @@ def scoped_executions(user, filters, windowed=True):
     project_id = (filters.get("project_id") or "").strip()
     if project_id:
         q = q.filter(Execution.project_id == (project_id if project_id in ids else ""))
-    days = _bounded_days(filters.get("days"))
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since, until, days, _custom = _window_bounds(filters, tz)
     if windowed:
         q = q.filter(Execution.created_at.isnot(None),
                      Execution.created_at >= since)
+        if until is not None:
+            q = q.filter(Execution.created_at < until)
     for field in ("state", "outcome", "suite_id", "runner_id",
                   "schedule_id", "release_id"):
         value = (filters.get(field) or "").strip()
@@ -81,9 +109,9 @@ def scoped_executions(user, filters, windowed=True):
     return q, days
 
 
-def execution_summary(user, filters):
+def execution_summary(user, filters, tz=None):
     """Rows and aggregate cards for the first execution-summary report."""
-    q, days = scoped_executions(user, filters)
+    q, days = scoped_executions(user, filters, tz=tz)
     total = q.count()
     rows = (q.order_by(Execution.created_at.desc())
              .limit(MAX_REPORT_ROWS).all())
@@ -154,24 +182,30 @@ def _zone_name(tz):
         or str(tz or "UTC")
 
 
-def _select_logical_runs(user, filters):
+def _select_logical_runs(user, filters, tz=None):
     """Bounded terminal logical runs shared by logical-run report types."""
     base = {"project_id": filters.get("project_id", ""),
-            "days": filters.get("days", "30")}
-    q, days = scoped_executions(user, base, windowed=False)
-    since = datetime.now(timezone.utc) - timedelta(days=days)
-    executions = (q.filter(Execution.role.in_(LOGICAL_ROLES),
+            "days": filters.get("days", "30"),
+            "from_date": filters.get("from_date", ""),
+            "to_date": filters.get("to_date", "")}
+    q, _base_days = scoped_executions(user, base, windowed=False, tz=tz)
+    since, until, days, _custom = _window_bounds(filters, tz)
+    # Do NOT SQL-bound the upper edge before retry resolution: a retry after
+    # a custom range still proves that an in-range head is not the logical
+    # run's final attempt. The final attempt is range-checked below instead.
+    execution_q = q.filter(Execution.role.in_(LOGICAL_ROLES),
                            Execution.state.in_(tuple(TERMINAL)),
                            Execution.finished_at.isnot(None),
                            Execution.finished_at >= since)
-                  .all())
+    executions = execution_q.all()
     runs = resolve_logical_runs(executions)
     selected = []
     for run in runs:
         final = run["final"]
         if not final or not final.finished_at:
             continue
-        if _aw(final.finished_at) < since:
+        finished = _aw(final.finished_at)
+        if finished < since or (until is not None and finished >= until):
             continue
         if not _final_matches_filters(final, filters):
             continue
@@ -182,7 +216,8 @@ def _select_logical_runs(user, filters):
     bounded_count = len(selected)
     selected.reverse()
     return {"selected": selected, "days": days, "since": since,
-            "total": total, "bounded_count": bounded_count}
+            "until": until, "total": total,
+            "bounded_count": bounded_count}
 
 
 def _logical_result_sources(selected):
@@ -232,7 +267,7 @@ def trend_report(user, filters, tz=None):
     from the denominator. Output is bounded to MAX_REPORT_ROWS logical runs
     and truncation is disclosed.
     """
-    selection = _select_logical_runs(user, filters)
+    selection = _select_logical_runs(user, filters, tz=tz)
     selected = selection["selected"]
     days = selection["days"]
     total = selection["total"]
@@ -317,7 +352,7 @@ def failure_report(user, filters, tz=None):
     2*min(passed, failed+error)/executed, so perfectly balanced alternation
     approaches 100 while a rare one-off failure approaches zero.
     """
-    selection = _select_logical_runs(user, filters)
+    selection = _select_logical_runs(user, filters, tz=tz)
     selected = selection["selected"]
     sources_by_final, result_execution_ids = _logical_result_sources(selected)
     finals_by_id = {final.id: final for _run, final in selected}
@@ -493,7 +528,7 @@ def failure_analysis_report(user, filters, tz=None):
     non-passed runs with neither evidence nor a recorded kind stay honestly
     uncategorized instead of being folded into test failure.
     """
-    selection = _select_logical_runs(user, filters)
+    selection = _select_logical_runs(user, filters, tz=tz)
     selected = selection["selected"]
     sources_by_final, result_execution_ids = _logical_result_sources(selected)
     result_counts = _result_status_counts(result_execution_ids)
@@ -627,7 +662,7 @@ def traceability_report(user, filters, tz=None):
             if (cand.kind, cand.path) in unresolved_pairs:
                 candidates_by_pair.setdefault((cand.kind, cand.path), []).append(cand)
 
-    selection = _select_logical_runs(user, filters)
+    selection = _select_logical_runs(user, filters, tz=tz)
     selected = selection["selected"]
     sources_by_final, result_ids = _logical_result_sources(selected)
     result_counts = _result_status_counts(result_ids)
@@ -803,9 +838,10 @@ def audit_compliance_report(user, filters, tz=None):
     writer. This report is global system evidence and must only be exposed to
     Admin users by the route layer.
     """
-    days = _bounded_days(filters.get("days"))
-    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since, until, days, _custom = _window_bounds(filters, tz)
     q = AuditEvent.query.filter(AuditEvent.occurred_at >= since)
+    if until is not None:
+        q = q.filter(AuditEvent.occurred_at < until)
     event_filter = (filters.get("event") or "").strip()
     username_filter = (filters.get("username") or "").strip()
     if event_filter:
@@ -845,7 +881,7 @@ def audit_compliance_report(user, filters, tz=None):
         "total": total, "distinct_users": distinct_users,
         "event_type_count": len(aggregates), "export_count": export_count,
         "truncated": total > len(detail_rows), "max_rows": MAX_REPORT_ROWS,
-        "counting": "admin-only global audit events in the rolling window; event aggregates cover the full window while detail rows are capped and truncation is disclosed",
+        "counting": "admin-only global audit events in the selected window; event aggregates cover the full window while detail rows are capped and truncation is disclosed",
     }
 
 
@@ -887,7 +923,7 @@ def framework_comparison_report(user, filters, tz=None):
     disclosed count. Ambiguous legacy rows remain in an explicit unknown
     bucket rather than being guessed into a framework.
     """
-    selection = _select_logical_runs(user, filters)
+    selection = _select_logical_runs(user, filters, tz=tz)
     selected = selection["selected"]
     sources_by_final, result_ids = _logical_result_sources(selected)
     result_counts = _result_status_counts(result_ids)
@@ -1016,7 +1052,7 @@ def target_results_report(user, filters, tz=None):
     from the immutable source_target snapshot, so inventory replacement does
     not split history.
     """
-    selection = _select_logical_runs(user, filters)
+    selection = _select_logical_runs(user, filters, tz=tz)
     selected = selection["selected"]
     ids = visible_project_ids(user)
     plans = {p.id: p.name for p in Plan.query.filter(Plan.project_id.in_(ids or [""])).all()}
@@ -1156,15 +1192,16 @@ def utilization_report(user, filters, tz=None):
     percentages use the dispatch ceiling min(max_slots, license_slots) for
     runners and min(runtime concurrency, host runner ceiling) for runtimes.
     """
-    q, days = scoped_executions(user, filters, windowed=False)
+    q, _base_days = scoped_executions(user, filters, windowed=False, tz=tz)
     now = datetime.now(timezone.utc)
-    since = now - timedelta(days=days)
+    since, custom_until, days, _custom = _window_bounds(filters, tz)
+    window_end = custom_until or now
     terminal = tuple(TERMINAL)
     q = q.filter(Execution.state.in_(terminal),
                  Execution.started_at.isnot(None),
                  Execution.finished_at.isnot(None),
                  Execution.finished_at >= since,
-                 Execution.started_at < now)
+                 Execution.started_at < window_end)
     total = q.count()
     attempts = (q.order_by(Execution.finished_at.desc())
                 .limit(MAX_REPORT_ROWS).all())
@@ -1216,11 +1253,11 @@ def utilization_report(user, filters, tz=None):
                 and _scope_allows(runtime.allowed_projects, visible_ids)):
             runtime_rows[runtime.id] = runtime_row(runtime)
 
-    window_seconds = days * 86400
+    window_seconds = max(1.0, (window_end - since).total_seconds())
     unassigned_attempts = 0
     for ex in attempts:
         start = max(_aw(ex.started_at), since)
-        end = min(_aw(ex.finished_at), now)
+        end = min(_aw(ex.finished_at), window_end)
         busy = max(0.0, (end - start).total_seconds())
         outcome = _enum_value(ex.outcome) or "none"
         bucket = {"passed": "passed", "failed": "failed",
@@ -1340,7 +1377,7 @@ def schedule_reliability_report(user, filters, tz=None):
     scheduler events in the same rolling window. Schedules with zero matching
     runs remain visible so silent schedules are not hidden.
     """
-    selection = _select_logical_runs(user, filters)
+    selection = _select_logical_runs(user, filters, tz=tz)
     selected = selection["selected"]
     days = selection["days"]
     since = selection["since"]
@@ -1393,12 +1430,15 @@ def schedule_reliability_report(user, filters, tz=None):
         # IDs are fixed-width uuid4 hex values; matching the first 32 detail
         # characters covers both exact IDs and "id: detail" audit payloads
         # while keeping the audit query scoped to visible schedules.
-        events = (AuditEvent.query
-                  .filter(AuditEvent.occurred_at >= since,
-                          AuditEvent.event.in_(tuple(event_map)),
-                          func.substr(AuditEvent.detail, 1, 32)
-                          .in_(tuple(schedule_ids)))
-                  .all())
+        event_q = (AuditEvent.query
+                   .filter(AuditEvent.occurred_at >= since,
+                           AuditEvent.event.in_(tuple(event_map)),
+                           func.substr(AuditEvent.detail, 1, 32)
+                           .in_(tuple(schedule_ids))))
+        if selection.get("until") is not None:
+            event_q = event_q.filter(
+                AuditEvent.occurred_at < selection["until"])
+        events = event_q.all()
     for event in events:
         detail_schedule = (event.detail or "").split(":", 1)[0]
         row = rows.get(detail_schedule)
