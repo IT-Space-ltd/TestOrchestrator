@@ -234,6 +234,13 @@ values are evidence of overlapping historical assignments or later capacity
 reconfiguration. Zero-use runners/runtimes remain visible only when their
 current project scopes intersect the viewer's visible projects; historical
 visible executions still surface their assigned infrastructure even if the
-current scope was later narrowed. Saved definitions, scheduled generation,
-share links, PDF/docx/xlsx and the remaining report types remain open backlog
-work.
+current scope was later narrowed. Plan/suite/collection results are also
+implemented on logical-run semantics. Target identity comes from immutable
+execution snapshots: app suite IDs, plan IDs, or repository
+binding+kind+path source-target triples, so inventory replacement does not
+split repository-target history. Plan rows intentionally aggregate member
+suite logical runs and are labeled as such; they are not whole-plan-run
+rollups yet. Direct test/case executions are outside that target grain and
+are omitted with a disclosed count rather than being folded into a suite row.
+Saved definitions, scheduled generation, share links, whole-plan-run rollups,
+PDF/docx/xlsx and the remaining report types remain open backlog work.

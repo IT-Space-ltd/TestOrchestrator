@@ -112,13 +112,14 @@ def reports():
                                      failure_csv, failure_report,
                                      schedule_reliability_csv,
                                      schedule_reliability_report,
+                                     target_results_csv, target_results_report,
                                      trend_csv, trend_report,
                                      utilization_csv, utilization_report,
                                      visible_project_ids)
     report_type = request.args.get("report_type") or "execution-summary"
     if report_type not in ("execution-summary", "trends", "failures",
                            "failure-analysis", "schedule-reliability",
-                           "utilization"):
+                           "utilization", "target-results"):
         report_type = "execution-summary"
     filters = {
         "project_id": request.args.get("project_id", ""),
@@ -161,6 +162,14 @@ def reports():
         figs = {"failure_kinds": failure_kind_bars(report["rows"])}
         csv_body = failure_analysis_csv(report)
         csv_name = "testorchestrator-failure-analysis.csv"
+    elif report_type == "target-results":
+        from .. import usertz as _utz
+        from ..charts import schedule_reliability_bars
+        report = target_results_report(current_user, filters,
+                                       tz=_utz.user_zone(current_user))
+        figs = {"targets": schedule_reliability_bars(report["rows"])}
+        csv_body = target_results_csv(report)
+        csv_name = "testorchestrator-target-results.csv"
     elif report_type == "utilization":
         from .. import usertz as _utz
         from ..charts import utilization_bars

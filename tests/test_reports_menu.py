@@ -2,7 +2,8 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from testorchestrator.execution import (CaseStatus, Execution, ExecutionState,
-                                        Outcome, Project, Runner, RuntimeConnection, Schedule, TestResult)
+                                        Outcome, Plan, Project, Runner, RuntimeConnection, Schedule, Suite,
+                                        TestResult)
 from testorchestrator.extensions import db
 from testorchestrator.models import AuditEvent, User
 
@@ -741,3 +742,105 @@ def test_reports_utilization_page_chart_tables_and_csv(app, client, login_as):
     text = csv_resp.data.decode()
     assert "resource_type,resource_id,name" in text
     assert "ui-util-runner" in text and "ui-util-runtime" in text
+
+
+def _merge_snapshot(ex, **values):
+    snap = json.loads(ex.snapshot_json or "{}")
+    snap.update(values)
+    ex.snapshot_json = json.dumps(snap)
+
+
+def test_target_results_groups_plan_suite_collection_and_omits_direct_tests(app):
+    from testorchestrator.reporting.queries import (target_results_csv,
+                                                    target_results_report)
+    with app.app_context():
+        p = Project(name="TargetProject")
+        db.session.add(p); db.session.flush()
+        plan = Plan(project_id=p.id, name="release-plan")
+        suite = Suite(project_id=p.id, name="app-suite")
+        db.session.add_all([plan, suite]); db.session.flush()
+        now = datetime.now(timezone.utc)
+        pe1 = _terminal(p, Outcome.PASSED, now - timedelta(minutes=4))
+        _merge_snapshot(pe1, plan_id=plan.id, plan_run_id="prun1",
+                        suite_id=suite.id, suite_name="app-suite")
+        pe2 = _terminal(p, Outcome.FAILED, now - timedelta(minutes=3))
+        _merge_snapshot(pe2, plan_id=plan.id, plan_run_id="prun1",
+                        suite_id=suite.id, suite_name="app-suite")
+        se = _terminal(p, Outcome.PASSED, now - timedelta(minutes=2))
+        se.suite_id = suite.id
+        ce = _terminal(p, Outcome.INCOMPLETE, now - timedelta(minutes=1))
+        _merge_snapshot(ce, source_target={
+            "binding_id": "bind1", "kind": "collection",
+            "path": "collections/regression.ts", "name": "regression"})
+        direct = _terminal(p, Outcome.FAILED, now)
+        _merge_snapshot(direct, source_target={
+            "binding_id": "bind1", "kind": "test", "path": "tests/a.py",
+            "name": "a"})
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = target_results_report(user, {"days": "30"})
+        by_type = {(r["target_type"], r["name"]): r for r in report["rows"]}
+        plan_row = by_type[("plan", "release-plan")]
+        assert plan_row["runs"] == 2
+        assert plan_row["passed"] == 1 and plan_row["failed"] == 1
+        assert plan_row["success_rate"] == 50.0
+        suite_row = by_type[("suite", "app-suite")]
+        # Direct suite run + plan-member rows remain distinct targets even
+        # though plan members also belong to the app suite definition.
+        assert suite_row["runs"] == 1 and suite_row["passed"] == 1
+        coll = by_type[("collection", "regression")]
+        assert coll["runs"] == 1 and coll["incomplete"] == 1
+        assert coll["path"] == "collections/regression.ts"
+        assert report["omitted_logical_runs"] == 1
+        assert report["total"] == 4
+        text = target_results_csv(report)
+        assert "target_type,target,project" in text
+        assert "release-plan" in text and "regression" in text
+        assert "omitted_logical_runs" in text
+
+
+def test_target_results_retry_chain_counts_only_final_attempt(app):
+    from testorchestrator.reporting.queries import target_results_report
+    with app.app_context():
+        p = Project(name="TargetRetry")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        head = _terminal(p, Outcome.FAILED, now - timedelta(hours=1))
+        _merge_snapshot(head, source_target={
+            "binding_id": "b", "kind": "suite", "path": "suite.robot",
+            "name": "repo-suite"})
+        retry = _terminal(p, Outcome.PASSED, now, attempt=2, retry_of=head.id)
+        _merge_snapshot(retry, source_target={
+            "binding_id": "b", "kind": "suite", "path": "suite.robot",
+            "name": "repo-suite"})
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = target_results_report(user, {"days": "30"})
+        row = next(r for r in report["rows"] if r["name"] == "repo-suite")
+        assert row["runs"] == 1
+        assert row["passed"] == 1 and row["failed"] == 0
+        assert row["success_rate"] == 100.0
+
+
+def test_reports_target_results_page_chart_and_csv(app, client, login_as):
+    with app.app_context():
+        p = Project(name="TargetUi")
+        db.session.add(p); db.session.flush()
+        ex = _terminal(p, Outcome.PASSED, datetime.now(timezone.utc))
+        _merge_snapshot(ex, source_target={
+            "binding_id": "b", "kind": "collection",
+            "path": "collections/ui.ts", "name": "ui-collection"})
+        db.session.commit()
+    login_as("admin")
+    resp = client.get("/reports?report_type=target-results")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert "Plan/suite/collection results" in body
+    assert "ui-collection" in body
+    assert "member-execution rollups" in body
+    assert "data-plotly-fig" in body
+    csv_resp = client.get("/reports?report_type=target-results&format=csv")
+    assert csv_resp.status_code == 200
+    text = csv_resp.data.decode()
+    assert "target_type,target,project" in text
+    assert "ui-collection" in text

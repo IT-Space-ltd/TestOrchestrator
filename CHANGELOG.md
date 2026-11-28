@@ -23,8 +23,12 @@
   execution attempts rather than logical runs because retries and partition
   units consume real capacity; busy time is clipped to the report window and
   capacity percentages use the configured dispatch ceilings without clipping
-  over-100% evidence. CSV rows carry the generated-at instant, viewer
-  timezone, filter snapshot, and
+  over-100% evidence. A seventh report type groups results by plan,
+  app-side suite, repository suite, or repository collection using immutable
+  snapshot target identity; plan rows are explicitly member-execution rollups
+  rather than whole-plan-run outcomes, and direct test/case targets are
+  omitted and disclosed instead of being folded into a suite row. CSV rows
+  carry the generated-at instant, viewer timezone, filter snapshot, and
   truncation metadata. The query layer is scoped to the signed-in user's
   visible projects before filtering; CSV export is audited and
   spreadsheet-formula-leading text is escaped. PDF/docx/xlsx and additional

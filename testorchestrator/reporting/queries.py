@@ -13,8 +13,8 @@ from sqlalchemy import func
 
 from ..analytics import (LOGICAL_ROLES, TERMINAL, _aw, _day,
                          resolve_logical_runs)
-from ..execution import (Execution, Project, Runner, RuntimeConnection,
-                         Schedule, TestResult)
+from ..execution import (Execution, Plan, Project, Runner, RuntimeConnection,
+                         Schedule, Suite, TestResult)
 from ..models import AuditEvent
 
 MAX_REPORT_ROWS = 5000
@@ -570,6 +570,146 @@ def _scope_allows(scope_json, visible_ids):
     except (TypeError, ValueError):
         allowed = set()
     return bool(visible_ids) and (not allowed or bool(allowed.intersection(visible_ids)))
+
+
+def target_results_report(user, filters, tz=None):
+    """Results grouped by plan, app-side suite, repository suite/collection.
+
+    Rows aggregate member terminal logical runs for the target definition. In
+    particular, plan rows count member suite executions; they are not yet a
+    whole-plan-run rollup. Repository target identity is binding+kind+path
+    from the immutable source_target snapshot, so inventory replacement does
+    not split history.
+    """
+    selection = _select_logical_runs(user, filters)
+    selected = selection["selected"]
+    ids = visible_project_ids(user)
+    plans = {p.id: p.name for p in Plan.query.filter(Plan.project_id.in_(ids or [""])).all()}
+    suites = {s.id: s.name for s in Suite.query.filter(Suite.project_id.in_(ids or [""])).all()}
+    rows = {}
+    omitted = 0
+
+    def new_row(key, target_type, name, project_id, path="", ref=""):
+        return {"key": key, "target_type": target_type, "name": name,
+                "project_id": project_id, "path": path, "source_ref": ref,
+                "runs": 0, "passed": 0, "failed": 0, "incomplete": 0,
+                "none": 0, "success_rate": None, "duration_total": 0.0,
+                "duration_count": 0, "avg_duration_s": None,
+                "last_finished_at": None, "latest_outcome": ""}
+
+    for _run, final in selected:
+        snap = final.snapshot()
+        st = snap.get("source_target") or {}
+        plan_id = snap.get("plan_id") or ""
+        if plan_id:
+            key = ("plan", plan_id)
+            target_type = "plan"
+            name = plans.get(plan_id, plan_id)
+            path = ""
+            ref = ""
+        elif final.suite_id:
+            key = ("suite", final.suite_id)
+            target_type = "suite"
+            name = suites.get(final.suite_id,
+                              snap.get("suite_name") or final.suite_id)
+            path = ""
+            ref = ""
+        elif st.get("kind") in ("suite", "collection"):
+            key = (st.get("kind"), st.get("binding_id") or "",
+                   st.get("path") or "")
+            target_type = st.get("kind")
+            name = st.get("name") or st.get("path") or "repository target"
+            path = st.get("path") or ""
+            ref = final.source_ref or ""
+        else:
+            omitted += 1
+            continue
+        row = rows.get(key)
+        if row is None:
+            row = rows[key] = new_row(key, target_type, name,
+                                      final.project_id, path, ref)
+        elif ref and row["source_ref"] != ref:
+            row["source_ref"] = "multiple"
+        row["runs"] += 1
+        outcome = _enum_value(final.outcome) or "none"
+        row[{"passed": "passed", "failed": "failed",
+             "incomplete": "incomplete"}.get(outcome, "none")] += 1
+        if final.started_at and final.finished_at:
+            duration = max(0.0, (_aw(final.finished_at)
+                                 - _aw(final.started_at)).total_seconds())
+            row["duration_total"] += duration
+            row["duration_count"] += 1
+        if (row["last_finished_at"] is None
+                or _aw(final.finished_at) > _aw(row["last_finished_at"])):
+            row["last_finished_at"] = final.finished_at
+            row["latest_outcome"] = outcome
+
+    projects = {p.id: p.name for p in Project.query.filter(Project.id.in_(ids or [""])).all()}
+    out = []
+    for row in rows.values():
+        row["project"] = projects.get(row["project_id"], row["project_id"])
+        if row["runs"]:
+            row["success_rate"] = round(100 * row["passed"] / row["runs"], 1)
+        if row["duration_count"]:
+            row["avg_duration_s"] = round(
+                row["duration_total"] / row["duration_count"], 1)
+        row.pop("duration_total", None)
+        row.pop("duration_count", None)
+        out.append(row)
+    out.sort(key=lambda r: (r["success_rate"] if r["success_rate"] is not None else 101,
+                            -r["runs"], r["target_type"], r["name"].lower()))
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "filters": _filter_snapshot(filters),
+        "timezone": _zone_name(tz), "days": selection["days"],
+        "rows": out, "total": sum(r["runs"] for r in out),
+        "total_targets": len(out), "omitted_logical_runs": omitted,
+        "truncated": selection["total"] > selection["bounded_count"],
+        "max_rows": MAX_REPORT_ROWS,
+        "counting": "terminal logical runs grouped by immutable target identity; plan rows aggregate member suite executions (not whole-plan-run rollups); direct test/case targets are omitted and disclosed",
+    }
+
+
+def target_results_csv(report):
+    """CSV rows for the plan/suite/collection target report."""
+    import csv
+    import io
+    import json as _json
+    out = io.StringIO()
+    fields = ["target_type", "target", "project", "path", "source_ref",
+              "logical_runs", "passed", "failed", "incomplete", "none",
+              "member_pass_rate", "avg_duration_s", "last_finished_at_utc",
+              "latest_outcome", "tz", "generated_at_utc", "report_type",
+              "total_targets", "total_logical_runs", "omitted_logical_runs",
+              "truncated", "max_rows", "filters_json"]
+    w = csv.DictWriter(out, fieldnames=fields)
+    w.writeheader()
+    generated = report["generated_at"].isoformat()
+    filters_json = _json.dumps(report.get("filters", {}), sort_keys=True)
+    for r in report["rows"]:
+        w.writerow({
+            "target_type": r["target_type"],
+            "target": _csv_safe(r["name"]),
+            "project": _csv_safe(r.get("project", "")),
+            "path": _csv_safe(r.get("path", "")),
+            "source_ref": _csv_safe(r.get("source_ref", "")),
+            "logical_runs": r["runs"], "passed": r["passed"],
+            "failed": r["failed"], "incomplete": r["incomplete"],
+            "none": r["none"], "member_pass_rate": r["success_rate"],
+            "avg_duration_s": r["avg_duration_s"],
+            "last_finished_at_utc": (_aw(r["last_finished_at"]).isoformat()
+                                     if r["last_finished_at"] else ""),
+            "latest_outcome": r["latest_outcome"],
+            "tz": report["timezone"],
+            "generated_at_utc": generated,
+            "report_type": "target-results",
+            "total_targets": report["total_targets"],
+            "total_logical_runs": report["total"],
+            "omitted_logical_runs": report["omitted_logical_runs"],
+            "truncated": "true" if report["truncated"] else "false",
+            "max_rows": report["max_rows"], "filters_json": filters_json,
+        })
+    return out.getvalue()
 
 
 def utilization_report(user, filters, tz=None):
