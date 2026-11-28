@@ -275,6 +275,156 @@ def test_execution_summary_avg_duration_covers_all_matching_rows(app, monkeypatc
         assert report["avg_duration_s"] == 20.0
 
 
+def _case_result(execution, status, name="case", classname="pkg.Class"):
+    db.session.add(TestResult(execution_id=execution.id, case_name=name,
+                              case_ref=name, classname=classname,
+                              status=status))
+
+
+def test_failure_report_ranks_top_failing_and_flaky_cases(app):
+    from testorchestrator.reporting.queries import failure_report
+    with app.app_context():
+        p = Project(name="FailureReport")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        for i, status in enumerate((CaseStatus.PASSED, CaseStatus.FAILED,
+                                    CaseStatus.PASSED)):
+            ex = _terminal(p, Outcome.FAILED, now - timedelta(minutes=10 - i))
+            _case_result(ex, status, name="flaky", classname="pkg.Flaky")
+        for i in range(3):
+            ex = _terminal(p, Outcome.FAILED, now - timedelta(minutes=30 - i))
+            _case_result(ex, CaseStatus.FAILED, name="always", classname="pkg.Stable")
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = failure_report(user, {"days": "30"})
+        assert report["total"] == 6
+        assert [r["case_name"] for r in report["top_failing"]] == ["always", "flaky"]
+        always, flaky = report["top_failing"]
+        assert always["failure_count"] == 3 and always["failure_rate"] == 100.0
+        assert always["flaky_candidate"] is False
+        assert flaky["failure_count"] == 1 and flaky["passed"] == 2
+        assert flaky["executed_runs"] == 3
+        assert flaky["instability_score"] == 66.7
+        assert flaky["flaky_candidate"] is True
+        assert [r["case_name"] for r in report["flaky"]] == ["flaky"]
+
+
+def test_failure_report_retry_chain_counts_only_final_attempt(app):
+    from testorchestrator.reporting.queries import failure_report
+    with app.app_context():
+        p = Project(name="FailureRetry")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        head = _terminal(p, Outcome.FAILED, now - timedelta(hours=2))
+        retry = _terminal(p, Outcome.PASSED, now, attempt=2, retry_of=head.id)
+        _case_result(head, CaseStatus.FAILED, name="retried")
+        _case_result(retry, CaseStatus.PASSED, name="retried")
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = failure_report(user, {"days": "30"})
+        assert report["total"] == 1
+        assert report["top_failing"] == []
+        assert report["total_cases"] == 1
+
+
+def test_failure_report_project_scoping_and_csv_escaping(app):
+    import csv
+    import io
+    from testorchestrator.reporting.queries import failure_csv, failure_report
+    with app.app_context():
+        visible = Project(name="FailureVisible")
+        hidden = Project(name="FailureHidden")
+        db.session.add_all([visible, hidden]); db.session.flush()
+        now = datetime.now(timezone.utc)
+        ex = _terminal(visible, Outcome.FAILED, now)
+        _case_result(ex, CaseStatus.FAILED, name="=visible_case")
+        ex = _terminal(hidden, Outcome.FAILED, now)
+        _case_result(ex, CaseStatus.FAILED, name="hidden_case")
+        po = User.query.filter_by(username="po").one()
+        po.set_assigned_projects([visible.id])
+        db.session.commit()
+        report = failure_report(po, {"days": "30"})
+        assert report["total"] == 1
+        assert [r["case_name"] for r in report["top_failing"]] == ["=visible_case"]
+        text = failure_csv(report)
+        rows = list(csv.DictReader(io.StringIO(text)))
+        assert rows[0]["case_name"] == "'=visible_case"
+        assert "hidden_case" not in text
+        assert rows[0]["report_type"] == "failures"
+        assert rows[0]["truncated"] == "false"
+
+
+def test_failure_report_case_cap_is_disclosed(app, monkeypatch):
+    from testorchestrator.reporting import queries
+    monkeypatch.setattr(queries, "MAX_CASE_ROWS", 1)
+    with app.app_context():
+        p = Project(name="FailureCap")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        for i in range(2):
+            ex = _terminal(p, Outcome.FAILED, now - timedelta(minutes=i))
+            _case_result(ex, CaseStatus.FAILED, name=f"capped-{i}")
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = queries.failure_report(user, {"days": "30"})
+        assert report["failing_cases"] == 2
+        assert len(report["top_failing"]) == 1
+        assert report["cases_truncated"] is True
+        assert report["truncated"] is False  # case cap is separate from run cap
+        assert "total_cases" in report
+
+
+def test_reports_failure_type_page_chart_tables_and_csv(app, client, login_as):
+    with app.app_context():
+        p = Project(name="FailureUi")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        for i, status in enumerate((CaseStatus.PASSED, CaseStatus.FAILED,
+                                    CaseStatus.PASSED)):
+            ex = _terminal(p, Outcome.FAILED, now - timedelta(minutes=5 - i))
+            _case_result(ex, status, name="flaky-ui", classname="pkg.Ui")
+        db.session.commit()
+    login_as("admin")
+    resp = client.get("/reports?report_type=failures")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert "Top failing and flaky tests" in body
+    assert "Flaky heuristic" in body
+    assert "pkg.Ui.flaky-ui" in body
+    assert "66.7%" in body
+    assert "data-plotly-fig" in body
+    csv_resp = client.get("/reports?report_type=failures&format=csv")
+    text = csv_resp.data.decode()
+    assert csv_resp.status_code == 200
+    assert "project,suite,case,case_ref" in text
+    assert "flaky-ui" in text
+    assert "instability_score" in text
+
+
+def test_failure_report_does_not_nplus1_cases(app):
+    from sqlalchemy import event
+    from testorchestrator.reporting.queries import failure_report
+    with app.app_context():
+        p = Project(name="FailureNplusOne")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        for i in range(5):
+            ex = _terminal(p, Outcome.FAILED, now - timedelta(minutes=i))
+            _case_result(ex, CaseStatus.FAILED, name=f"case-{i}")
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        queries = []
+        engine = db.session.get_bind()
+        def count(*a, **k): queries.append(1)
+        event.listen(engine, "before_cursor_execute", count)
+        try:
+            report = failure_report(user, {"days": "30"})
+        finally:
+            event.remove(engine, "before_cursor_execute", count)
+        assert report["total"] == 5
+        assert len(queries) <= 5, queries
+
+
 def test_trend_report_truncation_is_disclosed_in_preview_data_and_csv(app, monkeypatch):
     import csv
     import io

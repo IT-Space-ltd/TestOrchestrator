@@ -107,10 +107,11 @@ def _suite_hash(suite: Suite) -> str:
 def reports():
     """Report previews + CSV exports (2.8.0 incremental slices)."""
     from ..reporting.queries import (execution_csv, execution_summary,
+                                     failure_csv, failure_report,
                                      trend_csv, trend_report,
                                      visible_project_ids)
     report_type = request.args.get("report_type") or "execution-summary"
-    if report_type not in ("execution-summary", "trends"):
+    if report_type not in ("execution-summary", "trends", "failures"):
         report_type = "execution-summary"
     filters = {
         "project_id": request.args.get("project_id", ""),
@@ -137,6 +138,14 @@ def reports():
         }
         csv_body = trend_csv(report)
         csv_name = "testorchestrator-trend-report.csv"
+    elif report_type == "failures":
+        from .. import usertz as _utz
+        from ..charts import failure_breakdown
+        report = failure_report(current_user, filters,
+                                tz=_utz.user_zone(current_user))
+        figs = {"failures": failure_breakdown(report["chart_rows"])}
+        csv_body = failure_csv(report)
+        csv_name = "testorchestrator-failure-report.csv"
     else:
         report = execution_summary(current_user, filters)
         csv_body = execution_csv(report)

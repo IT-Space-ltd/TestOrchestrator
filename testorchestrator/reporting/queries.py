@@ -15,6 +15,8 @@ from ..analytics import (LOGICAL_ROLES, TERMINAL, _aw, _day,
 from ..execution import Execution, Project, TestResult
 
 MAX_REPORT_ROWS = 5000
+MAX_CASE_ROWS = 500
+FLAKY_MIN_EXECUTED_RUNS = 3
 
 
 def _bounded_days(value):
@@ -128,19 +130,13 @@ def _final_matches_filters(final, filters):
     return True
 
 
-def trend_report(user, filters, tz=None):
-    """Pass-rate/duration trends using logical-run semantics.
+def _zone_name(tz):
+    return getattr(tz, "key", None) or getattr(tz, "zone", None) \
+        or str(tz or "UTC")
 
-    Retry chains are resolved before metadata filters so retries cannot
-    inflate counts. The source set is terminal logical-role attempts in the
-    rolling window ending now: an older missing chain head cannot change the
-    final resolved attempt, because any later terminal retry would also be
-    inside that window. A run belongs to the day its final resolved terminal
-    attempt finished; case pass rates use that attempt's parsed results (plus
-    unit-child results for partitioned parents), with skipped cases excluded
-    from the denominator. Output is bounded to MAX_REPORT_ROWS logical runs
-    and truncation is disclosed.
-    """
+
+def _select_logical_runs(user, filters):
+    """Bounded terminal logical runs shared by logical-run report types."""
     base = {"project_id": filters.get("project_id", ""),
             "days": filters.get("days", "30")}
     q, days = scoped_executions(user, base, windowed=False)
@@ -151,7 +147,6 @@ def trend_report(user, filters, tz=None):
                            Execution.finished_at >= since)
                   .all())
     runs = resolve_logical_runs(executions)
-
     selected = []
     for run in runs:
         final = run["final"]
@@ -167,7 +162,12 @@ def trend_report(user, filters, tz=None):
     selected = selected[:MAX_REPORT_ROWS]
     bounded_count = len(selected)
     selected.reverse()
+    return {"selected": selected, "days": days, "since": since,
+            "total": total, "bounded_count": bounded_count}
 
+
+def _logical_result_sources(selected):
+    """Map final attempts plus authorized partition units to result rows."""
     parent_ids = [final.id for _run, final in selected if final.role == "parent"]
     parent_projects = {final.id: final.project_id
                        for _run, final in selected if final.role == "parent"}
@@ -176,13 +176,16 @@ def trend_report(user, filters, tz=None):
         for unit in Execution.query.filter(Execution.parent_id.in_(parent_ids)).all():
             if unit.project_id == parent_projects.get(unit.parent_id):
                 units_by_parent.setdefault(unit.parent_id, []).append(unit)
-
     result_execution_ids = set()
     sources_by_final = {}
     for _run, final in selected:
         sources = [final] + units_by_parent.get(final.id, [])
         sources_by_final[final.id] = sources
         result_execution_ids.update(e.id for e in sources)
+    return sources_by_final, result_execution_ids
+
+
+def _result_status_counts(result_execution_ids):
     result_counts = {}
     if result_execution_ids:
         result_rows = (TestResult.query
@@ -194,9 +197,31 @@ def trend_report(user, filters, tz=None):
                        .all())
         for execution_id, status, count in result_rows:
             result_counts.setdefault(execution_id, {})[_enum_value(status)] = count
+    return result_counts
 
-    zone_name = getattr(tz, "key", None) or getattr(tz, "zone", None) \
-        or str(tz or "UTC")
+
+def trend_report(user, filters, tz=None):
+    """Pass-rate/duration trends using logical-run semantics.
+
+    Retry chains are resolved before metadata filters so retries cannot
+    inflate counts. The source set is terminal logical-role attempts in the
+    rolling window ending now: an older missing chain head cannot change the
+    final resolved attempt, because any later terminal retry would also be
+    inside that window. A run belongs to the day its final resolved terminal
+    attempt finished; case pass rates use that attempt's parsed results (plus
+    unit-child results for partitioned parents), with skipped cases excluded
+    from the denominator. Output is bounded to MAX_REPORT_ROWS logical runs
+    and truncation is disclosed.
+    """
+    selection = _select_logical_runs(user, filters)
+    selected = selection["selected"]
+    days = selection["days"]
+    total = selection["total"]
+    bounded_count = selection["bounded_count"]
+    sources_by_final, result_execution_ids = _logical_result_sources(selected)
+    result_counts = _result_status_counts(result_execution_ids)
+
+    zone_name = _zone_name(tz)
     by_day = {}
     duration_points = []
     for _run, final in selected:
@@ -247,6 +272,198 @@ def trend_report(user, filters, tz=None):
         "durations": duration_points,
         "counting": "logical runs; final resolved attempt; case pass-rate excludes skipped",
     }
+
+
+def _case_run_status(counts):
+    for status in ("error", "failed", "passed", "skipped"):
+        if counts.get(status):
+            return status
+    return "skipped"
+
+
+def _display_case(case_ref, case_name, classname):
+    if classname and case_name:
+        return f"{classname}.{case_name}"
+    return case_name or case_ref or classname or "(unnamed case)"
+
+
+def failure_report(user, filters, tz=None):
+    """Top-failing and flaky test-case report over terminal logical runs.
+
+    A test case contributes at most one status per logical run. Multiple
+    iterations/rows in that run collapse by severity: error, failed, passed,
+    then skipped. Flaky candidate heuristic: at least FLAKY_MIN_EXECUTED_RUNS
+    executed logical runs (passed+failed+error, skips excluded), with at least
+    one passed and one failed/error run. Instability is
+    2*min(passed, failed+error)/executed, so perfectly balanced alternation
+    approaches 100 while a rare one-off failure approaches zero.
+    """
+    selection = _select_logical_runs(user, filters)
+    selected = selection["selected"]
+    sources_by_final, result_execution_ids = _logical_result_sources(selected)
+    finals_by_id = {final.id: final for _run, final in selected}
+    source_to_final = {source.id: final_id
+                       for final_id, sources in sources_by_final.items()
+                       for source in sources}
+    project_ids = {final.project_id for _run, final in selected}
+    projects = {}
+    if project_ids:
+        projects = {p.id: p.name for p in Project.query.filter(
+            Project.id.in_(project_ids)).all()}
+
+    grouped_rows = []
+    if result_execution_ids:
+        grouped_rows = (TestResult.query
+                        .with_entities(TestResult.execution_id,
+                                       TestResult.case_ref,
+                                       TestResult.case_name,
+                                       TestResult.classname,
+                                       TestResult.status,
+                                       func.count(TestResult.id))
+                        .filter(TestResult.execution_id.in_(result_execution_ids))
+                        .group_by(TestResult.execution_id,
+                                  TestResult.case_ref,
+                                  TestResult.case_name,
+                                  TestResult.classname,
+                                  TestResult.status)
+                        .yield_per(1000))
+    case_run_counts = {}
+    case_meta = {}
+    for execution_id, case_ref, case_name, classname, status, count in grouped_rows:
+        final_id = source_to_final.get(execution_id)
+        final = finals_by_id.get(final_id)
+        if final is None:
+            continue
+        suite = final.snapshot().get("suite_name") or "(no suite)"
+        key = (final.project_id, suite, case_ref or "",
+               case_name or "", classname or "")
+        case_meta.setdefault(key, {
+            "_key": key,
+            "project_id": final.project_id,
+            "project": projects.get(final.project_id, final.project_id),
+            "suite": suite,
+            "case_ref": case_ref or "",
+            "case_name": case_name or "",
+            "classname": classname or "",
+            "display_case": _display_case(case_ref or "", case_name or "",
+                                          classname or ""),
+        })
+        st = _enum_value(status)
+        counts = case_run_counts.setdefault((final_id, key), {})
+        counts[st] = counts.get(st, 0) + count
+
+    stats = {}
+    for (final_id, key), counts in case_run_counts.items():
+        status = _case_run_status(counts)
+        row = stats.setdefault(key, dict(case_meta[key], runs=0, passed=0,
+                                         failed=0, error=0, skipped=0))
+        row["runs"] += 1
+        row[status] += 1
+
+    rows = []
+    for row in stats.values():
+        executed = row["passed"] + row["failed"] + row["error"]
+        failures = row["failed"] + row["error"]
+        row["executed_runs"] = executed
+        row["failure_count"] = failures
+        row["failure_rate"] = round(100 * failures / executed, 1) if executed else None
+        row["instability_score"] = (round(200 * min(row["passed"], failures) / executed, 1)
+                                    if executed else 0.0)
+        row["flaky_candidate"] = (executed >= FLAKY_MIN_EXECUTED_RUNS
+                                  and row["passed"] > 0 and failures > 0)
+        rows.append(row)
+
+    def case_sort(row):
+        return (row["project"].lower(), row["suite"].lower(),
+                row["display_case"].lower())
+
+    top_all = [r for r in rows if r["failure_count"]]
+    top_all.sort(key=lambda r: (-r["failure_count"], -(r["failure_rate"] or 0),
+                                *case_sort(r)))
+    flaky_all = [r for r in rows if r["flaky_candidate"]]
+    flaky_all.sort(key=lambda r: (-r["instability_score"], -r["executed_runs"],
+                                  *case_sort(r)))
+    top_rows = top_all[:MAX_CASE_ROWS]
+    flaky_rows = flaky_all[:MAX_CASE_ROWS]
+    for rank, row in enumerate(top_rows, 1):
+        row["top_failing_rank"] = rank
+    for rank, row in enumerate(flaky_rows, 1):
+        row["flaky_rank"] = rank
+    for row in rows:
+        row.setdefault("top_failing_rank", None)
+        row.setdefault("flaky_rank", None)
+
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "filters": _filter_snapshot(filters),
+        "timezone": _zone_name(tz),
+        "days": selection["days"], "rows": top_rows,
+        "top_failing": top_rows, "flaky": flaky_rows,
+        "total": selection["total"],
+        "truncated": selection["total"] > selection["bounded_count"],
+        "max_rows": MAX_REPORT_ROWS,
+        "total_cases": len(rows),
+        "failing_cases": len(top_all), "flaky_cases": len(flaky_all),
+        "cases_truncated": len(top_all) > len(top_rows) or len(flaky_all) > len(flaky_rows),
+        "max_case_rows": MAX_CASE_ROWS,
+        "chart_rows": [{"case": r["display_case"][:80],
+                        "count": r["failure_count"]} for r in top_rows[:10]],
+        "counting": "logical runs; one status per case per run; skips excluded from executed denominator",
+        "flaky_heuristic": (f"executed logical runs >= {FLAKY_MIN_EXECUTED_RUNS}, at least one pass "
+                            "and one failure/error; instability=2*min(pass,fail)/executed"),
+    }
+
+
+def failure_csv(report):
+    """Case-row CSV for the top-failing/flaky report."""
+    import csv
+    import io
+    import json
+    out = io.StringIO()
+    fields = ["project", "suite", "case", "case_ref", "case_name", "classname",
+              "logical_runs", "executed_runs", "passed", "failed", "error",
+              "skipped", "failure_count", "failure_rate", "instability_score",
+              "flaky_candidate", "top_failing_rank", "flaky_rank", "tz",
+              "generated_at_utc", "report_type", "total_cases", "truncated",
+              "max_case_rows", "filters_json"]
+    w = csv.DictWriter(out, fieldnames=fields)
+    w.writeheader()
+    generated = report["generated_at"].isoformat()
+    filters_json = json.dumps(report.get("filters", {}), sort_keys=True)
+    combined = {}
+    for row in report["top_failing"] + report["flaky"]:
+        combined[row["_key"]] = row
+    rows = sorted(combined.values(),
+                  key=lambda r: (r["top_failing_rank"] is None,
+                                 r["top_failing_rank"] or 10**9,
+                                 r["flaky_rank"] or 10**9))
+    for r in rows:
+        w.writerow({
+            "project": _csv_safe(r["project"]),
+            "suite": _csv_safe(r["suite"]),
+            "case": _csv_safe(r["display_case"]),
+            "case_ref": _csv_safe(r["case_ref"]),
+            "case_name": _csv_safe(r["case_name"]),
+            "classname": _csv_safe(r["classname"]),
+            "logical_runs": r["runs"],
+            "executed_runs": r["executed_runs"],
+            "passed": r["passed"], "failed": r["failed"],
+            "error": r["error"], "skipped": r["skipped"],
+            "failure_count": r["failure_count"],
+            "failure_rate": r["failure_rate"],
+            "instability_score": r["instability_score"],
+            "flaky_candidate": "true" if r["flaky_candidate"] else "false",
+            "top_failing_rank": r["top_failing_rank"] or "",
+            "flaky_rank": r["flaky_rank"] or "",
+            "tz": report["timezone"],
+            "generated_at_utc": generated,
+            "report_type": "failures",
+            "total_cases": report["total_cases"],
+            "truncated": "true" if report["cases_truncated"] or report["truncated"] else "false",
+            "max_case_rows": report["max_case_rows"],
+            "filters_json": filters_json,
+        })
+    return out.getvalue()
 
 
 def trend_csv(report):

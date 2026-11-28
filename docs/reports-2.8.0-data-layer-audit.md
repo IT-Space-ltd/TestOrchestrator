@@ -205,7 +205,12 @@ final-attempt semantics. Runs are assigned to the final resolved attempt's
 finish day in the viewer's timezone, and partitioned unit-child results
 contribute once to the parent logical run. Result statuses are aggregated in
 one batched query after the bounded logical-run set is selected, so the rollup
-does not N+1. CSV rows carry the
-generated-at instant, timezone, filter snapshot and truncation metadata.
-Saved definitions, scheduled generation, share links, PDF/docx/xlsx and the
-remaining report types remain open backlog work.
+does not N+1. CSV rows carry the generated-at instant, timezone, filter
+snapshot and truncation metadata. A top-failing/flaky-test report is also implemented on the same logical-run
+selection layer. It collapses each case to one severity-ordered status per
+logical run, ranks failures by failed/error logical-run count, and uses a
+disclosed flaky heuristic: at least three executed runs, at least one pass and
+one failure/error, ranked by 2*min(pass, fail)/executed. Case rankings are
+capped and truncation is disclosed. Saved definitions, scheduled generation,
+share links, PDF/docx/xlsx and the remaining report types remain open backlog
+work.

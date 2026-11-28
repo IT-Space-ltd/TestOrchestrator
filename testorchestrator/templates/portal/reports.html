@@ -9,6 +9,7 @@
     <select name="report_type" id="report_type">
       <option value="execution-summary" {% if report_type=='execution-summary' %}selected{% endif %}>Execution summary</option>
       <option value="trends" {% if report_type=='trends' %}selected{% endif %}>Pass-rate and duration trends</option>
+      <option value="failures" {% if report_type=='failures' %}selected{% endif %}>Top failing and flaky tests</option>
     </select></div>
   <div class="field"><label for="project_id">Project</label>
     <select name="project_id" id="project_id"><option value="">All visible projects</option>
@@ -33,7 +34,7 @@
     <a class="button ghost" href="{{ url_for('portal.reports') }}">Clear</a></div>
 </form>
 
-{% if report.truncated %}<p class="badge warn">Preview/export truncated to the latest {{ report.max_rows }} matching {% if report_type == 'trends' %}logical runs{% else %}executions{% endif %}; the limit is disclosed rather than silently applied.</p>{% endif %}
+{% if report.truncated %}<p class="badge warn">Preview/export truncated to the latest {{ report.max_rows }} matching {% if report_type == 'execution-summary' %}executions{% else %}logical runs{% endif %}; the limit is disclosed rather than silently applied.</p>{% endif %}
 
 {% if report_type == 'trends' %}
 <p class="muted"><small>Counting: terminal logical runs resolved to their final attempt; case pass-rate is passed / (passed + failed + error), skipped excluded. Windowed by final finish date in the viewer's display timezone ({{ report.timezone }}).</small></p>
@@ -52,6 +53,28 @@
 <table class="data-table"><thead><tr><th>Day</th><th>Logical runs</th><th>Passed runs</th><th>Failed runs</th><th>Incomplete</th><th>No outcome</th><th>Case pass %</th><th>Avg duration s</th></tr></thead><tbody>
 {% for r in report.rows %}<tr><td>{{ r.day }}</td><td>{{ r.logical_runs }}</td><td>{{ r.passed_runs }}</td><td>{{ r.failed_runs }}</td><td>{{ r.incomplete_runs }}</td><td>{{ r.none_runs }}</td><td>{{ r.case_pass_rate if r.case_pass_rate is not none else '—' }}</td><td>{{ r.avg_duration_s if r.avg_duration_s is not none else '—' }}</td></tr>{% else %}<tr><td colspan="8" class="muted">No trend data matches the selected filters.</td></tr>{% endfor %}
 </tbody></table></details>
+<script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
+{% elif report_type == 'failures' %}
+<p class="muted"><small>Counting: {{ report.counting }}. Flaky heuristic: {{ report.flaky_heuristic }}.</small></p>
+{% if report.cases_truncated %}<p class="badge warn">Case tables/exports are capped at {{ report.max_case_rows }} rows per ranking; the cap is disclosed rather than silently applied.</p>{% endif %}
+<div class="dash-2col">
+  <section class="card"><h2>Top failing cases</h2>
+    {% if figs.failures != 'null' %}<div data-plotly-fig="{{ figs.failures }}"></div>{% else %}<p class="muted">No failing cases.</p>{% endif %}</section>
+  <section class="card"><h2>Applied scope</h2>
+    <div class="metric"><strong>{{ report.total_cases }}</strong><span>cases with results</span></div>
+    <div class="metric"><strong>{{ report.failing_cases }}</strong><span>failing cases</span></div>
+    <div class="metric"><strong>{{ report.flaky_cases }}</strong><span>flaky candidates</span></div>
+    <p class="muted">{{ report.total }} matching terminal logical runs</p></section>
+</div>
+<section class="card"><h2>Top failing test cases</h2>
+<table class="data-table"><thead><tr><th>Rank</th><th>Case</th><th>Project</th><th>Suite</th><th>Runs</th><th>Failed/error</th><th>Failure rate</th></tr></thead><tbody>
+{% for r in report.top_failing %}<tr><td>{{ r.top_failing_rank }}</td><td>{{ r.display_case }}</td><td>{{ r.project }}</td><td>{{ r.suite }}</td><td>{{ r.executed_runs }}</td><td>{{ r.failure_count }}</td><td>{{ r.failure_rate }}%</td></tr>{% else %}<tr><td colspan="7" class="muted">No failing test cases match the selected filters.</td></tr>{% endfor %}
+</tbody></table></section>
+<section class="card"><h2>Flaky candidates</h2>
+<table class="data-table"><thead><tr><th>Rank</th><th>Case</th><th>Project</th><th>Suite</th><th>Executed runs</th><th>Pass/fail</th><th>Instability</th></tr></thead><tbody>
+{% for r in report.flaky %}<tr><td>{{ r.flaky_rank }}</td><td>{{ r.display_case }}</td><td>{{ r.project }}</td><td>{{ r.suite }}</td><td>{{ r.executed_runs }}</td><td>{{ r.passed }}/{{ r.failure_count }}</td><td>{{ r.instability_score }}%</td></tr>{% else %}<tr><td colspan="7" class="muted">No flaky candidates match the heuristic.</td></tr>{% endfor %}
+</tbody></table></section>
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 {% else %}
