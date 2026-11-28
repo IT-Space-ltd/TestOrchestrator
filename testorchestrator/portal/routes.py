@@ -126,7 +126,7 @@ def reports():
                            "failure-analysis", "schedule-reliability",
                            "utilization", "target-results",
                            "framework-comparison", "audit-compliance",
-                           "traceability"):
+                           "traceability", "comparison"):
         report_type = "execution-summary"
     filters = {
         "project_id": request.args.get("project_id", ""),
@@ -228,6 +228,15 @@ def reports():
         figs = {"reliability": schedule_reliability_bars(report["rows"])}
         csv_body = schedule_reliability_csv(report)
         csv_name = "testorchestrator-schedule-reliability.csv"
+    elif report_type == "comparison":
+        from .. import usertz as _utz
+        from ..reporting.queries import comparison_csv, comparison_report
+        filters_a = _comparison_filters(request.args.get("compare_a"))
+        filters_b = _comparison_filters(request.args.get("compare_b"))
+        report = comparison_report(current_user, filters_a, filters_b,
+                                   tz=_utz.user_zone(current_user))
+        csv_body = comparison_csv(report)
+        csv_name = "testorchestrator-filter-comparison.csv"
     else:
         from .. import usertz as _utz
         report = execution_summary(current_user, filters,
@@ -256,6 +265,8 @@ def reports():
     return render_template(
         "portal/reports.html", report=report, report_type=report_type,
         figs=figs, filters=filters,
+        compare_a=request.args.get("compare_a", ""),
+        compare_b=request.args.get("compare_b", ""),
         projects=sorted((p for p in Project.query.all() if p.id in ids),
                         key=lambda p: p.name.lower()),
         states=[s.value for s in ExecutionState],
@@ -294,6 +305,15 @@ def _clean_report_filters(raw):
         value = str((raw or {}).get(key, ""))[:256].strip()
         if value:
             clean[key] = value
+    return clean
+
+
+def _comparison_filters(raw):
+    """Parse an independent comparison filter query string."""
+    from urllib.parse import parse_qsl
+    pairs = parse_qsl(str(raw or "")[:1024], keep_blank_values=False)
+    clean = _clean_report_filters(dict(pairs[-32:]))
+    clean.setdefault("days", "30")
     return clean
 
 

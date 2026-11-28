@@ -1509,3 +1509,58 @@ def test_execution_creation_snapshots_source_tags(app):
         ex = dispatch.create_execution("tester", binding=binding,
                                        source_item=item, run_config={})
         assert ex.snapshot()["source_target"]["tags"] == "smoke,fast"
+
+
+def test_side_by_side_comparison_independent_scoped_sets_and_csv(app, client, login_as):
+    from testorchestrator.reporting.queries import comparison_report
+    with app.app_context():
+        p = Project(name="CompareVisible")
+        hidden = Project(name="CompareHidden")
+        db.session.add_all([p, hidden]); db.session.flush()
+        now = datetime.now(timezone.utc)
+        manual = _terminal(p, Outcome.PASSED, now)
+        manual.trigger_origin = "manual"
+        db.session.add(TestResult(execution_id=manual.id, case_name="ok",
+                                  status=CaseStatus.PASSED))
+        api = _terminal(p, Outcome.FAILED, now)
+        api.trigger_origin = "api"
+        db.session.add(TestResult(execution_id=api.id, case_name="bad",
+                                  status=CaseStatus.FAILED))
+        outside = _terminal(hidden, Outcome.PASSED, now)
+        outside.trigger_origin = "manual"
+        db.session.commit()
+        user = User.query.filter_by(username="po").one()
+        user.set_assigned_projects([p.id]); db.session.commit()
+        report = comparison_report(
+            user,
+            {"days": "30", "trigger": "manual", "bogus": "ignored"},
+            {"days": "30", "trigger": "api"})
+        rows = {r["key"]: r for r in report["rows"]}
+        # Project scoping is applied before either independent filter set: the
+        # hidden project's manual row is invisible even without a project filter.
+        assert rows["logical_runs"]["a"] == 1
+        assert comparison_report(
+            user, {"days": "30", "project_id": hidden.id},
+            {"days": "30"})["side_a"]["logical_runs"] == 0
+        assert rows["logical_runs"]["b"] == 1
+        assert rows["run_pass_rate"]["a"] == 100.0
+        assert rows["run_pass_rate"]["b"] == 0.0
+        assert rows["run_pass_rate"]["delta"] == -100.0
+        assert rows["case_pass_rate"]["a"] == 100.0
+        assert rows["case_pass_rate"]["b"] == 0.0
+    login_as("po")
+    resp = client.get("/reports?report_type=comparison"
+                      "&compare_a=trigger%3Dmanual%26bogus%3Dx"
+                      "&compare_b=trigger%3Dapi")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert "Side-by-side comparison" in body
+    assert "Run pass rate" in body
+    assert "unknown keys are ignored" in body.lower() or "Unknown keys are ignored" in body
+    csv_resp = client.get("/reports?report_type=comparison&format=csv"
+                          "&compare_a=trigger%3Dmanual&compare_b=trigger%3Dapi")
+    text = csv_resp.data.decode()
+    assert csv_resp.status_code == 200
+    assert "metric,set_a,set_b,delta_b_minus_a" in text
+    assert "run_pass_rate,100.0,0.0,-100.0" in text
+    assert "bogus" not in text

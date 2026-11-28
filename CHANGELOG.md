@@ -65,7 +65,11 @@
   Trigger-origin filtering uses the new explicit execution field: UI launches
   and retries are manual, scheduler fires are schedule, API creation/retries
   are api, and ambiguous historical rows remain unknown instead of being
-  guessed from overloaded schedule links or actor names. Tag filters match
+  guessed from overloaded schedule links or actor names. A side-by-side
+  comparison report measures two independently specified filter query strings
+  as terminal logical-run sets, with run/case rates, durations, deltas, CSV
+  export, unknown-key rejection, and project scoping enforced separately for
+  each set. Tag filters match
   whole immutable inventory-tag tokens captured in execution snapshots (all
   entered tags must match); mutable inventory rows are never re-read and
   legacy rows without snapshot tags remain unmatched rather than guessed.

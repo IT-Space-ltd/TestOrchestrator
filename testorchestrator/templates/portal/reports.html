@@ -16,6 +16,7 @@
       <option value="target-results" {% if report_type=='target-results' %}selected{% endif %}>Plan/suite/collection results</option>
       <option value="framework-comparison" {% if report_type=='framework-comparison' %}selected{% endif %}>Framework comparison</option>
       <option value="traceability" {% if report_type=='traceability' %}selected{% endif %}>Release traceability</option>
+      <option value="comparison" {% if report_type=='comparison' %}selected{% endif %}>Side-by-side filter comparison</option>
       {% if current_user.role.value == 'admin' %}<option value="audit-compliance" {% if report_type=='audit-compliance' %}selected{% endif %}>Admin audit and compliance</option>{% endif %}
     </select></div>
   <div class="field"><label for="project_id">Project</label>
@@ -80,6 +81,12 @@
     <input type="text" name="source_ref" id="source_ref" value="{{ filters.get('source_ref','') }}"></div>
   <div class="field"><label for="source_sha">Commit SHA</label>
     <input type="text" name="source_sha" id="source_sha" value="{{ filters.get('source_sha','') }}"></div>
+  <div class="field"><label for="compare_a">Comparison set A</label>
+    <input type="text" name="compare_a" id="compare_a" maxlength="1024" value="{{ compare_a }}"
+           placeholder="trigger=api&framework=pytest&days=30"></div>
+  <div class="field"><label for="compare_b">Comparison set B</label>
+    <input type="text" name="compare_b" id="compare_b" maxlength="1024" value="{{ compare_b }}"
+           placeholder="trigger=manual&framework=pytest&days=30"></div>
   <div class="field wide"><span class="muted"><small>Custom range uses local calendar days in your display timezone and overrides Period days when both dates are valid; maximum span 366 days. Framework attribution uses the immutable execution snapshot; framework-project filtering matches only executions created after that identity was snapshotted and never guesses overlapping historical roots.</small></span></div>
   <div class="form-actions"><button class="button" type="submit">Preview</button>
     <button class="button secondary" type="submit" name="format" value="csv">Export CSV</button>
@@ -282,6 +289,16 @@
 </tbody></table></section>
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
+{% elif report_type == 'comparison' %}
+<p class="muted"><small>Counting: {{ report.counting }}. Enter independent filter query strings using the same keys as this page, for example <code>trigger=api&amp;framework=pytest&amp;days=30</code>. Unknown keys are ignored; project visibility is always enforced server-side.</small></p>
+<div class="dash-2col">
+  <section class="card"><h2>Set A</h2><code>{{ report.filters.a }}</code></section>
+  <section class="card"><h2>Set B</h2><code>{{ report.filters.b }}</code></section>
+</div>
+<section class="card"><h2>Side-by-side comparison</h2>
+<table class="data-table"><thead><tr><th>Metric</th><th>Set A</th><th>Set B</th><th>Delta B−A</th></tr></thead><tbody>
+{% for r in report.rows %}<tr><td>{{ r.label }}</td><td>{{ r.a if r.a is not none else '—' }}</td><td>{{ r.b if r.b is not none else '—' }}</td><td>{{ r.delta if r.delta is not none else '—' }}</td></tr>{% endfor %}
+</tbody></table></section>
 {% else %}
 <div class="metric-strip">
   <div class="metric"><span class="metric-value">{{ report.total }}</span><span class="metric-label">executions</span></div>

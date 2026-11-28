@@ -1700,3 +1700,115 @@ def execution_csv(report):
             "filters_json": filters_json,
         })
     return out.getvalue()
+
+_COMPARISON_METRICS = (
+    ("logical_runs", "Logical runs"),
+    ("passed_runs", "Passed runs"),
+    ("failed_runs", "Failed runs"),
+    ("incomplete_runs", "Incomplete runs"),
+    ("none_runs", "No-outcome runs"),
+    ("run_pass_rate", "Run pass rate %"),
+    ("case_passed", "Passed cases"),
+    ("case_failed", "Failed cases"),
+    ("case_error", "Error cases"),
+    ("case_skipped", "Skipped cases"),
+    ("case_pass_rate", "Case pass rate %"),
+    ("avg_duration_s", "Average duration s"),
+    ("median_duration_s", "Median duration s"),
+)
+
+
+def _comparison_side(user, filters, tz=None):
+    selected = _select_logical_runs(user, filters, tz=tz)
+    pairs = selected["selected"]
+    ids = [final.id for _run, final in pairs]
+    counts = {key: 0 for key in ("passed", "failed", "incomplete", "none")}
+    durations = []
+    for _run, final in pairs:
+        outcome = _enum_value(final.outcome) or "none"
+        counts[outcome if outcome in counts else "none"] += 1
+        if final.started_at and final.finished_at:
+            secs = (_aw(final.finished_at) - _aw(final.started_at)).total_seconds()
+            if secs >= 0:
+                durations.append(secs)
+    case_counts = {key: 0 for key in ("passed", "failed", "error", "skipped")}
+    for pos in range(0, len(ids), 500):
+        chunk = ids[pos:pos + 500]
+        rows = (TestResult.query.filter(TestResult.execution_id.in_(chunk))
+                .with_entities(TestResult.status, func.count(TestResult.id))
+                .group_by(TestResult.status).all())
+        for status, count in rows:
+            case_counts[_enum_value(status)] = case_counts.get(
+                _enum_value(status), 0) + count
+    executed = counts["passed"] + counts["failed"]
+    case_executed = sum(case_counts[key] for key in ("passed", "failed", "error"))
+    import statistics
+    metrics = {
+        "logical_runs": len(pairs),
+        "passed_runs": counts["passed"],
+        "failed_runs": counts["failed"],
+        "incomplete_runs": counts["incomplete"],
+        "none_runs": counts["none"],
+        "run_pass_rate": round(counts["passed"] * 100.0 / executed, 1)
+            if executed else None,
+        "case_passed": case_counts["passed"],
+        "case_failed": case_counts["failed"],
+        "case_error": case_counts["error"],
+        "case_skipped": case_counts["skipped"],
+        "case_pass_rate": round(case_counts["passed"] * 100.0 / case_executed, 1)
+            if case_executed else None,
+        "avg_duration_s": round(sum(durations) / len(durations), 1)
+            if durations else None,
+        "median_duration_s": round(statistics.median(durations), 1)
+            if durations else None,
+    }
+    return metrics, selected
+
+
+def comparison_report(user, filters_a, filters_b, tz=None):
+    """Side-by-side metrics for two independently filtered logical-run sets."""
+    a, sel_a = _comparison_side(user, filters_a, tz=tz)
+    b, sel_b = _comparison_side(user, filters_b, tz=tz)
+    rows = []
+    for key, label in _COMPARISON_METRICS:
+        av = a.get(key)
+        bv = b.get(key)
+        delta = round(bv - av, 1) if av is not None and bv is not None else None
+        rows.append({"key": key, "label": label, "a": av, "b": bv,
+                     "delta": delta})
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "timezone": _zone_name(tz),
+        "rows": rows,
+        "total": max(a["logical_runs"], b["logical_runs"]),
+        "truncated": sel_a["total"] > sel_a["bounded_count"] or
+            sel_b["total"] > sel_b["bounded_count"],
+        "max_rows": MAX_REPORT_ROWS,
+        "filters": {"a": _filter_snapshot(filters_a),
+                    "b": _filter_snapshot(filters_b)},
+        "side_a": a, "side_b": b,
+        "counting": "Terminal logical runs resolved to their final attempt; pass rates use passed / (passed + failed) for runs and passed / (passed + failed + error) for cases, skipped cases excluded.",
+    }
+
+
+def comparison_csv(report):
+    import csv
+    import io
+    import json
+    out = io.StringIO()
+    fields = ["metric", "set_a", "set_b", "delta_b_minus_a", "tz",
+              "generated_at_utc", "report_type", "truncated", "max_rows",
+              "filters_a_json", "filters_b_json"]
+    w = csv.DictWriter(out, fieldnames=fields)
+    w.writeheader()
+    for row in report["rows"]:
+        w.writerow({
+            "metric": row["key"], "set_a": row["a"], "set_b": row["b"],
+            "delta_b_minus_a": row["delta"], "tz": report["timezone"],
+            "generated_at_utc": report["generated_at"].isoformat(),
+            "report_type": "comparison",
+            "truncated": "true" if report["truncated"] else "false",
+            "max_rows": report["max_rows"],
+            "filters_a_json": json.dumps(report["filters"]["a"], sort_keys=True),
+            "filters_b_json": json.dumps(report["filters"]["b"], sort_keys=True)})
+    return out.getvalue()

@@ -298,7 +298,13 @@ executions snapshot the source item's tag text at creation, filtering uses
 case-insensitive whole-token matching after comma/semicolon normalization,
 multiple entered tags use AND semantics, LIKE metacharacters are escaped,
 and legacy rows without immutable snapshot tags do not match because mutable
-inventory rows are not re-read. This is deliberately not yet the shared
+inventory rows are not re-read. Side-by-side comparison is implemented as a
+report type over two independently supplied filter query strings. Both sets
+use terminal logical-run semantics and identical metrics (run outcomes/rates,
+parsed case outcomes/rates, average and median duration); deltas are B−A,
+CSV export includes both filter snapshots, unknown keys are ignored through
+the same whitelist, and each set is independently constrained by the viewer's
+visible-project scope. This is deliberately not yet the shared
 saved-report-definition/share-link surface; those remain
 authorization-sensitive backlog work. Export-format dependency evaluation is
 now documented in `docs/reports-export-dependency-proposal.md`: fpdf2,
