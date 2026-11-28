@@ -278,4 +278,9 @@ Trigger filtering is not partially implemented: schedule/manual/API origin is
 not yet reliably attributable in the execution schema, so API-triggered runs
 must not be misclassified as manual. This is deliberately not yet the shared
 saved-report-definition/share-link surface; those remain
-authorization-sensitive backlog work.
+authorization-sensitive backlog work. Export-format dependency evaluation is
+now documented in `docs/reports-export-dependency-proposal.md`: fpdf2,
+python-docx, openpyxl, optional Kaleido/Chrome, pinned hashes, licenses,
+installer impact, security controls, and an isolated proof of concept. That
+proposal is documentation only; no export dependency has been added or
+approved yet.

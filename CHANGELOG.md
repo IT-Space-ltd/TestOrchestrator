@@ -60,6 +60,14 @@
   delete actions are audited. Shared definitions, scheduled generation and
   share links remain later authorization-sensitive slices.
 
+### Documentation
+
+- **Reports export dependency proposal.** Added an approval document covering
+  fpdf2/python-docx/openpyxl, optional Kaleido+Chrome, existing Plotly usage,
+  pinned versions and hashes, licenses including fpdf2 LGPL-3.0 obligations,
+  Linux/Windows installer impact, security controls, image-validation policy,
+  and an isolated proof of concept. No dependency has been added yet.
+
 ## [2.7.0] — 2026-11-27
 
 Released on `main` from the merged repository-discovery branch.
