@@ -264,4 +264,9 @@ logical-run semantics with retries counted once. The report explicitly does
 not claim requirement/issue traceability because the product has no
 requirement/issue-link model yet. Saved definitions, scheduled generation,
 share links, whole-plan-run rollups, PDF/docx/xlsx and the remaining report
-types remain open backlog work.
+types remain open backlog work. A first saved-filter-set slice is also
+implemented: filter sets are private to the owning user, server-side key and
+size whitelisting prevents arbitrary filter payloads, apply/delete enforce
+ownership, and save/delete actions are audited. This is deliberately not yet
+the shared saved-report-definition/share-link surface; those remain
+authorization-sensitive backlog work.

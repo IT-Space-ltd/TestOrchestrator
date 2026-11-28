@@ -6,7 +6,7 @@ from testorchestrator.execution import (CaseStatus, DiscoveredItem, Execution,
                                         Project, Release, ReleaseItem, Runner,
                                         RuntimeConnection, Schedule, Suite, TestResult)
 from testorchestrator.extensions import db
-from testorchestrator.models import AuditEvent, User
+from testorchestrator.models import AuditEvent, SavedReportFilter, User
 
 
 def _mk_exec(project, outcome=Outcome.PASSED, created_by="tester"):
@@ -1094,3 +1094,43 @@ def test_reports_traceability_page_chart_and_csv(app, client, login_as):
     text = csv_resp.data.decode()
     assert "release,release_status,project" in text
     assert "release-1" in text
+
+
+def test_saved_report_filters_save_apply_delete_and_owner_scope(app, client, login_as):
+    login_as("admin")
+    payload = json.dumps({"environment": "prod", "outcome": "failed",
+                          "report_type": "trends", "evil": "x"})
+    resp = client.post("/reports/filters/save", data={
+        "filter_name": "failed prod", "filters_json": payload})
+    assert resp.status_code == 302
+    with app.app_context():
+        saved = SavedReportFilter.query.filter_by(name="failed prod").one()
+        assert saved.username == "admin"
+        assert saved.filters() == {"environment": "prod", "outcome": "failed"}
+        fid = saved.id
+    resp = client.get(f"/reports/filters/{fid}/apply")
+    assert resp.status_code == 302
+    assert "environment=prod" in resp.headers["Location"]
+    assert "outcome=failed" in resp.headers["Location"]
+    assert "report_type" not in resp.headers["Location"]
+    assert "evil" not in resp.headers["Location"]
+    login_as("po")
+    assert client.get(f"/reports/filters/{fid}/apply").status_code == 404
+    assert client.post(f"/reports/filters/{fid}/delete").status_code == 404
+    login_as("admin")
+    assert client.post(f"/reports/filters/{fid}/delete").status_code == 302
+    with app.app_context():
+        assert SavedReportFilter.query.count() == 0
+
+
+def test_saved_report_filters_render_on_reports_page(app, client, login_as):
+    with app.app_context():
+        db.session.add(SavedReportFilter(
+            username="admin", name="mine",
+            filters_json='{"outcome":"passed"}'))
+        db.session.commit()
+    login_as("admin")
+    body = client.get("/reports").data.decode()
+    assert "Saved filter sets" in body
+    assert "mine" in body
+    assert "Apply" in body

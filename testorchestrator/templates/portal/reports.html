@@ -41,6 +41,30 @@
     <a class="button ghost" href="{{ url_for('portal.reports') }}">Clear</a></div>
 </form>
 
+<details class="card saved-filters">
+  <summary class="button secondary sm">Saved filter sets</summary>
+  <div class="saved-filter-grid">
+    <form method="post" action="{{ url_for('portal.save_report_filter') }}" class="inline-form">
+      {{ plain_form.csrf_token }}
+      <input type="hidden" name="filters_json" value="{{ filters|tojson }}">
+      <label for="filter_name">Save current filters as</label>
+      <input type="text" id="filter_name" name="filter_name" maxlength="128" required>
+      <button class="button secondary sm" type="submit">Save</button>
+    </form>
+    {% if saved_filters %}
+    <table class="data-table"><thead><tr><th>Name</th><th>Filters</th><th>Actions</th></tr></thead><tbody>
+      {% for sf in saved_filters %}<tr>
+        <td>{{ sf.name }}</td>
+        <td><code>{{ sf.filters_json }}</code></td>
+        <td><a class="button ghost sm" href="{{ url_for('portal.apply_report_filter', filter_id=sf.id) }}">Apply</a>
+          <form method="post" action="{{ url_for('portal.delete_report_filter', filter_id=sf.id) }}" class="inline" data-confirm="Delete this saved filter?">
+            {{ plain_form.csrf_token }}<button class="button secondary sm" type="submit">Delete</button></form></td>
+      </tr>{% endfor %}
+    </tbody></table>
+    {% else %}<p class="muted">No saved filter sets yet. Filters are private to your user; shared report definitions are a later slice.</p>{% endif %}
+  </div>
+</details>
+
 {% if report.truncated %}<p class="badge warn">Preview/export truncated to the latest {{ report.max_rows }} matching {% if report_type == 'execution-summary' %}executions{% else %}logical runs{% endif %}; the limit is disclosed rather than silently applied.</p>{% endif %}
 
 {% if report_type == 'trends' %}

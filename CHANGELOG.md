@@ -47,6 +47,13 @@
   report types remain pending owner-approved dependencies and later 2.8.0
   slices.
 
+- **Reports saved filter sets — first private slice.** Signed-in users can
+  save the currently applied Reports filters under a private per-user name,
+  apply them later, and delete them. Filter keys and value sizes are
+  server-side whitelisted, ownership is enforced on apply/delete, and save /
+  delete actions are audited. Shared definitions, scheduled generation and
+  share links remain later authorization-sensitive slices.
+
 ## [2.7.0] — 2026-11-27
 
 Released on `main` from the merged repository-discovery branch.

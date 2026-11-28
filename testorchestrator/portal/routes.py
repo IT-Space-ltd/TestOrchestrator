@@ -32,7 +32,7 @@ from ..execution import (ArtifactStore, DiscoveredItem, Execution,
                          Outcome, Plan, Project, Release,
                          Schedule, Suite, SuiteEntry, utcnow)
 from ..extensions import db
-from ..models import Role, User, record_audit
+from ..models import Role, SavedReportFilter, User, record_audit
 from ..security import role_required
 from . import portal_bp
 from .. import results as results_mod
@@ -238,7 +238,80 @@ def reports():
         projects=sorted((p for p in Project.query.all() if p.id in ids),
                         key=lambda p: p.name.lower()),
         states=[s.value for s in ExecutionState],
-        outcomes=[o.value for o in Outcome])
+        outcomes=[o.value for o in Outcome],
+        saved_filters=SavedReportFilter.query.filter_by(
+            username=current_user.username).order_by(
+                SavedReportFilter.name).all(),
+        plain_form=PlainForm())
+
+
+_REPORT_FILTER_KEYS = ("project_id", "days", "state", "outcome", "suite_id",
+                       "runner_id", "schedule_id", "environment", "source_ref")
+
+
+def _clean_report_filters(raw):
+    """Whitelist and size-limit saved report filter values."""
+    clean = {}
+    for key in _REPORT_FILTER_KEYS:
+        value = str((raw or {}).get(key, ""))[:256].strip()
+        if value:
+            clean[key] = value
+    return clean
+
+
+@portal_bp.route("/reports/filters/save", methods=["POST"])
+@login_required
+def save_report_filter():
+    if not PlainForm().validate_on_submit():
+        abort(400)
+    name = (request.form.get("filter_name") or "").strip()[:128]
+    if not name:
+        flash("Saved filter name is required.", "error")
+        return redirect(url_for("portal.reports"))
+    try:
+        raw = json.loads(request.form.get("filters_json") or "{}")
+    except (TypeError, ValueError):
+        raw = {}
+    clean = _clean_report_filters(raw)
+    if not clean:
+        flash("No active filters to save.", "error")
+        return redirect(url_for("portal.reports"))
+    saved = SavedReportFilter.query.filter_by(
+        username=current_user.username, name=name).first()
+    if saved is None:
+        saved = SavedReportFilter(username=current_user.username, name=name)
+        db.session.add(saved)
+    saved.filters_json = json.dumps(clean, sort_keys=True)
+    db.session.commit()
+    record_audit(current_user.username, "report_filter.saved", name)
+    flash(f"Saved filter '{name}'.", "success")
+    return redirect(url_for("portal.reports", **clean))
+
+
+@portal_bp.route("/reports/filters/<filter_id>/apply")
+@login_required
+def apply_report_filter(filter_id):
+    saved = db.session.get(SavedReportFilter, filter_id)
+    if saved is None or saved.username != current_user.username:
+        abort(404)
+    return redirect(url_for("portal.reports",
+                            **_clean_report_filters(saved.filters())))
+
+
+@portal_bp.route("/reports/filters/<filter_id>/delete", methods=["POST"])
+@login_required
+def delete_report_filter(filter_id):
+    if not PlainForm().validate_on_submit():
+        abort(400)
+    saved = db.session.get(SavedReportFilter, filter_id)
+    if saved is None or saved.username != current_user.username:
+        abort(404)
+    name = saved.name
+    db.session.delete(saved)
+    db.session.commit()
+    record_audit(current_user.username, "report_filter.deleted", name)
+    flash(f"Deleted saved filter '{name}'.", "success")
+    return redirect(url_for("portal.reports"))
 
 
 # ---------- projects ----------

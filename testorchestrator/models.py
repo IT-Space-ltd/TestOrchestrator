@@ -1,6 +1,7 @@
 """Database models."""
 
 import enum
+import uuid
 from datetime import datetime, timezone
 
 from argon2 import PasswordHasher
@@ -131,3 +132,36 @@ def record_audit(username: str, event: str, detail: str = "") -> None:
         log_output.publish(logschema.audit_event(row))
     except Exception:
         pass
+
+
+class SavedReportFilter(db.Model):
+    """Per-user saved Reports-menu filter set.
+
+    Values are server-side whitelisted report filter keys only; ownership is
+    enforced on every apply/delete. Sharing/project ownership is a later
+    saved-report-definition slice because it is an authorization surface.
+    """
+
+    __tablename__ = "saved_report_filters"
+    __table_args__ = (db.UniqueConstraint(
+        "username", "name", name="uq_saved_report_filters_user_name"),)
+
+    id = db.Column(db.String(32), primary_key=True,
+                   default=lambda: uuid.uuid4().hex)
+    username = db.Column(db.String(64), nullable=False, index=True)
+    name = db.Column(db.String(128), nullable=False)
+    filters_json = db.Column(db.Text, nullable=False, default="{}")
+    created_at = db.Column(
+        db.DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(
+        db.DateTime(timezone=True), nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc))
+
+    def filters(self) -> dict:
+        import json
+        try:
+            return json.loads(self.filters_json or "{}")
+        except (TypeError, ValueError):
+            return {}
