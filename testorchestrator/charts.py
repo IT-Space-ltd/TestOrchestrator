@@ -198,6 +198,23 @@ def audit_event_bars(rows) -> str:
                      "height": max(215, 28 * len(shown) + 100)})
 
 
+def traceability_coverage_bars(status_counts) -> str:
+    """status_counts: {coverage: count} — release evidence coverage."""
+    order = ("passing", "failing", "incomplete", "no outcome", "no evidence")
+    rows = [(k, status_counts.get(k, 0)) for k in order
+            if status_counts.get(k, 0)]
+    if not rows:
+        return "null"
+    colors = {"passing": _PALETTE["passed"], "failing": _PALETTE["failed"],
+              "incomplete": _PALETTE["error"], "no outcome": _PALETTE["unknown"],
+              "no evidence": _PALETTE["queued"]}
+    tr = [{"type": "bar", "name": "Release items",
+           "x": [k for k, _n in rows], "y": [n for _k, n in rows],
+           "marker": {"color": [colors[k] for k, _n in rows]}}]
+    return _fig(tr, {"yaxis": {"title": "Release items"},
+                     "showlegend": False})
+
+
 _EXEC_LIST = "/executions"
 
 

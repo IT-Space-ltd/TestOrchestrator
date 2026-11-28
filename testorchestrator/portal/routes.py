@@ -117,6 +117,7 @@ def reports():
                                      schedule_reliability_csv,
                                      schedule_reliability_report,
                                      target_results_csv, target_results_report,
+                                     traceability_csv, traceability_report,
                                      trend_csv, trend_report,
                                      utilization_csv, utilization_report,
                                      visible_project_ids)
@@ -124,7 +125,8 @@ def reports():
     if report_type not in ("execution-summary", "trends", "failures",
                            "failure-analysis", "schedule-reliability",
                            "utilization", "target-results",
-                           "framework-comparison", "audit-compliance"):
+                           "framework-comparison", "audit-compliance",
+                           "traceability"):
         report_type = "execution-summary"
     filters = {
         "project_id": request.args.get("project_id", ""),
@@ -169,6 +171,14 @@ def reports():
         figs = {"failure_kinds": failure_kind_bars(report["rows"])}
         csv_body = failure_analysis_csv(report)
         csv_name = "testorchestrator-failure-analysis.csv"
+    elif report_type == "traceability":
+        from .. import usertz as _utz
+        from ..charts import traceability_coverage_bars
+        report = traceability_report(current_user, filters,
+                                     tz=_utz.user_zone(current_user))
+        figs = {"coverage": traceability_coverage_bars(report["status_counts"])}
+        csv_body = traceability_csv(report)
+        csv_name = "testorchestrator-traceability.csv"
     elif report_type == "audit-compliance":
         from .. import usertz as _utz
         from ..charts import audit_event_bars

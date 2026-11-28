@@ -15,6 +15,7 @@
       <option value="utilization" {% if report_type=='utilization' %}selected{% endif %}>Runner/runtime utilization</option>
       <option value="target-results" {% if report_type=='target-results' %}selected{% endif %}>Plan/suite/collection results</option>
       <option value="framework-comparison" {% if report_type=='framework-comparison' %}selected{% endif %}>Framework comparison</option>
+      <option value="traceability" {% if report_type=='traceability' %}selected{% endif %}>Release traceability</option>
       {% if current_user.role.value == 'admin' %}<option value="audit-compliance" {% if report_type=='audit-compliance' %}selected{% endif %}>Admin audit and compliance</option>{% endif %}
     </select></div>
   <div class="field"><label for="project_id">Project</label>
@@ -98,7 +99,24 @@
 </tbody></table></section>
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
+{% elif report_type == 'traceability' %}
+<p class="muted"><small>Counting: {{ report.counting }}.</small></p>
+<div class="dash-2col">
+  <section class="card"><h2>Release evidence coverage</h2>
+    {% if figs.coverage != 'null' %}<div data-plotly-fig="{{ figs.coverage }}"></div>{% else %}<p class="muted">No release items are visible in the selected scope.</p>{% endif %}</section>
+  <section class="card"><h2>Applied scope</h2>
+    <div class="metric"><strong>{{ report.total }}</strong><span>release items</span></div>
+    <div class="metric"><strong>{{ report.evidence_runs }}</strong><span>matched logical runs</span></div>
+    <p class="muted">Requirement/issue traceability is not claimed: the product has no requirement/issue-link model yet.</p></section>
+</div>
+<section class="card"><h2>Release traceability</h2>
+<table class="data-table"><thead><tr><th>Release</th><th>Project</th><th>Target</th><th>Link</th><th>Coverage</th><th>Runs</th><th>Run pass</th><th>Case pass</th><th>Latest</th><th>Latest outcome</th></tr></thead><tbody>
+{% for r in report.rows %}<tr><td>{{ r.release }} <span class="badge">{{ r.release_status }}</span></td><td>{{ r.project }}</td><td>{{ r.kind }} · <code>{{ r.path }}</code>{% if r.framework %} · {{ r.framework }}{% endif %}</td><td>{{ r.link_state }}</td><td><span class="badge {% if r.coverage == 'passing' %}passed{% elif r.coverage == 'failing' %}failed{% else %}warn{% endif %}">{{ r.coverage }}</span></td><td>{{ r.runs }}</td><td>{{ r.run_pass_rate if r.run_pass_rate is not none else '—' }}{% if r.run_pass_rate is not none %}%{% endif %}</td><td>{{ r.case_pass_rate if r.case_pass_rate is not none else '—' }}{% if r.case_pass_rate is not none %}%{% endif %}</td><td>{{ r.latest_finished_at|localtime_short }}</td><td>{{ r.latest_outcome or '—' }}</td></tr>{% else %}<tr><td colspan="10" class="muted">No release items are visible in the selected scope.</td></tr>{% endfor %}
+</tbody></table></section>
+<script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 {% elif report_type == 'audit-compliance' %}
+
 <p class="muted"><small>Counting: {{ report.counting }}.</small></p>
 <div class="dash-2col">
   <section class="card"><h2>Audit event types</h2>

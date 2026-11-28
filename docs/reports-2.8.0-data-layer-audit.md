@@ -254,6 +254,14 @@ window while detailed rows are bounded and truncation is disclosed. The route
 is explicitly Admin-gated because audit evidence is global rather than
 project-scoped; non-admin users neither see the report option nor can query it
 directly. Detailed audit text uses the already-redacted persisted audit fields
-and CSV output preserves spreadsheet-formula escaping. Saved definitions,
-scheduled generation, share links, whole-plan-run rollups, PDF/docx/xlsx and
-the remaining report types remain open backlog work.
+and CSV output preserves spreadsheet-formula escaping. Release traceability
+is also implemented for the link model that actually exists: release items
+are matched to immutable execution `source_target` triples by
+project+binding+kind+path. Stored discovered-item links win; missing links
+are inferred only when exactly one current inventory candidate exists, and
+ambiguous same-path bindings are never conflated. Evidence uses terminal
+logical-run semantics with retries counted once. The report explicitly does
+not claim requirement/issue traceability because the product has no
+requirement/issue-link model yet. Saved definitions, scheduled generation,
+share links, whole-plan-run rollups, PDF/docx/xlsx and the remaining report
+types remain open backlog work.

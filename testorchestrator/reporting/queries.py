@@ -13,8 +13,10 @@ from sqlalchemy import func
 
 from ..analytics import (LOGICAL_ROLES, TERMINAL, _aw, _day,
                          resolve_logical_runs)
-from ..execution import (Execution, Plan, Project, Runner, RuntimeConnection,
-                         Schedule, Suite, TestResult)
+from ..extensions import db
+from ..execution import (DiscoveredItem, Execution, Plan, Project, Release,
+                         ReleaseItem, Runner, RuntimeConnection, Schedule, Suite,
+                         TestResult)
 from ..models import AuditEvent
 
 MAX_REPORT_ROWS = 5000
@@ -570,6 +572,212 @@ def _scope_allows(scope_json, visible_ids):
     except (TypeError, ValueError):
         allowed = set()
     return bool(visible_ids) and (not allowed or bool(allowed.intersection(visible_ids)))
+
+
+def traceability_report(user, filters, tz=None):
+    """Release-to-repository-target traceability and execution evidence.
+
+    Release items are matched to immutable execution source_target triples by
+    binding+kind+path. If the item's stored discovered-item link is absent,
+    the binding is inferred only when exactly one current inventory candidate
+    exists; ambiguous paths are not conflated across bindings. Evidence uses
+    terminal logical runs, so retries count once. This is release/test-target
+    traceability — the product has no requirement/issue-link model yet.
+    """
+    ids = visible_project_ids(user)
+    days = _bounded_days(filters.get("days"))
+    project_id = (filters.get("project_id") or "").strip()
+    rq = (db.session.query(ReleaseItem, Release)
+          .join(Release, ReleaseItem.release_id == Release.id)
+          .filter(Release.project_id.in_(ids or [""])))
+    if project_id:
+        rq = rq.filter(Release.project_id == (project_id if project_id in ids else ""))
+    total_items = rq.count()
+    item_rows = (rq.order_by(Release.name, ReleaseItem.path)
+                 .limit(MAX_REPORT_ROWS).all())
+    source_ids = [item.source_item_id for item, _rel in item_rows
+                  if item.source_item_id]
+    direct_items = {d.id: d for d in DiscoveredItem.query.filter(
+        DiscoveredItem.id.in_(source_ids or [""])).all()}
+    unresolved_pairs = {(item.kind, item.path) for item, _rel in item_rows
+                        if item.source_item_id not in direct_items}
+    candidates_by_pair = {}
+    if unresolved_pairs:
+        paths = [path for _kind, path in unresolved_pairs]
+        kinds = [kind for kind, _path in unresolved_pairs]
+        candidates = DiscoveredItem.query.filter(
+            DiscoveredItem.project_id.in_(ids or [""]),
+            DiscoveredItem.kind.in_(kinds),
+            DiscoveredItem.path.in_(paths)).all()
+        for cand in candidates:
+            if (cand.kind, cand.path) in unresolved_pairs:
+                candidates_by_pair.setdefault((cand.kind, cand.path), []).append(cand)
+
+    selection = _select_logical_runs(user, filters)
+    selected = selection["selected"]
+    sources_by_final, result_ids = _logical_result_sources(selected)
+    result_counts = _result_status_counts(result_ids)
+    evidence = {}
+    for _run, final in selected:
+        st = (final.snapshot().get("source_target") or {})
+        key = (final.project_id, st.get("binding_id") or "",
+               st.get("kind") or "", st.get("path") or "")
+        if not all(key):
+            continue
+        evidence.setdefault(key, []).append((final, sources_by_final.get(final.id, [])))
+
+    rows = []
+    status_counts = {}
+    for item, rel in item_rows:
+        direct = direct_items.get(item.source_item_id)
+        pair = (item.kind, item.path)
+        candidates = candidates_by_pair.get(pair, [])
+        binding_id = ""
+        name = item.path
+        framework = ""
+        link_state = "unresolved"
+        if direct is not None:
+            binding_id = direct.binding_id
+            name = direct.name or item.path
+            framework = direct.framework or "katalon"
+            link_state = "linked"
+        elif candidates:
+            bindings = {c.binding_id for c in candidates}
+            if len(bindings) == 1:
+                cand = candidates[0]
+                binding_id = cand.binding_id
+                name = cand.name or item.path
+                framework = cand.framework or "katalon"
+                link_state = "inferred"
+            else:
+                link_state = "ambiguous"
+        key = (rel.project_id, binding_id, item.kind, item.path)
+        matches = evidence.get(key, []) if binding_id else []
+        count = len(matches)
+        passed = failed = incomplete = none = 0
+        case_passed = case_failed = case_error = case_skipped = 0
+        latest = None
+        duration_total = 0.0
+        duration_count = 0
+        for final, sources in matches:
+            outcome = _enum_value(final.outcome) or "none"
+            if outcome == "passed":
+                passed += 1
+            elif outcome == "failed":
+                failed += 1
+            elif outcome == "incomplete":
+                incomplete += 1
+            else:
+                none += 1
+            if latest is None or _aw(final.finished_at) > _aw(latest.finished_at):
+                latest = final
+            if final.started_at and final.finished_at:
+                duration_total += max(0.0, (_aw(final.finished_at)
+                                            - _aw(final.started_at)).total_seconds())
+                duration_count += 1
+            for source in sources:
+                counts = result_counts.get(source.id, {})
+                case_passed += counts.get("passed", 0)
+                case_failed += counts.get("failed", 0)
+                case_error += counts.get("error", 0)
+                case_skipped += counts.get("skipped", 0)
+        latest_outcome = (_enum_value(latest.outcome) or "none") if latest else ""
+        if not count:
+            coverage = "no evidence"
+        elif latest_outcome == "passed":
+            coverage = "passing"
+        elif latest_outcome == "failed":
+            coverage = "failing"
+        elif latest_outcome == "incomplete":
+            coverage = "incomplete"
+        else:
+            coverage = "no outcome"
+        status_counts[coverage] = status_counts.get(coverage, 0) + 1
+        denom = case_passed + case_failed + case_error
+        rows.append({
+            "release_id": rel.id, "release": rel.name,
+            "release_status": rel.status, "project_id": rel.project_id,
+            "kind": item.kind, "path": item.path, "name": name,
+            "framework": framework, "link_state": link_state,
+            "runs": count, "passed": passed, "failed": failed,
+            "incomplete": incomplete, "none": none,
+            "run_pass_rate": round(100 * passed / count, 1) if count else None,
+            "case_passed": case_passed, "case_failed": case_failed,
+            "case_error": case_error, "case_skipped": case_skipped,
+            "case_pass_rate": round(100 * case_passed / denom, 1) if denom else None,
+            "avg_duration_s": round(duration_total / duration_count, 1)
+            if duration_count else None,
+            "latest_finished_at": latest.finished_at if latest else None,
+            "latest_outcome": latest_outcome,
+            "coverage": coverage,
+        })
+    projects = {p.id: p.name for p in Project.query.filter(Project.id.in_(ids or [""])).all()}
+    for row in rows:
+        row["project"] = projects.get(row["project_id"], row["project_id"])
+    rank = {"failing": 0, "no evidence": 1, "incomplete": 2,
+            "no outcome": 3, "passing": 4}
+    rows.sort(key=lambda r: (rank.get(r["coverage"], 5), -r["runs"],
+                             r["release"].lower(), r["path"]))
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "filters": _filter_snapshot(filters), "timezone": _zone_name(tz),
+        "days": days, "rows": rows, "total": total_items,
+        "evidence_runs": sum(r["runs"] for r in rows),
+        "status_counts": status_counts,
+        "rows_truncated": total_items > len(item_rows),
+        "runs_truncated": selection["total"] > selection["bounded_count"],
+        "truncated": (total_items > len(item_rows)
+                      or selection["total"] > selection["bounded_count"]),
+        "max_rows": MAX_REPORT_ROWS,
+        "counting": "release items matched exactly by project+binding+kind+path to terminal logical-run source targets; retries count once; ambiguous same-path bindings are never conflated; no requirement/issue-link model exists yet",
+    }
+
+
+def traceability_csv(report):
+    """CSV rows for release traceability."""
+    import csv
+    import io
+    import json as _json
+    out = io.StringIO()
+    fields = ["release", "release_status", "project", "kind", "path", "name",
+              "framework", "link_state", "coverage", "logical_runs",
+              "passed", "failed", "incomplete", "none", "run_pass_rate",
+              "case_passed", "case_failed", "case_error", "case_skipped",
+              "case_pass_rate", "avg_duration_s", "latest_finished_at_utc",
+              "latest_outcome", "tz", "generated_at_utc", "report_type",
+              "total_release_items", "evidence_runs", "truncated",
+              "max_rows", "filters_json"]
+    w = csv.DictWriter(out, fieldnames=fields)
+    w.writeheader()
+    generated = report["generated_at"].isoformat()
+    filters_json = _json.dumps(report.get("filters", {}), sort_keys=True)
+    for r in report["rows"]:
+        w.writerow({
+            "release": _csv_safe(r["release"]),
+            "release_status": r["release_status"],
+            "project": _csv_safe(r.get("project", "")),
+            "kind": r["kind"], "path": _csv_safe(r["path"]),
+            "name": _csv_safe(r["name"]), "framework": r["framework"],
+            "link_state": r["link_state"], "coverage": r["coverage"],
+            "logical_runs": r["runs"], "passed": r["passed"],
+            "failed": r["failed"], "incomplete": r["incomplete"],
+            "none": r["none"], "run_pass_rate": r["run_pass_rate"],
+            "case_passed": r["case_passed"],
+            "case_failed": r["case_failed"],
+            "case_error": r["case_error"],
+            "case_skipped": r["case_skipped"],
+            "case_pass_rate": r["case_pass_rate"],
+            "avg_duration_s": r["avg_duration_s"],
+            "latest_finished_at_utc": (_aw(r["latest_finished_at"]).isoformat()
+                                       if r["latest_finished_at"] else ""),
+            "latest_outcome": r["latest_outcome"], "tz": report["timezone"],
+            "generated_at_utc": generated, "report_type": "traceability",
+            "total_release_items": report["total"],
+            "evidence_runs": report["evidence_runs"],
+            "truncated": "true" if report["truncated"] else "false",
+            "max_rows": report["max_rows"], "filters_json": filters_json,
+        })
+    return out.getvalue()
 
 
 def audit_compliance_report(user, filters, tz=None):

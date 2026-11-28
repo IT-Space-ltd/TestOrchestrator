@@ -1,9 +1,10 @@
 import json
 from datetime import datetime, timedelta, timezone
 
-from testorchestrator.execution import (CaseStatus, Execution, ExecutionState,
-                                        Outcome, Plan, Project, Runner, RuntimeConnection, Schedule, Suite,
-                                        TestResult)
+from testorchestrator.execution import (CaseStatus, DiscoveredItem, Execution,
+                                        ExecutionState, GitBinding, Outcome, Plan,
+                                        Project, Release, ReleaseItem, Runner,
+                                        RuntimeConnection, Schedule, Suite, TestResult)
 from testorchestrator.extensions import db
 from testorchestrator.models import AuditEvent, User
 
@@ -984,3 +985,112 @@ def test_audit_compliance_is_admin_only(app, client, login_as):
     login_as("admin")
     body = client.get("/reports").data.decode()
     assert 'value="audit-compliance"' in body
+
+
+def _release_item_fixture(project, binding, path="suites/regression.ts",
+                          kind="suite", link=True):
+    item = DiscoveredItem(binding_id=binding.id, project_id=project.id,
+                          sha=binding.last_synced_sha, kind=kind, path=path,
+                          name=path.rsplit("/", 1)[-1])
+    db.session.add(item); db.session.flush()
+    rel = Release(project_id=project.id, name="release-1")
+    db.session.add(rel); db.session.flush()
+    ri = ReleaseItem(release_id=rel.id, kind=kind, path=path,
+                     source_item_id=item.id if link else None)
+    db.session.add(ri); db.session.flush()
+    return item, rel, ri
+
+
+def test_traceability_matches_exact_source_target_and_retry_final_once(app):
+    from testorchestrator.reporting.queries import (traceability_csv,
+                                                    traceability_report)
+    with app.app_context():
+        p = Project(name="TraceProject")
+        db.session.add(p); db.session.flush()
+        binding = GitBinding(project_id=p.id, name="repo", url="/tmp/x",
+                             ref="main", last_synced_sha="sha1")
+        db.session.add(binding); db.session.flush()
+        item, rel, ri = _release_item_fixture(p, binding)
+        now = datetime.now(timezone.utc)
+        head = _terminal(p, Outcome.FAILED, now - timedelta(hours=1))
+        _merge_snapshot(head, source_target={
+            "binding_id": binding.id, "kind": "suite",
+            "path": "suites/regression.ts", "name": "regression"})
+        retry = _terminal(p, Outcome.PASSED, now, attempt=2, retry_of=head.id)
+        _merge_snapshot(retry, source_target={
+            "binding_id": binding.id, "kind": "suite",
+            "path": "suites/regression.ts", "name": "regression"})
+        db.session.add(TestResult(execution_id=retry.id, case_name="case",
+                                  status=CaseStatus.PASSED))
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = traceability_report(user, {"days": "30"})
+        row = report["rows"][0]
+        assert row["release"] == "release-1"
+        assert row["link_state"] == "linked"
+        assert row["runs"] == 1       # retry chain resolves to final attempt
+        assert row["passed"] == 1 and row["failed"] == 0
+        assert row["coverage"] == "passing"
+        assert row["case_pass_rate"] == 100.0
+        assert report["evidence_runs"] == 1
+        assert report["status_counts"]["passing"] == 1
+        text = traceability_csv(report)
+        assert "release,release_status,project" in text
+        assert "release-1" in text and "suites/regression.ts" in text
+
+
+def test_traceability_never_conflates_ambiguous_same_path_bindings(app):
+    from testorchestrator.reporting.queries import traceability_report
+    with app.app_context():
+        p = Project(name="TraceAmbiguous")
+        db.session.add(p); db.session.flush()
+        b1 = GitBinding(project_id=p.id, name="repo1", url="/tmp/x",
+                        ref="main", last_synced_sha="sha1")
+        b2 = GitBinding(project_id=p.id, name="repo2", url="/tmp/y",
+                        ref="main", last_synced_sha="sha2")
+        db.session.add_all([b1, b2]); db.session.flush()
+        for binding in (b1, b2):
+            db.session.add(DiscoveredItem(
+                binding_id=binding.id, project_id=p.id,
+                sha=binding.last_synced_sha, kind="suite",
+                path="suites/common.ts", name="common"))
+        rel = Release(project_id=p.id, name="ambiguous-release")
+        db.session.add(rel); db.session.flush()
+        db.session.add(ReleaseItem(release_id=rel.id, kind="suite",
+                                   path="suites/common.ts",
+                                   source_item_id=None))
+        ex = _terminal(p, Outcome.PASSED, datetime.now(timezone.utc))
+        _merge_snapshot(ex, source_target={
+            "binding_id": b1.id, "kind": "suite",
+            "path": "suites/common.ts", "name": "common"})
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = traceability_report(user, {"days": "30"})
+        row = report["rows"][0]
+        assert row["link_state"] == "ambiguous"
+        assert row["runs"] == 0
+        assert row["coverage"] == "no evidence"
+
+
+def test_reports_traceability_page_chart_and_csv(app, client, login_as):
+    with app.app_context():
+        p = Project(name="TraceUi")
+        db.session.add(p); db.session.flush()
+        binding = GitBinding(project_id=p.id, name="repo", url="/tmp/x",
+                             ref="main", last_synced_sha="sha1")
+        db.session.add(binding); db.session.flush()
+        item, rel, ri = _release_item_fixture(p, binding)
+        db.session.commit()
+    login_as("admin")
+    resp = client.get("/reports?report_type=traceability")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert "Release traceability" in body
+    assert "release-1" in body
+    assert "no requirement/issue-link model" in body
+    assert "data-plotly-fig" in body
+    csv_resp = client.get("/reports?report_type=traceability&format=csv")
+    assert csv_resp.status_code == 200
+    text = csv_resp.data.decode()
+    assert "release,release_status,project" in text
+    assert "release-1" in text

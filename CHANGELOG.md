@@ -35,6 +35,10 @@
   A ninth Admin-only report summarizes global audit/compliance evidence with
   full-window event-type aggregates, actor/export counts, bounded detailed
   audit rows, chart, and CSV export; non-admin users cannot select or query it.
+  Release traceability links visible release scope items to exact immutable
+  binding/kind/path source targets and terminal logical-run evidence; ambiguous
+  same-path bindings are never conflated, and the report explicitly does not
+  claim requirement/issue traceability because no such link model exists yet.
   CSV rows carry the generated-at instant, viewer timezone, filter snapshot,
   and
   truncation metadata. The query layer is scoped to the signed-in user's
