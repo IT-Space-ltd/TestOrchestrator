@@ -106,7 +106,9 @@ def _suite_hash(suite: Suite) -> str:
 @login_required
 def reports():
     """Report previews + CSV exports (2.8.0 incremental slices)."""
-    from ..reporting.queries import (execution_csv, execution_summary,
+    from ..reporting.queries import (audit_compliance_csv,
+                                     audit_compliance_report,
+                                     execution_csv, execution_summary,
                                      failure_analysis_csv,
                                      failure_analysis_report,
                                      failure_csv, failure_report,
@@ -122,7 +124,7 @@ def reports():
     if report_type not in ("execution-summary", "trends", "failures",
                            "failure-analysis", "schedule-reliability",
                            "utilization", "target-results",
-                           "framework-comparison"):
+                           "framework-comparison", "audit-compliance"):
         report_type = "execution-summary"
     filters = {
         "project_id": request.args.get("project_id", ""),
@@ -135,6 +137,8 @@ def reports():
         "environment": request.args.get("environment", ""),
         "source_ref": request.args.get("source_ref", ""),
     }
+    if report_type == "audit-compliance" and current_user.role != Role.ADMIN:
+        abort(403)
     figs = {}
     if report_type == "trends":
         from .. import usertz as _utz
@@ -165,6 +169,14 @@ def reports():
         figs = {"failure_kinds": failure_kind_bars(report["rows"])}
         csv_body = failure_analysis_csv(report)
         csv_name = "testorchestrator-failure-analysis.csv"
+    elif report_type == "audit-compliance":
+        from .. import usertz as _utz
+        from ..charts import audit_event_bars
+        report = audit_compliance_report(current_user, filters,
+                                         tz=_utz.user_zone(current_user))
+        figs = {"audit_events": audit_event_bars(report["aggregates"])}
+        csv_body = audit_compliance_csv(report)
+        csv_name = "testorchestrator-audit-compliance.csv"
     elif report_type == "framework-comparison":
         from .. import usertz as _utz
         from ..charts import framework_outcome_bars

@@ -15,6 +15,7 @@
       <option value="utilization" {% if report_type=='utilization' %}selected{% endif %}>Runner/runtime utilization</option>
       <option value="target-results" {% if report_type=='target-results' %}selected{% endif %}>Plan/suite/collection results</option>
       <option value="framework-comparison" {% if report_type=='framework-comparison' %}selected{% endif %}>Framework comparison</option>
+      {% if current_user.role.value == 'admin' %}<option value="audit-compliance" {% if report_type=='audit-compliance' %}selected{% endif %}>Admin audit and compliance</option>{% endif %}
     </select></div>
   <div class="field"><label for="project_id">Project</label>
     <select name="project_id" id="project_id"><option value="">All visible projects</option>
@@ -97,7 +98,29 @@
 </tbody></table></section>
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
+{% elif report_type == 'audit-compliance' %}
+<p class="muted"><small>Counting: {{ report.counting }}.</small></p>
+<div class="dash-2col">
+  <section class="card"><h2>Audit event types</h2>
+    {% if figs.audit_events != 'null' %}<div data-plotly-fig="{{ figs.audit_events }}"></div>{% else %}<p class="muted">No audit events match the selected period.</p>{% endif %}</section>
+  <section class="card"><h2>Compliance summary</h2>
+    <div class="metric"><strong>{{ report.total }}</strong><span>audit events</span></div>
+    <div class="metric"><strong>{{ report.distinct_users }}</strong><span>actors</span></div>
+    <div class="metric"><strong>{{ report.event_type_count }}</strong><span>event types</span></div>
+    <div class="metric"><strong>{{ report.export_count }}</strong><span>export events</span></div></section>
+</div>
+<section class="card"><h2>Event type summary</h2>
+<table class="data-table"><thead><tr><th>Event</th><th>Count</th><th>Actors</th><th>First in window</th><th>Latest</th></tr></thead><tbody>
+{% for r in report.aggregates %}<tr><td><code>{{ r.event }}</code></td><td>{{ r.count }}</td><td>{{ r.user_count }}</td><td>{{ r.first_at|localtime_short }}</td><td>{{ r.last_at|localtime_short }}</td></tr>{% else %}<tr><td colspan="5" class="muted">No audit events match the selected period.</td></tr>{% endfor %}
+</tbody></table></section>
+<section class="card"><h2>Detailed audit events</h2>
+<table class="data-table"><thead><tr><th>Time</th><th>User</th><th>Event</th><th>Detail</th></tr></thead><tbody>
+{% for r in report.rows %}<tr><td>{{ r.occurred_at|localtime_short }}</td><td>{{ r.username }}</td><td><code>{{ r.event }}</code></td><td>{{ r.detail }}</td></tr>{% else %}<tr><td colspan="4" class="muted">No detailed audit events match the selected period.</td></tr>{% endfor %}
+</tbody></table></section>
+<script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 {% elif report_type == 'framework-comparison' %}
+
 <p class="muted"><small>Counting: {{ report.counting }}.</small></p>
 {% if report.excluded_collection_ops %}<p class="badge info">{{ report.excluded_collection_ops }} native collection operations excluded because they are inventory maintenance, not test executions.</p>{% endif %}
 <div class="dash-2col">

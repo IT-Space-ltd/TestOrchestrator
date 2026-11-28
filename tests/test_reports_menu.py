@@ -936,3 +936,51 @@ def test_reports_framework_comparison_page_chart_and_csv(app, client, login_as):
     text = csv_resp.data.decode()
     assert "framework,logical_runs,passed" in text
     assert "pytest" in text
+
+
+def test_audit_compliance_aggregates_window_and_neutralizes_csv(app, client, login_as):
+    from testorchestrator.reporting.queries import (audit_compliance_csv,
+                                                    audit_compliance_report)
+    with app.app_context():
+        now = datetime.now(timezone.utc)
+        db.session.add_all([
+            AuditEvent(occurred_at=now - timedelta(minutes=3), username="admin",
+                       event="report.export", detail="trends-csv"),
+            AuditEvent(occurred_at=now - timedelta(minutes=2), username="=admin",
+                       event="report.export", detail="+details"),
+            AuditEvent(occurred_at=now - timedelta(minutes=1), username="po",
+                       event="execution.retry_queued", detail="exec1"),
+        ])
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = audit_compliance_report(user, {"days": "1"})
+        agg = {r["event"]: r for r in report["aggregates"]}
+        assert agg["report.export"]["count"] == 2
+        assert agg["report.export"]["user_count"] == 2
+        assert agg["execution.retry_queued"]["count"] == 1
+        assert report["total"] >= 3
+        assert report["export_count"] >= 2
+        text = audit_compliance_csv(report)
+        assert "audit_id,occurred_at_utc,username" in text
+        assert "'=admin" in text and "'+details" in text
+    login_as("admin")
+    resp = client.get("/reports?report_type=audit-compliance")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert "Admin audit and compliance" in body
+    assert "execution.retry_queued" in body
+    assert "data-plotly-fig" in body
+    csv_resp = client.get("/reports?report_type=audit-compliance&format=csv")
+    assert csv_resp.status_code == 200
+    assert "audit_id,occurred_at_utc,username" in csv_resp.data.decode()
+
+
+def test_audit_compliance_is_admin_only(app, client, login_as):
+    login_as("po")
+    assert client.get("/reports?report_type=audit-compliance").status_code == 403
+    assert client.get("/reports?report_type=audit-compliance&format=csv").status_code == 403
+    body = client.get("/reports").data.decode()
+    assert 'value="audit-compliance"' not in body
+    login_as("admin")
+    body = client.get("/reports").data.decode()
+    assert 'value="audit-compliance"' in body

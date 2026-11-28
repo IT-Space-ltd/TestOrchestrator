@@ -32,6 +32,9 @@
   case pass rates (skipped excluded), duration, and project coverage; native
   collection operations are excluded as inventory maintenance and ambiguous
   legacy rows remain in an explicit unknown bucket rather than being guessed.
+  A ninth Admin-only report summarizes global audit/compliance evidence with
+  full-window event-type aggregates, actor/export counts, bounded detailed
+  audit rows, chart, and CSV export; non-admin users cannot select or query it.
   CSV rows carry the generated-at instant, viewer timezone, filter snapshot,
   and
   truncation metadata. The query layer is scoped to the signed-in user's

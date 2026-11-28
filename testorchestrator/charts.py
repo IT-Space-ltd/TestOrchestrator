@@ -183,6 +183,21 @@ def framework_outcome_bars(rows) -> str:
                          "yaxis": {"title": "Logical runs"}})
 
 
+def audit_event_bars(rows) -> str:
+    """rows: [{event, count}] — top audit event types."""
+    shown = rows[:20]
+    if not shown:
+        return "null"
+    tr = [{"type": "bar", "orientation": "h", "name": "Events",
+           "x": [r["count"] for r in shown],
+           "y": [r["event"] for r in shown],
+           "marker": {"color": _PALETTE["running"]}}]
+    return _fig(tr, {"xaxis": {"title": "Events"},
+                     "yaxis": {"automargin": True,
+                               "categoryorder": "total ascending"},
+                     "height": max(215, 28 * len(shown) + 100)})
+
+
 _EXEC_LIST = "/executions"
 
 

@@ -572,6 +572,90 @@ def _scope_allows(scope_json, visible_ids):
     return bool(visible_ids) and (not allowed or bool(allowed.intersection(visible_ids)))
 
 
+def audit_compliance_report(user, filters, tz=None):
+    """Admin-only audit/compliance summary and bounded event rows.
+
+    Event-type aggregates are computed in SQL over the full selected window;
+    the detailed rows are separately capped at MAX_REPORT_ROWS and truncation
+    is disclosed. Audit details were redacted before persistence by the audit
+    writer. This report is global system evidence and must only be exposed to
+    Admin users by the route layer.
+    """
+    days = _bounded_days(filters.get("days"))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    q = AuditEvent.query.filter(AuditEvent.occurred_at >= since)
+    event_filter = (filters.get("event") or "").strip()
+    username_filter = (filters.get("username") or "").strip()
+    if event_filter:
+        q = q.filter(AuditEvent.event == event_filter)
+    if username_filter:
+        q = q.filter(AuditEvent.username == username_filter)
+    total = q.count()
+    rows = (q.order_by(AuditEvent.occurred_at.desc(), AuditEvent.id.desc())
+            .limit(MAX_REPORT_ROWS).all())
+    aggregates = []
+    agg_rows = (q.with_entities(
+        AuditEvent.event,
+        func.count(AuditEvent.id),
+        func.count(func.distinct(AuditEvent.username)),
+        func.min(AuditEvent.occurred_at),
+        func.max(AuditEvent.occurred_at))
+        .group_by(AuditEvent.event)
+        .order_by(func.count(AuditEvent.id).desc(), AuditEvent.event)
+        .all())
+    for event, count, users, first, last in agg_rows:
+        aggregates.append({"event": event, "count": count,
+                           "user_count": users,
+                           "first_at": first, "last_at": last})
+    distinct_users = (q.with_entities(func.count(func.distinct(AuditEvent.username)))
+                      .scalar() or 0)
+    export_count = (q.filter(AuditEvent.event.like("%export%")).count())
+    detail_rows = [{
+        "id": row.id, "occurred_at": row.occurred_at,
+        "username": row.username, "event": row.event,
+        "detail": row.detail,
+    } for row in rows]
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "filters": _filter_snapshot(filters),
+        "timezone": _zone_name(tz), "days": days,
+        "rows": detail_rows, "aggregates": aggregates,
+        "total": total, "distinct_users": distinct_users,
+        "event_type_count": len(aggregates), "export_count": export_count,
+        "truncated": total > len(detail_rows), "max_rows": MAX_REPORT_ROWS,
+        "counting": "admin-only global audit events in the rolling window; event aggregates cover the full window while detail rows are capped and truncation is disclosed",
+    }
+
+
+def audit_compliance_csv(report):
+    """Detailed audit-event CSV rows plus report metadata."""
+    import csv
+    import io
+    import json as _json
+    out = io.StringIO()
+    fields = ["audit_id", "occurred_at_utc", "username", "event", "detail",
+              "tz", "generated_at_utc", "report_type", "total_events",
+              "truncated", "max_rows", "filters_json"]
+    w = csv.DictWriter(out, fieldnames=fields)
+    w.writeheader()
+    generated = report["generated_at"].isoformat()
+    filters_json = _json.dumps(report.get("filters", {}), sort_keys=True)
+    for r in report["rows"]:
+        w.writerow({
+            "audit_id": r["id"],
+            "occurred_at_utc": _aw(r["occurred_at"]).isoformat(),
+            "username": _csv_safe(r["username"]),
+            "event": _csv_safe(r["event"]),
+            "detail": _csv_safe(r["detail"]),
+            "tz": report["timezone"], "generated_at_utc": generated,
+            "report_type": "audit-compliance",
+            "total_events": report["total"],
+            "truncated": "true" if report["truncated"] else "false",
+            "max_rows": report["max_rows"], "filters_json": filters_json,
+        })
+    return out.getvalue()
+
+
 def framework_comparison_report(user, filters, tz=None):
     """Compare outcome/case/duration metrics by attributed test framework.
 

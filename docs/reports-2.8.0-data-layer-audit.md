@@ -248,6 +248,12 @@ and legacy KRE suites are Katalon, native collection operations are excluded
 as inventory maintenance, and ambiguous legacy rows remain in an explicit
 `unknown` bucket rather than being guessed into a framework. Parsed case
 pass-rates exclude skipped cases and partitioned unit-child results contribute
-once to the parent logical run. Saved definitions, scheduled generation,
-share links, whole-plan-run rollups, PDF/docx/xlsx and the remaining report
-types remain open backlog work.
+once to the parent logical run. An Admin-only audit/compliance report is
+also implemented: event-type aggregates are computed over the full selected
+window while detailed rows are bounded and truncation is disclosed. The route
+is explicitly Admin-gated because audit evidence is global rather than
+project-scoped; non-admin users neither see the report option nor can query it
+directly. Detailed audit text uses the already-redacted persisted audit fields
+and CSV output preserves spreadsheet-formula escaping. Saved definitions,
+scheduled generation, share links, whole-plan-run rollups, PDF/docx/xlsx and
+the remaining report types remain open backlog work.
