@@ -151,6 +151,21 @@ def schedule_reliability_bars(rows) -> str:
                      "height": max(215, 30 * len(shown) + 100)})
 
 
+def utilization_bars(rows) -> str:
+    """rows: [{name, utilization_pct}] — runner capacity-use percentages."""
+    shown = rows[:20]
+    if not shown:
+        return "null"
+    tr = [{"type": "bar", "orientation": "h", "name": "Utilization %",
+           "x": [r["utilization_pct"] for r in shown],
+           "y": [r["name"] for r in shown],
+           "marker": {"color": _PALETTE["running"]}}]
+    return _fig(tr, {"xaxis": {"title": "Window capacity use %"},
+                     "yaxis": {"automargin": True,
+                               "categoryorder": "total ascending"},
+                     "height": max(215, 30 * len(shown) + 100)})
+
+
 _EXEC_LIST = "/executions"
 
 

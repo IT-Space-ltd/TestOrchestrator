@@ -6,13 +6,15 @@ dependencies. Every caller gets a query already restricted to projects the user
 may see; client-supplied project filters are intersected with that
 authorization scope, never trusted.
 """
+import json
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func
 
 from ..analytics import (LOGICAL_ROLES, TERMINAL, _aw, _day,
                          resolve_logical_runs)
-from ..execution import Execution, Project, Schedule, TestResult
+from ..execution import (Execution, Project, Runner, RuntimeConnection,
+                         Schedule, TestResult)
 from ..models import AuditEvent
 
 MAX_REPORT_ROWS = 5000
@@ -558,6 +560,200 @@ def failure_analysis_csv(report):
             "max_rows": report["max_rows"],
             "filters_json": filters_json,
         })
+    return out.getvalue()
+
+
+def _scope_allows(scope_json, visible_ids):
+    """Empty scope is a wildcard; otherwise intersect with visible projects."""
+    try:
+        allowed = set(json.loads(scope_json or "[]"))
+    except (TypeError, ValueError):
+        allowed = set()
+    return bool(visible_ids) and (not allowed or bool(allowed.intersection(visible_ids)))
+
+
+def utilization_report(user, filters, tz=None):
+    """Attempt-level runner/runtime utilization in the rolling window.
+
+    Utilization intentionally uses terminal execution attempts, not logical
+    runs: retries and partition units consume real capacity. Busy time is the
+    overlap of [started_at, finished_at] with the report window. Capacity
+    percentages use the dispatch ceiling min(max_slots, license_slots) for
+    runners and min(runtime concurrency, host runner ceiling) for runtimes.
+    """
+    q, days = scoped_executions(user, filters, windowed=False)
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=days)
+    terminal = tuple(TERMINAL)
+    q = q.filter(Execution.state.in_(terminal),
+                 Execution.started_at.isnot(None),
+                 Execution.finished_at.isnot(None),
+                 Execution.finished_at >= since,
+                 Execution.started_at < now)
+    total = q.count()
+    attempts = (q.order_by(Execution.finished_at.desc())
+                .limit(MAX_REPORT_ROWS).all())
+    ids = visible_project_ids(user)
+    visible_ids = set(ids)
+    all_runners = {r.id: r for r in Runner.query.all()}
+    all_runtimes = {r.id: r for r in RuntimeConnection.query.all()}
+
+    runner_rows = {}
+    runtime_rows = {}
+
+    def runner_row(runner):
+        capacity = max(1, min(runner.max_slots or 1,
+                              runner.license_slots or runner.max_slots or 1))
+        return {
+            "runner_id": runner.id, "name": runner.name,
+            "target_type": runner.target_type, "os_arch": runner.os_arch,
+            "enabled": runner.enabled, "draining": runner.draining,
+            "health": runner.health, "capacity": capacity,
+            "attempts": 0, "passed": 0, "failed": 0, "incomplete": 0,
+            "none": 0, "busy_seconds": 0.0, "utilization_pct": 0.0,
+            "pass_rate": None, "last_finished_at": None,
+        }
+
+    def runtime_row(runtime):
+        runner = all_runners.get(runtime.runner_id)
+        runner_capacity = 1
+        if runner is not None:
+            runner_capacity = max(1, min(runner.max_slots or 1,
+                                         runner.license_slots
+                                         or runner.max_slots or 1))
+        capacity = max(1, min(runtime.concurrency or 1, runner_capacity))
+        return {
+            "runtime_id": runtime.id, "name": runtime.name,
+            "runtime_kind": runtime.runtime_kind,
+            "runner_id": runtime.runner_id,
+            "runner": runner.name if runner else "",
+            "enabled": runtime.enabled, "capacity": capacity,
+            "attempts": 0, "passed": 0, "failed": 0, "incomplete": 0,
+            "none": 0, "busy_seconds": 0.0, "utilization_pct": 0.0,
+            "pass_rate": None, "last_finished_at": None,
+        }
+
+    for runner in all_runners.values():
+        if _scope_allows(runner.allowed_projects, visible_ids):
+            runner_rows[runner.id] = runner_row(runner)
+    for runtime in all_runtimes.values():
+        if (runtime.runner_id in runner_rows
+                and _scope_allows(runtime.allowed_projects, visible_ids)):
+            runtime_rows[runtime.id] = runtime_row(runtime)
+
+    window_seconds = days * 86400
+    unassigned_attempts = 0
+    for ex in attempts:
+        start = max(_aw(ex.started_at), since)
+        end = min(_aw(ex.finished_at), now)
+        busy = max(0.0, (end - start).total_seconds())
+        outcome = _enum_value(ex.outcome) or "none"
+        bucket = {"passed": "passed", "failed": "failed",
+                  "incomplete": "incomplete"}.get(outcome, "none")
+        if not ex.runner_id and not ex.runtime_id:
+            unassigned_attempts += 1
+        if ex.runner_id:
+            row = runner_rows.get(ex.runner_id)
+            if row is None and ex.runner_id in all_runners:
+                # Historical visible execution data wins over the runner's
+                # current scope: a scope edit must not erase past usage.
+                row = runner_rows[ex.runner_id] = runner_row(
+                    all_runners[ex.runner_id])
+            if row is not None:
+                row["attempts"] += 1
+                row[bucket] += 1
+                row["busy_seconds"] += busy
+                if (row["last_finished_at"] is None
+                        or _aw(ex.finished_at) > _aw(row["last_finished_at"])):
+                    row["last_finished_at"] = ex.finished_at
+        if ex.runtime_id:
+            row = runtime_rows.get(ex.runtime_id)
+            if row is None and ex.runtime_id in all_runtimes:
+                row = runtime_rows[ex.runtime_id] = runtime_row(
+                    all_runtimes[ex.runtime_id])
+            if row is not None:
+                row["attempts"] += 1
+                row[bucket] += 1
+                row["busy_seconds"] += busy
+                if (row["last_finished_at"] is None
+                        or _aw(ex.finished_at) > _aw(row["last_finished_at"])):
+                    row["last_finished_at"] = ex.finished_at
+
+    def finish_rows(rows):
+        out = list(rows.values())
+        for row in out:
+            row["busy_seconds"] = round(row["busy_seconds"], 1)
+            row["utilization_pct"] = round(
+                100 * row["busy_seconds"]
+                / (window_seconds * row["capacity"]), 2)
+            if row["attempts"]:
+                row["pass_rate"] = round(
+                    100 * row["passed"] / row["attempts"], 1)
+        out.sort(key=lambda r: (-r["utilization_pct"], -r["attempts"],
+                                r["name"].lower()))
+        return out
+
+    runner_out = finish_rows(runner_rows)
+    runtime_out = finish_rows(runtime_rows)
+    return {
+        "generated_at": now, "filters": _filter_snapshot(filters),
+        "timezone": _zone_name(tz), "days": days,
+        "runner_rows": runner_out, "runtime_rows": runtime_out,
+        "rows": runner_out, "total": total,
+        "analyzed_attempts": len(attempts),
+        "unassigned_attempts": unassigned_attempts,
+        "truncated": total > len(attempts), "max_rows": MAX_REPORT_ROWS,
+        "counting": "terminal execution attempts (retries/units included because they consume capacity); busy time clipped to the report window; zero-use visible runners/runtimes remain visible",
+    }
+
+
+def utilization_csv(report):
+    """Combined runner/runtime CSV for the utilization report."""
+    import csv
+    import io
+    import json as _json
+    out = io.StringIO()
+    fields = ["resource_type", "resource_id", "name", "runner", "kind",
+              "enabled", "capacity", "attempts", "passed", "failed",
+              "incomplete", "none", "pass_rate", "busy_seconds",
+              "utilization_pct", "last_finished_at_utc", "tz",
+              "generated_at_utc", "report_type", "total_attempts",
+              "analyzed_attempts", "unassigned_attempts", "truncated",
+              "max_rows", "filters_json"]
+    w = csv.DictWriter(out, fieldnames=fields)
+    w.writeheader()
+    generated = report["generated_at"].isoformat()
+    filters_json = _json.dumps(report.get("filters", {}), sort_keys=True)
+    def write_resource(resource_type, r):
+        w.writerow({
+            "resource_type": resource_type,
+            "resource_id": r.get("runner_id" if resource_type == "runner"
+                                 else "runtime_id"),
+            "name": _csv_safe(r["name"]),
+            "runner": _csv_safe(r.get("runner", "")),
+            "kind": r.get("target_type") or r.get("runtime_kind", ""),
+            "enabled": "true" if r["enabled"] else "false",
+            "capacity": r["capacity"], "attempts": r["attempts"],
+            "passed": r["passed"], "failed": r["failed"],
+            "incomplete": r["incomplete"], "none": r["none"],
+            "pass_rate": r["pass_rate"],
+            "busy_seconds": r["busy_seconds"],
+            "utilization_pct": r["utilization_pct"],
+            "last_finished_at_utc": (_aw(r["last_finished_at"]).isoformat()
+                                     if r["last_finished_at"] else ""),
+            "tz": report["timezone"],
+            "generated_at_utc": generated,
+            "report_type": "utilization",
+            "total_attempts": report["total"],
+            "analyzed_attempts": report["analyzed_attempts"],
+            "unassigned_attempts": report["unassigned_attempts"],
+            "truncated": "true" if report["truncated"] else "false",
+            "max_rows": report["max_rows"], "filters_json": filters_json,
+        })
+    for row in report["runner_rows"]:
+        write_resource("runner", row)
+    for row in report["runtime_rows"]:
+        write_resource("runtime", row)
     return out.getvalue()
 
 

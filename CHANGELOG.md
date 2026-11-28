@@ -18,8 +18,13 @@
   test-failure evidence, or an honestly uncategorized bucket. A fifth report
   type summarizes schedule reliability from final logical-run outcomes plus
   audited misfire, overlap-skip, target-unavailable and fire-failure events;
-  zero-run schedules remain visible so silent schedules are not hidden. CSV
-  rows carry the generated-at instant, viewer timezone, filter snapshot, and
+  zero-run schedules remain visible so silent schedules are not hidden. A
+  sixth report type summarizes runner/runtime utilization using terminal
+  execution attempts rather than logical runs because retries and partition
+  units consume real capacity; busy time is clipped to the report window and
+  capacity percentages use the configured dispatch ceilings without clipping
+  over-100% evidence. CSV rows carry the generated-at instant, viewer
+  timezone, filter snapshot, and
   truncation metadata. The query layer is scoped to the signed-in user's
   visible projects before filtering; CSV export is audited and
   spreadsheet-formula-leading text is escaped. PDF/docx/xlsx and additional

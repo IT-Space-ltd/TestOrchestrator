@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from testorchestrator.execution import (CaseStatus, Execution, ExecutionState,
-                                        Outcome, Project, Schedule, TestResult)
+                                        Outcome, Project, Runner, RuntimeConnection, Schedule, TestResult)
 from testorchestrator.extensions import db
 from testorchestrator.models import AuditEvent, User
 
@@ -652,3 +652,92 @@ def test_reports_schedule_reliability_page_chart_and_csv(app, client, login_as):
     text = csv_resp.data.decode()
     assert "schedule_id,schedule,project" in text
     assert "ui-nightly" in text
+
+
+def test_utilization_report_is_attempt_level_and_capacity_aware(app):
+    from testorchestrator.reporting.queries import (utilization_csv,
+                                                    utilization_report)
+    with app.app_context():
+        p = Project(name="UtilizationProject")
+        db.session.add(p); db.session.flush()
+        runner = Runner(name="util-runner", max_slots=4, license_slots=2,
+                        target_type="local")
+        db.session.add(runner); db.session.flush()
+        runtime = RuntimeConnection(name="util-runtime", runner_id=runner.id,
+                                    executable_path="/bin/kre", concurrency=8)
+        db.session.add(runtime); db.session.flush()
+        now = datetime.now(timezone.utc)
+        head = _terminal(p, Outcome.FAILED, now - timedelta(hours=2))
+        retry = _terminal(p, Outcome.PASSED, now - timedelta(hours=1),
+                          attempt=2, retry_of=head.id)
+        for ex in (head, retry):
+            ex.runner_id = runner.id
+            ex.runtime_id = runtime.id
+            ex.started_at = ex.finished_at - timedelta(hours=1)
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = utilization_report(user, {"days": "1"})
+        row = next(r for r in report["runner_rows"] if r["name"] == "util-runner")
+        assert row["attempts"] == 2      # retries consume capacity twice
+        assert row["busy_seconds"] == 7200.0
+        assert row["capacity"] == 2      # min(max_slots=4, license_slots=2)
+        assert row["utilization_pct"] == 4.17
+        assert row["pass_rate"] == 50.0
+        rt = next(r for r in report["runtime_rows"] if r["name"] == "util-runtime")
+        assert rt["capacity"] == 2       # runtime concurrency capped by runner ceiling
+        assert rt["attempts"] == 2
+        assert report["total"] == 2
+        assert "retries/units included" in report["counting"]
+        text = utilization_csv(report)
+        assert "resource_type,resource_id,name" in text
+        assert "runner," in text and "runtime," in text
+        assert "util-runner" in text and "util-runtime" in text
+
+
+def test_utilization_report_scope_hides_hidden_only_unused_infrastructure(app):
+    from testorchestrator.reporting.queries import utilization_report
+    with app.app_context():
+        visible = Project(name="UtilVisible")
+        hidden = Project(name="UtilHidden")
+        db.session.add_all([visible, hidden]); db.session.flush()
+        db.session.add_all([
+            Runner(name="wild-runner", allowed_projects="[]"),
+            Runner(name="hidden-only-runner",
+                   allowed_projects=json.dumps([hidden.id])),
+        ])
+        po = User.query.filter_by(username="po").one()
+        po.set_assigned_projects([visible.id])
+        db.session.commit()
+        report = utilization_report(po, {"days": "30"})
+        names = [r["name"] for r in report["runner_rows"]]
+        assert "wild-runner" in names
+        assert "hidden-only-runner" not in names
+
+
+def test_reports_utilization_page_chart_tables_and_csv(app, client, login_as):
+    with app.app_context():
+        p = Project(name="UtilizationUi")
+        db.session.add(p); db.session.flush()
+        runner = Runner(name="ui-util-runner", max_slots=1)
+        db.session.add(runner); db.session.flush()
+        runtime = RuntimeConnection(name="ui-util-runtime", runner_id=runner.id,
+                                    executable_path="/bin/kre")
+        db.session.add(runtime); db.session.flush()
+        now = datetime.now(timezone.utc)
+        ex = _terminal(p, Outcome.PASSED, now)
+        ex.runner_id = runner.id
+        ex.runtime_id = runtime.id
+        db.session.commit()
+    login_as("admin")
+    resp = client.get("/reports?report_type=utilization")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert "Runner/runtime utilization" in body
+    assert "ui-util-runner" in body and "ui-util-runtime" in body
+    assert "data-plotly-fig" in body
+    assert "terminal execution attempts" in body
+    csv_resp = client.get("/reports?report_type=utilization&format=csv")
+    assert csv_resp.status_code == 200
+    text = csv_resp.data.decode()
+    assert "resource_type,resource_id,name" in text
+    assert "ui-util-runner" in text and "ui-util-runtime" in text

@@ -12,6 +12,7 @@
       <option value="failures" {% if report_type=='failures' %}selected{% endif %}>Top failing and flaky tests</option>
       <option value="failure-analysis" {% if report_type=='failure-analysis' %}selected{% endif %}>Failure analysis by error kind</option>
       <option value="schedule-reliability" {% if report_type=='schedule-reliability' %}selected{% endif %}>Schedule reliability</option>
+      <option value="utilization" {% if report_type=='utilization' %}selected{% endif %}>Runner/runtime utilization</option>
     </select></div>
   <div class="field"><label for="project_id">Project</label>
     <select name="project_id" id="project_id"><option value="">All visible projects</option>
@@ -94,7 +95,30 @@
 </tbody></table></section>
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
+{% elif report_type == 'utilization' %}
+<p class="muted"><small>Counting: {{ report.counting }}.</small></p>
+<div class="dash-2col">
+  <section class="card"><h2>Runner utilization</h2>
+    {% if figs.utilization != 'null' %}<div data-plotly-fig="{{ figs.utilization }}"></div>{% else %}<p class="muted">No runners are visible in the selected scope.</p>{% endif %}</section>
+  <section class="card"><h2>Applied scope</h2>
+    <div class="metric"><strong>{{ report.analyzed_attempts }}</strong><span>analyzed terminal attempts</span></div>
+    <div class="metric"><strong>{{ report.runner_rows|length }}</strong><span>runners</span></div>
+    <div class="metric"><strong>{{ report.runtime_rows|length }}</strong><span>runtimes</span></div>
+    {% if report.unassigned_attempts %}<p class="badge warn">{{ report.unassigned_attempts }} terminal attempts have no runner/runtime assignment.</p>{% endif %}
+    <p class="muted">Utilization can exceed 100% if overlapping historical assignments exceed the current configured capacity; that is evidence of overcommit or capacity reconfiguration, not clipped away.</p></section>
+</div>
+<section class="card"><h2>Runner utilization</h2>
+<table class="data-table"><thead><tr><th>Runner</th><th>Type</th><th>Health</th><th>Enabled</th><th>Capacity</th><th>Attempts</th><th>Busy seconds</th><th>Utilization</th><th>Attempt pass rate</th><th>Pass/fail/inc/none</th><th>Last finished</th></tr></thead><tbody>
+{% for r in report.runner_rows %}<tr><td>{{ r.name }}</td><td>{{ r.target_type }}</td><td>{{ r.health }}</td><td>{{ 'yes' if r.enabled else 'no' }}{% if r.draining %} · draining{% endif %}</td><td>{{ r.capacity }}</td><td>{{ r.attempts }}</td><td>{{ r.busy_seconds }}</td><td>{{ r.utilization_pct }}%</td><td>{{ r.pass_rate if r.pass_rate is not none else '—' }}{% if r.pass_rate is not none %}%{% endif %}</td><td>{{ r.passed }}/{{ r.failed }}/{{ r.incomplete }}/{{ r.none }}</td><td>{{ r.last_finished_at|localtime_short }}</td></tr>{% else %}<tr><td colspan="11" class="muted">No runners are visible in the selected scope.</td></tr>{% endfor %}
+</tbody></table></section>
+<section class="card"><h2>Runtime utilization</h2>
+<table class="data-table"><thead><tr><th>Runtime</th><th>Kind</th><th>Runner</th><th>Enabled</th><th>Effective capacity</th><th>Attempts</th><th>Busy seconds</th><th>Utilization</th><th>Attempt pass rate</th><th>Pass/fail/inc/none</th><th>Last finished</th></tr></thead><tbody>
+{% for r in report.runtime_rows %}<tr><td>{{ r.name }}</td><td>{{ r.runtime_kind }}</td><td>{{ r.runner }}</td><td>{{ 'yes' if r.enabled else 'no' }}</td><td>{{ r.capacity }}</td><td>{{ r.attempts }}</td><td>{{ r.busy_seconds }}</td><td>{{ r.utilization_pct }}%</td><td>{{ r.pass_rate if r.pass_rate is not none else '—' }}{% if r.pass_rate is not none %}%{% endif %}</td><td>{{ r.passed }}/{{ r.failed }}/{{ r.incomplete }}/{{ r.none }}</td><td>{{ r.last_finished_at|localtime_short }}</td></tr>{% else %}<tr><td colspan="11" class="muted">No runtimes are visible in the selected scope.</td></tr>{% endfor %}
+</tbody></table></section>
+<script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 {% elif report_type == 'schedule-reliability' %}
+
 <p class="muted"><small>Counting: {{ report.counting }}.</small></p>
 <div class="dash-2col">
   <section class="card"><h2>Schedule success rates</h2>

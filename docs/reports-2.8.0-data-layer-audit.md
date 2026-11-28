@@ -222,6 +222,18 @@ count final resolved outcomes per schedule and join audited
 `schedule.target_unavailable` and `schedule.fire_failed` events in the same
 rolling window. Audit lookup is constrained to visible schedule IDs rather
 than loading unrelated system audit rows, and zero-run schedules remain
-visible so silent schedules are not hidden. Saved definitions, scheduled
-generation, share links, PDF/docx/xlsx and the remaining report types remain
-open backlog work.
+visible so silent schedules are not hidden. Runner/runtime utilization is
+also implemented as a deliberately attempt-level exception to logical-run
+counting: retries and partition units consume real capacity, so terminal
+attempts are counted individually. Busy time is clipped to the overlap with
+the rolling report window. Runner capacity uses the dispatch ceiling
+min(max_slots, license_slots) with unset licences unconstrained; runtime
+capacity is capped by both its configured concurrency and the host runner
+ceiling. Utilization percentages are not clipped at 100%, because over-100%
+values are evidence of overlapping historical assignments or later capacity
+reconfiguration. Zero-use runners/runtimes remain visible only when their
+current project scopes intersect the viewer's visible projects; historical
+visible executions still surface their assigned infrastructure even if the
+current scope was later narrowed. Saved definitions, scheduled generation,
+share links, PDF/docx/xlsx and the remaining report types remain open backlog
+work.
