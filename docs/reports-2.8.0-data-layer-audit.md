@@ -278,7 +278,13 @@ Custom from/to date ranges are also implemented: both dates are required,
 they are interpreted as local calendar days in the viewer's timezone, valid
 ranges override the rolling day preset up to a bounded 366-day span, and the
 same bounds apply to execution-created-at, logical-run finish, utilization,
-schedule-event, and audit-event windows.
+schedule-event, and audit-event windows. Framework and framework-project
+filters are also implemented on immutable snapshot attribution. Framework
+matching mirrors framework-comparison semantics (repository framework wins,
+app/legacy suite targets are Katalon, otherwise unknown); framework-project
+matching uses the framework-project ID now stored in new execution snapshots.
+Older rows without that immutable ID are not guessed through replaceable
+inventory rows because overlapping roots could otherwise be conflated.
 Trigger filtering is not partially implemented: schedule/manual/API origin is
 not yet reliably attributable in the execution schema, so API-triggered runs
 must not be misclassified as manual. This is deliberately not yet the shared

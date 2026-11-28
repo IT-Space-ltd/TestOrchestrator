@@ -9,7 +9,7 @@ authorization scope, never trusted.
 import json
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func
+from sqlalchemy import and_, func, or_
 
 from ..analytics import (LOGICAL_ROLES, TERMINAL, _aw, _day,
                          resolve_logical_runs)
@@ -68,6 +68,44 @@ def visible_project_ids(user):
     return [p.id for p in Project.query.all() if user.project_allowed(p.id)]
 
 
+def _framework_sql_parts():
+    fw = func.coalesce(func.json_extract(
+        Execution.snapshot_json, "$.source_target.framework"), "")
+    st_binding = func.coalesce(func.json_extract(
+        Execution.snapshot_json, "$.source_target.binding_id"), "")
+    st_kind = func.coalesce(func.json_extract(
+        Execution.snapshot_json, "$.source_target.kind"), "")
+    st_path = func.coalesce(func.json_extract(
+        Execution.snapshot_json, "$.source_target.path"), "")
+    st_identified = or_(st_binding != "", st_kind != "", st_path != "")
+    snap_suite = func.coalesce(func.json_extract(
+        Execution.snapshot_json, "$.suite_id"), "")
+    targetish = or_(Execution.suite_id.isnot(None), st_identified,
+                    snap_suite != "")
+    return fw, targetish
+
+
+def _framework_matches_sql(framework):
+    fw, targetish = _framework_sql_parts()
+    if framework == "unknown":
+        return and_(fw == "", ~targetish)
+    if framework == "katalon":
+        return or_(fw == "katalon", and_(fw == "", targetish))
+    return fw == framework
+
+
+def _snapshot_framework(ex):
+    snap = ex.snapshot()
+    st = snap.get("source_target") or {}
+    framework = st.get("framework") or ""
+    if framework:
+        return framework
+    if (st.get("binding_id") or st.get("kind") or st.get("path")
+            or ex.suite_id or snap.get("suite_id")):
+        return "katalon"
+    return "unknown"
+
+
 def scoped_executions(user, filters, windowed=True, tz=None):
     """Execution query pre-scoped to the user's visible projects.
 
@@ -106,6 +144,14 @@ def scoped_executions(user, filters, windowed=True, tz=None):
         q = q.filter(Execution.source_ref.is_(None))
     elif source_ref:
         q = q.filter(Execution.source_ref == source_ref)
+    framework = (filters.get("framework") or "").strip()
+    if framework:
+        q = q.filter(_framework_matches_sql(framework))
+    framework_project_id = (filters.get("framework_project_id") or "").strip()
+    if framework_project_id:
+        q = q.filter(func.json_extract(
+            Execution.snapshot_json,
+            "$.source_target.framework_project_id") == framework_project_id)
     return q, days
 
 
@@ -174,6 +220,14 @@ def _final_matches_filters(final, filters):
         return False
     if source_ref not in ("", "__none__") and final.source_ref != source_ref:
         return False
+    framework = (filters.get("framework") or "").strip()
+    if framework and _snapshot_framework(final) != framework:
+        return False
+    framework_project_id = (filters.get("framework_project_id") or "").strip()
+    if framework_project_id:
+        st = final.snapshot().get("source_target") or {}
+        if (st.get("framework_project_id") or "") != framework_project_id:
+            return False
     return True
 
 

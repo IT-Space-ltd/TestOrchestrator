@@ -28,6 +28,15 @@
     <input type="date" name="from_date" id="from_date" value="{{ filters.get('from_date','') }}"></div>
   <div class="field"><label for="to_date">Custom to</label>
     <input type="date" name="to_date" id="to_date" value="{{ filters.get('to_date','') }}"></div>
+  <div class="field"><label for="framework">Framework</label>
+    <select name="framework" id="framework"><option value="">All frameworks</option>
+      {% for value,label in frameworks %}<option value="{{ value }}" {% if filters.get('framework')==value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+      <option value="unknown" {% if filters.get('framework')=='unknown' %}selected{% endif %}>Unknown / unattributed</option>
+    </select></div>
+  <div class="field"><label for="framework_project_id">Framework project</label>
+    <select name="framework_project_id" id="framework_project_id"><option value="">All framework projects</option>
+      {% for fp in framework_projects %}<option value="{{ fp.id }}" {% if filters.get('framework_project_id')==fp.id %}selected{% endif %}>{{ fp.name }} ({{ fp.framework }})</option>{% endfor %}
+    </select></div>
   <div class="field"><label for="state">State</label>
     <select name="state" id="state"><option value="">All</option>
       {% for s in states %}<option value="{{ s }}" {% if filters.get('state')==s %}selected{% endif %}>{{ s }}</option>{% endfor %}
@@ -60,7 +69,7 @@
     <input type="text" name="source_ref" id="source_ref" value="{{ filters.get('source_ref','') }}"></div>
   <div class="field"><label for="source_sha">Commit SHA</label>
     <input type="text" name="source_sha" id="source_sha" value="{{ filters.get('source_sha','') }}"></div>
-  <div class="field wide"><span class="muted"><small>Custom range uses local calendar days in your display timezone and overrides Period days when both dates are valid; maximum span 366 days.</small></span></div>
+  <div class="field wide"><span class="muted"><small>Custom range uses local calendar days in your display timezone and overrides Period days when both dates are valid; maximum span 366 days. Framework attribution uses the immutable execution snapshot; framework-project filtering matches only executions created after that identity was snapshotted and never guesses overlapping historical roots.</small></span></div>
   <div class="form-actions"><button class="button" type="submit">Preview</button>
     <button class="button secondary" type="submit" name="format" value="csv">Export CSV</button>
     <a class="button ghost" href="{{ url_for('portal.reports') }}">Clear</a></div>

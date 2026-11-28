@@ -58,6 +58,10 @@
   from/to date ranges use the viewer's local calendar days, override the
   rolling day preset when both dates are valid, and apply consistently to
   execution, logical-run, utilization, schedule-event, and audit windows.
+  Framework and framework-project filters use immutable execution snapshot
+  attribution; app-side/legacy suite targets remain Katalon, unattributed rows
+  stay explicitly unknown, and new repository executions snapshot the
+  framework-project ID rather than guessing overlapping historical roots.
   Filter keys and value sizes are
   server-side whitelisted, ownership is enforced on apply/delete, and save /
   delete actions are audited. Shared definitions, scheduled generation and

@@ -133,6 +133,8 @@ def reports():
         "days": request.args.get("days", "30"),
         "from_date": request.args.get("from_date", ""),
         "to_date": request.args.get("to_date", ""),
+        "framework": request.args.get("framework", ""),
+        "framework_project_id": request.args.get("framework_project_id", ""),
         "state": request.args.get("state", ""),
         "outcome": request.args.get("outcome", ""),
         "suite_id": request.args.get("suite_id", ""),
@@ -263,6 +265,10 @@ def reports():
         schedules=sorted((sc for sc in Schedule.query.all()
                           if sc.project_id in ids),
                          key=lambda sc: sc.name.lower()),
+        frameworks=FRAMEWORK_CHOICES,
+        framework_projects=sorted((fp for fp in FrameworkProject.query.all()
+                                   if fp.project_id in ids),
+                                  key=lambda fp: fp.name.lower()),
         releases=sorted((rel for rel in Release.query.all()
                          if rel.project_id in ids),
                         key=lambda rel: rel.name.lower()),
@@ -274,8 +280,8 @@ def reports():
 
 _REPORT_FILTER_KEYS = ("project_id", "days", "from_date", "to_date", "state",
                        "outcome", "suite_id", "runner_id", "schedule_id",
-                       "environment", "source_ref", "source_sha", "release_id",
-                       "user")
+                       "framework", "framework_project_id", "environment",
+                       "source_ref", "source_sha", "release_id", "user")
 
 
 def _clean_report_filters(raw):

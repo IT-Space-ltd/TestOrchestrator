@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from testorchestrator.execution import (CaseStatus, DiscoveredItem, Execution,
-                                        ExecutionState, GitBinding, Outcome, Plan,
+                                        ExecutionState, FrameworkProject, GitBinding, Outcome, Plan,
                                         Project, Release, ReleaseItem, Runner,
                                         RuntimeConnection, Schedule, Suite, TestResult)
 from testorchestrator.extensions import db
@@ -1321,3 +1321,62 @@ def test_custom_range_does_not_treat_superseded_head_as_final(app):
         report = trend_report(user, filters, tz=ZoneInfo("UTC"))
         assert report["total"] == 1
         assert report["rows"][0]["passed_runs"] == 1
+
+
+def test_framework_and_framework_project_filters_compose_raw_and_logical(app):
+    from testorchestrator.reporting.queries import (execution_summary,
+                                                    trend_report)
+    with app.app_context():
+        p = Project(name="FrameworkFilters")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        pytest_ex = _terminal(p, Outcome.PASSED, now)
+        _merge_snapshot(pytest_ex, source_target={
+            "binding_id": "b", "kind": "suite", "path": "tests",
+            "name": "pytest-suite", "framework": "pytest",
+            "framework_project_id": "fp-pytest"})
+        robot_ex = _terminal(p, Outcome.FAILED, now)
+        _merge_snapshot(robot_ex, source_target={
+            "binding_id": "b", "kind": "suite", "path": "robot",
+            "name": "robot-suite", "framework": "robot",
+            "framework_project_id": "fp-robot"})
+        suite = Suite(project_id=p.id, name="katalon-suite")
+        db.session.add(suite); db.session.flush()
+        katalon_ex = _terminal(p, Outcome.PASSED, now)
+        katalon_ex.suite_id = suite.id
+        unknown_ex = _terminal(p, Outcome.FAILED, now)  # no target attribution
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        base = {"days": "30"}
+        for report_fn in (execution_summary, trend_report):
+            assert report_fn(user, {**base, "framework": "pytest"})["total"] == 1
+            assert report_fn(user, {**base, "framework": "robot"})["total"] == 1
+            assert report_fn(user, {**base, "framework": "katalon"})["total"] == 1
+            assert report_fn(user, {**base, "framework": "unknown"})["total"] == 1
+            assert report_fn(user, {**base, "framework_project_id": "fp-pytest"})["total"] == 1
+            assert report_fn(user, {**base, "framework_project_id": "missing"})["total"] == 0
+        # The unknown row is the unattributed execution, never a suite or a
+        # repository-target row guessed into a framework bucket.
+        report = execution_summary(user, {**base, "framework": "unknown"})
+        assert [r.id for r in report["rows"]] == [unknown_ex.id]
+
+
+def test_reports_framework_filter_inputs_render(app, client, login_as):
+    with app.app_context():
+        p = Project(name="FrameworkFilterUi")
+        db.session.add(p); db.session.flush()
+        binding = GitBinding(project_id=p.id, name="repo", url="https://example.invalid/repo.git")
+        db.session.add(binding); db.session.flush()
+        fp = FrameworkProject(binding_id=binding.id, project_id=p.id,
+                              name="UI tests", framework="playwright")
+        db.session.add(fp); db.session.commit()
+        fpid = fp.id
+    login_as("admin")
+    resp = client.get(f"/reports?framework=playwright&framework_project_id={fpid}")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert 'name="framework"' in body
+    assert 'name="framework_project_id"' in body
+    assert 'value="playwright" selected' in body
+    assert "UI tests (playwright)" in body
+    assert "never guesses overlapping historical roots" in body
