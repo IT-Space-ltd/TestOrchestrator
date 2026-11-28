@@ -43,6 +43,11 @@
       <option value="{{ trig }}" {% if filters.get('trigger')==trig %}selected{% endif %}>{{ trig|capitalize }}</option>
       {% endfor %}
     </select></div>
+  <div class="field"><label for="tags">Tags</label>
+    <input type="text" name="tags" id="tags" maxlength="256"
+           value="{{ filters.get('tags','') }}"
+           placeholder="comma-separated; all must match"
+           title="Matches immutable tags captured in repository-target execution snapshots. Legacy rows without snapshot tags do not match."></div>
   <div class="field"><label for="state">State</label>
     <select name="state" id="state"><option value="">All</option>
       {% for s in states %}<option value="{{ s }}" {% if filters.get('state')==s %}selected{% endif %}>{{ s }}</option>{% endfor %}

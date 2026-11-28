@@ -146,6 +146,7 @@ def reports():
         "release_id": request.args.get("release_id", ""),
         "user": request.args.get("user", ""),
         "trigger": request.args.get("trigger", ""),
+        "tags": request.args.get("tags", ""),
     }
     if report_type == "audit-compliance" and current_user.role != Role.ADMIN:
         abort(403)
@@ -283,7 +284,7 @@ _REPORT_FILTER_KEYS = ("project_id", "days", "from_date", "to_date", "state",
                        "outcome", "suite_id", "runner_id", "schedule_id",
                        "framework", "framework_project_id", "environment",
                        "source_ref", "source_sha", "release_id", "user",
-                       "trigger")
+                       "trigger", "tags")
 
 
 def _clean_report_filters(raw):

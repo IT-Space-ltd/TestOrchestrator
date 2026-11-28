@@ -85,6 +85,28 @@ def _framework_sql_parts():
     return fw, targetish
 
 
+def _tag_filter_values(raw):
+    """Comma/semicolon separated report tag filter, capped and normalized."""
+    values = []
+    for part in str(raw or "").replace(";", ",").split(","):
+        tag = part.strip().lower()[:64]
+        if tag and tag not in values:
+            values.append(tag)
+        if len(values) >= 8:
+            break
+    return values
+
+
+def _like_literal(value):
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _snapshot_tag_tokens(snapshot_tags):
+    return [part.strip().lower()
+            for part in str(snapshot_tags or "").replace(";", ",").split(",")
+            if part.strip()]
+
+
 def _framework_matches_sql(framework):
     fw, targetish = _framework_sql_parts()
     if framework == "unknown":
@@ -155,6 +177,19 @@ def scoped_executions(user, filters, windowed=True, tz=None):
     trigger = (filters.get("trigger") or "").strip().lower()
     if trigger in ("manual", "schedule", "api", "unknown"):
         q = q.filter(Execution.trigger_origin == trigger)
+    tags = _tag_filter_values(filters.get("tags"))
+    if tags:
+        # Match whole inventory-tag tokens without trusting mutable inventory
+        # rows. Snapshot tags use comma/semicolon separators depending on the
+        # source framework, so normalize semicolons and wrap token boundaries.
+        normalized = func.lower(func.replace(func.replace(func.coalesce(
+            func.json_extract(Execution.snapshot_json,
+                              "$.source_target.tags"), ""),
+            ";", ","), ", ", ","))
+        wrapped = func.concat(",", normalized, ",")
+        for tag in tags:
+            q = q.filter(wrapped.like("%," + _like_literal(tag) + ",%",
+                                      escape="\\"))
     return q, days
 
 
@@ -235,6 +270,12 @@ def _final_matches_filters(final, filters):
     if trigger in ("manual", "schedule", "api", "unknown") and \
             (final.trigger_origin or "unknown") != trigger:
         return False
+    wanted_tags = _tag_filter_values(filters.get("tags"))
+    if wanted_tags:
+        st = final.snapshot().get("source_target") or {}
+        actual_tags = set(_snapshot_tag_tokens(st.get("tags")))
+        if not all(tag in actual_tags for tag in wanted_tags):
+            return False
     return True
 
 

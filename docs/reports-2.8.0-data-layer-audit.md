@@ -293,7 +293,12 @@ retries are classified as api; direct UI launches and UI retries are manual.
 Legacy rows deliberately remain `unknown` because both `schedule_id` and
 `created_by` were ambiguous historical evidence, so no backfill guesses are
 made. The Reports filter applies identically to raw execution-summary rows
-and final logical runs. This is deliberately not yet the shared
+and final logical runs. Tag filters are also implemented: new repository
+executions snapshot the source item's tag text at creation, filtering uses
+case-insensitive whole-token matching after comma/semicolon normalization,
+multiple entered tags use AND semantics, LIKE metacharacters are escaped,
+and legacy rows without immutable snapshot tags do not match because mutable
+inventory rows are not re-read. This is deliberately not yet the shared
 saved-report-definition/share-link surface; those remain
 authorization-sensitive backlog work. Export-format dependency evaluation is
 now documented in `docs/reports-export-dependency-proposal.md`: fpdf2,

@@ -1452,3 +1452,60 @@ def test_trigger_origin_upgrade_keeps_ambiguous_history_unknown(tmp_path):
         value = c.execute(sa.text(
             "SELECT trigger_origin FROM executions WHERE id='e1'")).scalar_one()
     assert value == "unknown"
+
+
+def test_tag_filters_use_immutable_snapshot_tokens_raw_and_logical(app, client, login_as):
+    from testorchestrator.reporting.queries import (execution_summary,
+                                                    trend_report)
+    with app.app_context():
+        p = Project(name="TagFilters")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        smoke_fast = _terminal(p, Outcome.PASSED, now)
+        _merge_snapshot(smoke_fast, source_target={
+            "binding_id": "b", "kind": "test", "path": "tests/test_a.py::test_a",
+            "framework": "pytest", "tags": "Smoke, fast;format:v3"})
+        smoke_only = _terminal(p, Outcome.PASSED, now)
+        _merge_snapshot(smoke_only, source_target={
+            "binding_id": "b", "kind": "test", "path": "tests/test_b.py::test_b",
+            "framework": "pytest", "tags": "smoke"})
+        legacy = _terminal(p, Outcome.PASSED, now)
+        _merge_snapshot(legacy, source_target={
+            "binding_id": "b", "kind": "test", "path": "tests/test_c.py::test_c",
+            "framework": "pytest"})  # no immutable tag snapshot
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        for report_fn in (execution_summary, trend_report):
+            assert report_fn(user, {"days": "30", "tags": "smoke"})["total"] == 2
+            assert report_fn(user, {"days": "30", "tags": "SMOKE,fast"})["total"] == 1
+            assert report_fn(user, {"days": "30", "tags": "fast"})["total"] == 1
+            # LIKE metacharacters are literals, never user-controlled wildcards.
+            assert report_fn(user, {"days": "30", "tags": "%"})["total"] == 0
+            assert report_fn(user, {"days": "30", "tags": "smoke,missing"})["total"] == 0
+        report = execution_summary(user, {"days": "30", "tags": "smoke"})
+        assert {r.id for r in report["rows"]} == {smoke_fast.id, smoke_only.id}
+    login_as("admin")
+    resp = client.get("/reports?tags=smoke")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert 'name="tags"' in body
+    assert 'value="smoke"' in body
+    assert smoke_fast.id[:8] in body
+    assert legacy.id[:8] not in body
+
+
+def test_execution_creation_snapshots_source_tags(app):
+    from testorchestrator import dispatch
+    with app.app_context():
+        p = Project(name="TagSnapshot")
+        db.session.add(p); db.session.flush()
+        binding = GitBinding(project_id=p.id, name="repo",
+                             url="https://example.invalid/repo.git")
+        db.session.add(binding); db.session.flush()
+        item = DiscoveredItem(binding_id=binding.id, project_id=p.id,
+                              kind="suite", path="tests", name="tests",
+                              sha="abc", framework="pytest", tags="smoke,fast")
+        db.session.add(item); db.session.commit()
+        ex = dispatch.create_execution("tester", binding=binding,
+                                       source_item=item, run_config={})
+        assert ex.snapshot()["source_target"]["tags"] == "smoke,fast"
