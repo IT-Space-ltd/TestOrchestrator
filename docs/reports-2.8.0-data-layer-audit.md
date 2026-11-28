@@ -189,10 +189,23 @@ After owner approval of the data-layer shape (and before export formats):
 
 This keeps the first product-code increment small while establishing the
 security and counting foundations required by backlog items 32–37.
-## Status update — first implementation slice
+
+## Status update — implementation slices
 
 Implemented on `feature/2.8.0-backlog`: the top-level Reports menu now exposes
 the execution-summary report preview and CSV export using the scoped query
-layer proposed above. It currently covers only the first report type and CSV;
-saved definitions, charts, scheduled generation, share links, PDF/docx/xlsx
-and the remaining report types remain open backlog work.
+layer proposed above, plus a pass-rate/duration trend report with browser
+Plotly charts, an accessible data table and daily-row CSV. The trend slice
+uses logical-run semantics: terminal logical-role attempts in the rolling
+window are grouped through the shared retry-chain resolver before metadata
+filters are applied. Because the window ends at the report generation instant,
+an older out-of-window chain head cannot change which in-window terminal
+attempt is final; this keeps the source query bounded without weakening the
+final-attempt semantics. Runs are assigned to the final resolved attempt's
+finish day in the viewer's timezone, and partitioned unit-child results
+contribute once to the parent logical run. Result statuses are aggregated in
+one batched query after the bounded logical-run set is selected, so the rollup
+does not N+1. CSV rows carry the
+generated-at instant, timezone, filter snapshot and truncation metadata.
+Saved definitions, scheduled generation, share links, PDF/docx/xlsx and the
+remaining report types remain open backlog work.

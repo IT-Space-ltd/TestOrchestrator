@@ -105,8 +105,13 @@ def _suite_hash(suite: Suite) -> str:
 @portal_bp.route("/reports")
 @login_required
 def reports():
-    """Execution-summary report preview + CSV export (first 2.8.0 slice)."""
-    from ..reporting.queries import execution_csv, execution_summary, visible_project_ids
+    """Report previews + CSV exports (2.8.0 incremental slices)."""
+    from ..reporting.queries import (execution_csv, execution_summary,
+                                     trend_csv, trend_report,
+                                     visible_project_ids)
+    report_type = request.args.get("report_type") or "execution-summary"
+    if report_type not in ("execution-summary", "trends"):
+        report_type = "execution-summary"
     filters = {
         "project_id": request.args.get("project_id", ""),
         "days": request.args.get("days", "30"),
@@ -118,19 +123,38 @@ def reports():
         "environment": request.args.get("environment", ""),
         "source_ref": request.args.get("source_ref", ""),
     }
-    report = execution_summary(current_user, filters)
+    figs = {}
+    if report_type == "trends":
+        from .. import usertz as _utz
+        from ..charts import (duration_trend, logical_outcome_trend,
+                              pass_rate_trend)
+        report = trend_report(current_user, filters,
+                              tz=_utz.user_zone(current_user))
+        figs = {
+            "outcomes": logical_outcome_trend(report["outcome_trend"]),
+            "pass_rate": pass_rate_trend(report["pass_rate"]),
+            "duration": duration_trend(report["durations"]),
+        }
+        csv_body = trend_csv(report)
+        csv_name = "testorchestrator-trend-report.csv"
+    else:
+        report = execution_summary(current_user, filters)
+        csv_body = execution_csv(report)
+        csv_name = "testorchestrator-execution-summary.csv"
     if request.args.get("format") == "csv":
         record_audit(current_user.username, "report.export",
-                     "execution-summary-csv "+
-                     f"rows={len(report['rows'])} total={report['total']}")
+                     f"{report_type}-csv rows={len(report['rows'])} "
+                     f"total={report['total']}")
         return Response(
-            execution_csv(report), mimetype="text/csv",
+            csv_body, mimetype="text/csv",
             headers={"Content-Disposition":
-                     "attachment; filename=testorchestrator-execution-summary.csv"})
+                     f"attachment; filename={csv_name}"})
     ids = set(visible_project_ids(current_user))
     return render_template(
-        "portal/reports.html", report=report, filters=filters,
-        projects=[p for p in Project.query.all() if p.id in ids],
+        "portal/reports.html", report=report, report_type=report_type,
+        figs=figs, filters=filters,
+        projects=sorted((p for p in Project.query.all() if p.id in ids),
+                        key=lambda p: p.name.lower()),
         states=[s.value for s in ExecutionState],
         outcomes=[o.value for o in Outcome])
 

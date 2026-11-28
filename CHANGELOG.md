@@ -4,14 +4,19 @@
 
 ### Added
 
-- **Reports main menu — first execution-summary slice.** A new top-level
-  Reports page provides a project-scoped execution-summary preview with
-  period/state/outcome/environment/source-ref filters, aggregate outcome
-  cards, a disclosed 5000-row limit, and CSV export. The query layer is
-  scoped to the signed-in user's visible projects before filtering; CSV
-  export is audited and spreadsheet-formula-leading text is escaped.
-  PDF/docx/xlsx and additional report types remain pending owner-approved
-  dependencies and later 2.8.0 slices.
+- **Reports main menu — execution summary + trends slices.** A new
+  top-level Reports page provides a project-scoped execution-summary preview
+  with period/state/outcome/environment/source-ref filters, aggregate outcome
+  cards, a disclosed 5000-row limit, and CSV export. A second report type,
+  pass-rate and duration trends, adds browser-rendered Plotly charts, a data
+  table, and daily-row CSV export using the same scoped query layer. Trends use
+  logical-run semantics so retries cannot inflate counts; CSV rows carry the
+  generated-at instant, viewer timezone, filter snapshot, and truncation
+  metadata. The query layer is scoped to the signed-in user's visible
+  projects before filtering; CSV export is audited and
+  spreadsheet-formula-leading text is escaped. PDF/docx/xlsx and additional
+  report types remain pending owner-approved dependencies and later 2.8.0
+  slices.
 
 ## [2.7.0] — 2026-11-27
 

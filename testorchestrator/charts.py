@@ -96,6 +96,25 @@ _OUTCOME_COLOR = {"passed": _PALETTE["passed"],
 _SEQ_SCALE = [[0.0, "#eef3ff"], [0.25, "#c9d9f8"], [0.5, "#8fb0ee"],
               [0.75, "#4a78dd"], [1.0, "#1a56db"]]
 
+
+def logical_outcome_trend(rows) -> str:
+    """rows: [{day, passed, failed, incomplete, none}] — terminal logical
+    runs grouped by final resolved execution outcome."""
+    if not rows:
+        return "null"
+    days = [r["day"] for r in rows]
+    traces = []
+    for key in _OUTCOME_ORDER:
+        if any(r.get(key) for r in rows):
+            traces.append({"type": "bar", "name": _OUTCOME_LABEL[key],
+                           "x": days, "y": [r.get(key, 0) for r in rows],
+                           "marker": {"color": _OUTCOME_COLOR[key]}})
+    if not traces:
+        return "null"
+    return _fig(traces, {"barmode": "stack",
+                         "yaxis": {"title": "Logical runs"}})
+
+
 _EXEC_LIST = "/executions"
 
 
