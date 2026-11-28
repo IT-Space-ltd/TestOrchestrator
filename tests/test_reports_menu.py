@@ -2,9 +2,9 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from testorchestrator.execution import (CaseStatus, Execution, ExecutionState,
-                                        Outcome, Project, TestResult)
+                                        Outcome, Project, Schedule, TestResult)
 from testorchestrator.extensions import db
-from testorchestrator.models import User
+from testorchestrator.models import AuditEvent, User
 
 
 def _mk_exec(project, outcome=Outcome.PASSED, created_by="tester"):
@@ -556,3 +556,99 @@ def test_reports_invalid_days_falls_back_instead_of_500(app, client, login_as):
     login_as("admin")
     assert client.get("/reports?days=not-a-number").status_code == 200
     assert client.get("/reports?report_type=trends&days=not-a-number").status_code == 200
+
+
+def test_schedule_reliability_counts_logical_runs_audit_events_and_zero_runs(app):
+    from testorchestrator.reporting.queries import (schedule_reliability_csv,
+                                                    schedule_reliability_report)
+    with app.app_context():
+        p = Project(name="ReliabilityProject")
+        db.session.add(p); db.session.flush()
+        sched = Schedule(project_id=p.id, name="nightly", target_type="suite",
+                         kind="interval", interval_minutes=60)
+        silent = Schedule(project_id=p.id, name="silent", target_type="suite",
+                          kind="once")
+        db.session.add_all([sched, silent]); db.session.flush()
+        now = datetime.now(timezone.utc)
+        head = _terminal(p, Outcome.FAILED, now - timedelta(hours=2))
+        head.schedule_id = sched.id
+        retry = _terminal(p, Outcome.PASSED, now, attempt=2, retry_of=head.id)
+        retry.schedule_id = sched.id
+        db.session.add_all([
+            AuditEvent(occurred_at=now, username="system",
+                       event="schedule.misfire_skipped",
+                       detail=f"{sched.id}: overdue 100s"),
+            AuditEvent(occurred_at=now, username="system",
+                       event="schedule.overlap_skipped",
+                       detail=f"{sched.id}: 1 active"),
+            AuditEvent(occurred_at=now, username="system",
+                       event="schedule.fire_failed",
+                       detail=f"{sched.id}: DispatchError: missing"),
+        ])
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = schedule_reliability_report(user, {"days": "30"})
+        assert report["total_schedules"] == 2
+        row = next(r for r in report["rows"] if r["name"] == "nightly")
+        # retry chain contributes one logical run and passes under final outcome
+        assert row["runs"] == 1 and row["passed"] == 1
+        assert row["failed"] == 0 and row["success_rate"] == 100.0
+        assert row["misfire_skips"] == 1
+        assert row["overlap_skips"] == 1
+        assert row["fire_failures"] == 1
+        assert row["latest_outcome"] == "passed"
+        zero = next(r for r in report["rows"] if r["name"] == "silent")
+        assert zero["runs"] == 0 and zero["success_rate"] is None
+        text = schedule_reliability_csv(report)
+        assert "schedule_id,schedule,project" in text
+        assert "nightly" in text and "silent" in text
+        assert "total_logical_runs" in text
+
+
+def test_schedule_reliability_is_project_scoped(app):
+    from testorchestrator.reporting.queries import schedule_reliability_report
+    with app.app_context():
+        visible = Project(name="ReliabilityVisible")
+        hidden = Project(name="ReliabilityHidden")
+        db.session.add_all([visible, hidden]); db.session.flush()
+        db.session.add_all([
+            Schedule(project_id=visible.id, name="visible-sched",
+                     target_type="suite", kind="interval"),
+            Schedule(project_id=hidden.id, name="hidden-sched",
+                     target_type="suite", kind="interval"),
+        ])
+        po = User.query.filter_by(username="po").one()
+        po.set_assigned_projects([visible.id])
+        db.session.commit()
+        report = schedule_reliability_report(po, {"days": "30"})
+        names = [r["name"] for r in report["rows"]]
+        assert names == ["visible-sched"]
+        scoped = schedule_reliability_report(
+            po, {"days": "30", "project_id": hidden.id})
+        assert scoped["rows"] == []
+
+
+def test_reports_schedule_reliability_page_chart_and_csv(app, client, login_as):
+    with app.app_context():
+        p = Project(name="ReliabilityUi")
+        db.session.add(p); db.session.flush()
+        sched = Schedule(project_id=p.id, name="ui-nightly", target_type="suite",
+                         kind="interval")
+        db.session.add(sched); db.session.flush()
+        now = datetime.now(timezone.utc)
+        ex = _terminal(p, Outcome.FAILED, now)
+        ex.schedule_id = sched.id
+        db.session.commit()
+    login_as("admin")
+    resp = client.get("/reports?report_type=schedule-reliability")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert "Schedule reliability" in body
+    assert "ui-nightly" in body
+    assert "data-plotly-fig" in body
+    assert "0.0%" in body
+    csv_resp = client.get("/reports?report_type=schedule-reliability&format=csv")
+    assert csv_resp.status_code == 200
+    text = csv_resp.data.decode()
+    assert "schedule_id,schedule,project" in text
+    assert "ui-nightly" in text

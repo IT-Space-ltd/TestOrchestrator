@@ -215,6 +215,13 @@ one failure/error, ranked by 2*min(pass, fail)/executed. Case rankings are
 capped and truncation is disclosed. Failure analysis by error kind is also
 implemented: explicit `error_kind` wins, failed runs with failed/error parsed
 case evidence classify as test failures, and other non-passed runs remain
-honestly uncategorized rather than being folded into test failure. Saved
-definitions, scheduled generation, share links, PDF/docx/xlsx and the
-remaining report types remain open backlog work.
+honestly uncategorized rather than being folded into test failure. Schedule
+reliability is also implemented on the same logical-run selection layer: rows
+count final resolved outcomes per schedule and join audited
+`schedule.misfire_skipped`, `schedule.overlap_skipped`,
+`schedule.target_unavailable` and `schedule.fire_failed` events in the same
+rolling window. Audit lookup is constrained to visible schedule IDs rather
+than loading unrelated system audit rows, and zero-run schedules remain
+visible so silent schedules are not hidden. Saved definitions, scheduled
+generation, share links, PDF/docx/xlsx and the remaining report types remain
+open backlog work.

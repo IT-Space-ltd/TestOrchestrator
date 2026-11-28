@@ -135,6 +135,22 @@ def failure_kind_bars(rows) -> str:
                      "height": max(215, 34 * len(rows) + 100)})
 
 
+def schedule_reliability_bars(rows) -> str:
+    """rows: [{name, success_rate, runs}] — horizontal schedule success bars."""
+    shown = [r for r in rows if r.get("runs")][:20]
+    if not shown:
+        return "null"
+    tr = [{"type": "bar", "orientation": "h", "name": "Success rate %",
+           "x": [r["success_rate"] for r in shown],
+           "y": [r["name"] for r in shown],
+           "marker": {"color": _PALETTE["passed"]}}]
+    return _fig(tr, {"xaxis": {"title": "Successful logical runs %",
+                               "range": [0, 100]},
+                     "yaxis": {"automargin": True,
+                               "categoryorder": "total ascending"},
+                     "height": max(215, 30 * len(shown) + 100)})
+
+
 _EXEC_LIST = "/executions"
 
 

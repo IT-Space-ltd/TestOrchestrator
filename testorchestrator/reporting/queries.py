@@ -12,7 +12,8 @@ from sqlalchemy import func
 
 from ..analytics import (LOGICAL_ROLES, TERMINAL, _aw, _day,
                          resolve_logical_runs)
-from ..execution import Execution, Project, TestResult
+from ..execution import Execution, Project, Schedule, TestResult
+from ..models import AuditEvent
 
 MAX_REPORT_ROWS = 5000
 MAX_CASE_ROWS = 500
@@ -552,6 +553,147 @@ def failure_analysis_csv(report):
             "generated_at_utc": generated,
             "report_type": "failure-analysis",
             "analyzed_failures": report["analyzed_failures"],
+            "total_logical_runs": report["total"],
+            "truncated": "true" if report["truncated"] else "false",
+            "max_rows": report["max_rows"],
+            "filters_json": filters_json,
+        })
+    return out.getvalue()
+
+
+def schedule_reliability_report(user, filters, tz=None):
+    """Schedule reliability over terminal logical runs and fire audit events.
+
+    Run reliability uses final resolved logical-run outcomes. Misfire,
+    overlap, target-unavailable and fire-failure counts come from the audited
+    scheduler events in the same rolling window. Schedules with zero matching
+    runs remain visible so silent schedules are not hidden.
+    """
+    selection = _select_logical_runs(user, filters)
+    selected = selection["selected"]
+    days = selection["days"]
+    since = selection["since"]
+    ids = visible_project_ids(user)
+    sq = Schedule.query.filter(Schedule.project_id.in_(ids or [""]))
+    project_id = (filters.get("project_id") or "").strip()
+    if project_id:
+        sq = sq.filter(Schedule.project_id == (project_id if project_id in ids else ""))
+    schedules = sq.all()
+    projects = {p.id: p.name for p in Project.query.filter(Project.id.in_(ids or [""])).all()} \
+        if ids else {}
+    rows = {}
+    for sched in schedules:
+        rows[sched.id] = {
+            "schedule_id": sched.id, "name": sched.name,
+            "project_id": sched.project_id,
+            "project": projects.get(sched.project_id, sched.project_id),
+            "target_type": sched.target_type, "kind": sched.kind,
+            "enabled": sched.enabled, "runs": 0, "passed": 0,
+            "failed": 0, "incomplete": 0, "none": 0,
+            "success_rate": None, "fire_failures": 0,
+            "misfire_skips": 0, "overlap_skips": 0,
+            "target_unavailable": 0, "last_run_at": sched.last_run_at,
+            "next_run_at": sched.next_run_at, "latest_outcome": "",
+        }
+    analyzed_runs = 0
+    latest_by_schedule = {}
+    for _run, final in selected:
+        row = rows.get(final.schedule_id)
+        if row is None:
+            continue
+        analyzed_runs += 1
+        row["runs"] += 1
+        oc = _enum_value(final.outcome) or "none"
+        row[{"passed": "passed", "failed": "failed",
+             "incomplete": "incomplete"}.get(oc, "none")] += 1
+        prior = latest_by_schedule.get(final.schedule_id)
+        if prior is None or _aw(final.finished_at) > _aw(prior.finished_at):
+            latest_by_schedule[final.schedule_id] = final
+    for sid, final in latest_by_schedule.items():
+        rows[sid]["latest_outcome"] = _enum_value(final.outcome) or "none"
+
+    event_map = {"schedule.fire_failed": "fire_failures",
+                 "schedule.misfire_skipped": "misfire_skips",
+                 "schedule.overlap_skipped": "overlap_skips",
+                 "schedule.target_unavailable": "target_unavailable"}
+    schedule_ids = set(rows)
+    events = []
+    if schedule_ids:
+        # IDs are fixed-width uuid4 hex values; matching the first 32 detail
+        # characters covers both exact IDs and "id: detail" audit payloads
+        # while keeping the audit query scoped to visible schedules.
+        events = (AuditEvent.query
+                  .filter(AuditEvent.occurred_at >= since,
+                          AuditEvent.event.in_(tuple(event_map)),
+                          func.substr(AuditEvent.detail, 1, 32)
+                          .in_(tuple(schedule_ids)))
+                  .all())
+    for event in events:
+        detail_schedule = (event.detail or "").split(":", 1)[0]
+        row = rows.get(detail_schedule)
+        if row is not None:
+            row[event_map[event.event]] += 1
+
+    out = list(rows.values())
+    for row in out:
+        if row["runs"]:
+            row["success_rate"] = round(100 * row["passed"] / row["runs"], 1)
+    out.sort(key=lambda r: (r["success_rate"] is None,
+                            r["success_rate"] if r["success_rate"] is not None else 0,
+                            -(r["fire_failures"] + r["misfire_skips"]
+                              + r["overlap_skips"] + r["target_unavailable"]),
+                            -r["runs"], r["name"].lower()))
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "filters": _filter_snapshot(filters),
+        "timezone": _zone_name(tz),
+        "days": days, "rows": out, "total": analyzed_runs,
+        "total_schedules": len(out),
+        "truncated": selection["total"] > selection["bounded_count"],
+        "max_rows": MAX_REPORT_ROWS,
+        "counting": "terminal logical runs per schedule; audit fire events in the same window; zero-run schedules remain visible",
+    }
+
+
+def schedule_reliability_csv(report):
+    """Schedule-row CSV for the schedule reliability report."""
+    import csv
+    import io
+    import json
+    out = io.StringIO()
+    fields = ["schedule_id", "schedule", "project", "target_type", "kind",
+              "enabled", "logical_runs", "passed", "failed", "incomplete",
+              "none", "success_rate", "fire_failures", "misfire_skips",
+              "overlap_skips", "target_unavailable", "last_run_at_utc",
+              "next_run_at_utc", "latest_outcome", "tz", "generated_at_utc",
+              "report_type", "total_schedules", "total_logical_runs",
+              "truncated", "max_rows", "filters_json"]
+    w = csv.DictWriter(out, fieldnames=fields)
+    w.writeheader()
+    generated = report["generated_at"].isoformat()
+    filters_json = json.dumps(report.get("filters", {}), sort_keys=True)
+    def iso(dt):
+        return _aw(dt).isoformat() if dt else ""
+    for r in report["rows"]:
+        w.writerow({
+            "schedule_id": r["schedule_id"],
+            "schedule": _csv_safe(r["name"]),
+            "project": _csv_safe(r["project"]),
+            "target_type": r["target_type"], "kind": r["kind"],
+            "enabled": "true" if r["enabled"] else "false",
+            "logical_runs": r["runs"], "passed": r["passed"],
+            "failed": r["failed"], "incomplete": r["incomplete"],
+            "none": r["none"], "success_rate": r["success_rate"],
+            "fire_failures": r["fire_failures"],
+            "misfire_skips": r["misfire_skips"],
+            "overlap_skips": r["overlap_skips"],
+            "target_unavailable": r["target_unavailable"],
+            "last_run_at_utc": iso(r["last_run_at"]),
+            "next_run_at_utc": iso(r["next_run_at"]),
+            "latest_outcome": r["latest_outcome"],
+            "tz": report["timezone"], "generated_at_utc": generated,
+            "report_type": "schedule-reliability",
+            "total_schedules": report["total_schedules"],
             "total_logical_runs": report["total"],
             "truncated": "true" if report["truncated"] else "false",
             "max_rows": report["max_rows"],

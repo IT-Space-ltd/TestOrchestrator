@@ -15,8 +15,11 @@
   disclosed inline (at least three executed logical runs with both pass and
   failure/error evidence, ranked by a balanced-instability score). A fourth
   report type breaks non-passed logical runs down by explicit error kind,
-  test-failure evidence, or an honestly uncategorized bucket. CSV rows carry
-  the generated-at instant, viewer timezone, filter snapshot, and
+  test-failure evidence, or an honestly uncategorized bucket. A fifth report
+  type summarizes schedule reliability from final logical-run outcomes plus
+  audited misfire, overlap-skip, target-unavailable and fire-failure events;
+  zero-run schedules remain visible so silent schedules are not hidden. CSV
+  rows carry the generated-at instant, viewer timezone, filter snapshot, and
   truncation metadata. The query layer is scoped to the signed-in user's
   visible projects before filtering; CSV export is audited and
   spreadsheet-formula-leading text is escaped. PDF/docx/xlsx and additional
