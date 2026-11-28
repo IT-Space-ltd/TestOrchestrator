@@ -46,8 +46,16 @@
     </select></div>
   <div class="field"><label for="environment">Environment</label>
     <input type="text" name="environment" id="environment" value="{{ filters.get('environment','') }}"></div>
+  <div class="field"><label for="release_id">Release</label>
+    <select name="release_id" id="release_id"><option value="">All visible releases</option>
+      {% for r in releases %}<option value="{{ r.id }}" {% if filters.get('release_id')==r.id %}selected{% endif %}>{{ r.name }}</option>{% endfor %}
+    </select></div>
+  <div class="field"><label for="user">User</label>
+    <input type="text" name="user" id="user" value="{{ filters.get('user','') }}" placeholder="created-by username"></div>
   <div class="field"><label for="source_ref">Source ref</label>
     <input type="text" name="source_ref" id="source_ref" value="{{ filters.get('source_ref','') }}"></div>
+  <div class="field"><label for="source_sha">Commit SHA</label>
+    <input type="text" name="source_sha" id="source_sha" value="{{ filters.get('source_sha','') }}"></div>
   <div class="form-actions"><button class="button" type="submit">Preview</button>
     <button class="button secondary" type="submit" name="format" value="csv">Export CSV</button>
     <a class="button ghost" href="{{ url_for('portal.reports') }}">Clear</a></div>

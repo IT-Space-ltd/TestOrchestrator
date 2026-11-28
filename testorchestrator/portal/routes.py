@@ -138,6 +138,9 @@ def reports():
         "schedule_id": request.args.get("schedule_id", ""),
         "environment": request.args.get("environment", ""),
         "source_ref": request.args.get("source_ref", ""),
+        "source_sha": request.args.get("source_sha", ""),
+        "release_id": request.args.get("release_id", ""),
+        "user": request.args.get("user", ""),
     }
     if report_type == "audit-compliance" and current_user.role != Role.ADMIN:
         abort(403)
@@ -256,6 +259,9 @@ def reports():
         schedules=sorted((sc for sc in Schedule.query.all()
                           if sc.project_id in ids),
                          key=lambda sc: sc.name.lower()),
+        releases=sorted((rel for rel in Release.query.all()
+                         if rel.project_id in ids),
+                        key=lambda rel: rel.name.lower()),
         saved_filters=SavedReportFilter.query.filter_by(
             username=current_user.username).order_by(
                 SavedReportFilter.name).all(),
@@ -263,7 +269,8 @@ def reports():
 
 
 _REPORT_FILTER_KEYS = ("project_id", "days", "state", "outcome", "suite_id",
-                       "runner_id", "schedule_id", "environment", "source_ref")
+                       "runner_id", "schedule_id", "environment", "source_ref",
+                       "source_sha", "release_id", "user")
 
 
 def _clean_report_filters(raw):

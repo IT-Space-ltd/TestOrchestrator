@@ -271,6 +271,11 @@ ownership, and save/delete actions are audited. The Reports filter bar now
 exposes the existing composable suite, runner and schedule filters instead of
 leaving them query-string-only. Suite/schedule choices are constrained to
 visible projects; runner choices use the same effective project-scope rule as
-utilization reporting. This is deliberately not yet the shared
+utilization reporting. Release, created-by user and exact commit-SHA filters
+also compose through both the raw execution-summary query and logical-run
+reports (the logical-run path applies them to the final resolved attempt).
+Trigger filtering is not partially implemented: schedule/manual/API origin is
+not yet reliably attributable in the execution schema, so API-triggered runs
+must not be misclassified as manual. This is deliberately not yet the shared
 saved-report-definition/share-link surface; those remain
 authorization-sensitive backlog work.

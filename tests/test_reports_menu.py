@@ -1193,3 +1193,37 @@ def test_reports_suite_runner_schedule_filters_compose(app, client, login_as):
     body = resp.data.decode()
     assert mid[:8] in body
     assert oid[:8] not in body
+
+
+def test_reports_user_release_and_commit_filters_compose(app, client, login_as):
+    from testorchestrator.reporting.queries import trend_report
+    with app.app_context():
+        p = Project(name="MetaFilters")
+        db.session.add(p); db.session.flush()
+        rel = Release(project_id=p.id, name="meta-release")
+        db.session.add(rel); db.session.flush()
+        now = datetime.now(timezone.utc)
+        match = _terminal(p, Outcome.PASSED, now)
+        match.created_by = "tester"
+        match.release_id = rel.id
+        match.source_sha = "abc123"
+        other = _terminal(p, Outcome.PASSED, now)
+        other.created_by = "admin"
+        other.source_sha = "def456"
+        db.session.commit()
+        mid, oid, rid = match.id, other.id, rel.id
+        user = User.query.filter_by(username="admin").one()
+        logical = trend_report(user, {"days": "30", "user": "tester",
+                                      "release_id": rid,
+                                      "source_sha": "abc123"})
+        assert logical["total"] == 1
+        assert trend_report(user, {"days": "30", "user": "admin",
+                                   "release_id": rid})["total"] == 0
+    login_as("admin")
+    resp = client.get(f"/reports?user=tester&release_id={rid}&source_sha=abc123")
+    body = resp.data.decode()
+    assert mid[:8] in body
+    assert oid[:8] not in body
+    assert 'name="release_id"' in body
+    assert 'name="user"' in body
+    assert 'name="source_sha"' in body

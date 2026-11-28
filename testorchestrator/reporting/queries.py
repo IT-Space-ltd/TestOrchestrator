@@ -57,10 +57,17 @@ def scoped_executions(user, filters, windowed=True):
     if windowed:
         q = q.filter(Execution.created_at.isnot(None),
                      Execution.created_at >= since)
-    for field in ("state", "outcome", "suite_id", "runner_id", "schedule_id"):
+    for field in ("state", "outcome", "suite_id", "runner_id",
+                  "schedule_id", "release_id"):
         value = (filters.get(field) or "").strip()
         if value:
             q = q.filter(getattr(Execution, field) == value)
+    created_by = (filters.get("user") or "").strip()
+    if created_by:
+        q = q.filter(Execution.created_by == created_by)
+    source_sha = (filters.get("source_sha") or "").strip()
+    if source_sha:
+        q = q.filter(Execution.source_sha == source_sha)
     environment = (filters.get("environment") or "").strip()
     if environment == "__none__":
         q = q.filter(Execution.environment.is_(None))
@@ -118,7 +125,8 @@ def _enum_value(value):
 
 
 def _final_matches_filters(final, filters):
-    for field in ("state", "outcome", "suite_id", "runner_id", "schedule_id"):
+    for field in ("state", "outcome", "suite_id", "runner_id",
+                  "schedule_id", "release_id"):
         expected = (filters.get(field) or "").strip()
         if expected and _enum_value(getattr(final, field)) != expected:
             return False
@@ -126,6 +134,12 @@ def _final_matches_filters(final, filters):
     if environment == "__none__" and final.environment is not None:
         return False
     if environment not in ("", "__none__") and final.environment != environment:
+        return False
+    created_by = (filters.get("user") or "").strip()
+    if created_by and final.created_by != created_by:
+        return False
+    source_sha = (filters.get("source_sha") or "").strip()
+    if source_sha and final.source_sha != source_sha:
         return False
     source_ref = (filters.get("source_ref") or "").strip()
     if source_ref == "__none__" and final.source_ref is not None:

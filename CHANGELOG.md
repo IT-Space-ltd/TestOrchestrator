@@ -52,8 +52,10 @@
   apply them later, and delete them. The filter bar now also exposes the
   already composable suite, runner, and schedule filters; suite/schedule
   choices are project-scoped and runner choices are limited to runners whose
-  current project scope can run at least one visible project. Filter keys and
-  value sizes are
+  current project scope can run at least one visible project. Release,
+  created-by user, and exact commit-SHA filters are also exposed and compose
+  through both raw execution-summary queries and logical-run reports. Filter
+  keys and value sizes are
   server-side whitelisted, ownership is enforced on apply/delete, and save /
   delete actions are audited. Shared definitions, scheduled generation and
   share links remain later authorization-sensitive slices.
