@@ -111,6 +111,8 @@ def test_api_create_poll_and_idempotency(app):
     d = r3.get_json()["execution"]
     assert d["state"] == ExecutionState.QUEUED.value and \
         d["client_ref"] == "build-42"
+    with app.app_context():
+        assert db.session.get(Execution, ex_id).trigger_origin == "api"
     # client_ref filter
     r4 = c.get("/api/v1/executions?client_ref=build-42",
                headers=_auth(tok))
@@ -661,6 +663,7 @@ def test_api_retry_unknown_is_chained_audited_never_silent(app):
         snap = db.session.get(Execution, new_id).snapshot()
         assert snap.get("retry_of") == eid
         assert int(snap.get("attempt") or 0) == 2
+        assert db.session.get(Execution, new_id).trigger_origin == "api"
         from testorchestrator.models import AuditEvent
         ev = AuditEvent.query.filter_by(
             event="api.execution.retried").first()

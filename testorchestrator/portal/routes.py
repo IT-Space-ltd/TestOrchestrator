@@ -145,6 +145,7 @@ def reports():
         "source_sha": request.args.get("source_sha", ""),
         "release_id": request.args.get("release_id", ""),
         "user": request.args.get("user", ""),
+        "trigger": request.args.get("trigger", ""),
     }
     if report_type == "audit-compliance" and current_user.role != Role.ADMIN:
         abort(403)
@@ -281,7 +282,8 @@ def reports():
 _REPORT_FILTER_KEYS = ("project_id", "days", "from_date", "to_date", "state",
                        "outcome", "suite_id", "runner_id", "schedule_id",
                        "framework", "framework_project_id", "environment",
-                       "source_ref", "source_sha", "release_id", "user")
+                       "source_ref", "source_sha", "release_id", "user",
+                       "trigger")
 
 
 def _clean_report_filters(raw):
@@ -2085,7 +2087,8 @@ def run_discovered(item_id):
             current_user.username, binding=binding,
             release_id=(request.form.get("release_id") or None),
             source_sha=binding.last_synced_sha if binding else "",
-            run_config=run_config, source_item=item)
+            run_config=run_config, source_item=item,
+            trigger_origin="manual")
     except dispatch.DispatchError as exc:
         flash(str(exc), "error")
         return redirect(url_for("portal.discovered_detail",
@@ -3208,7 +3211,7 @@ def launch_execution(suite_id):
         run_config["collection"] = (item.kind == "collection")
     ex = dispatch.create_execution(
         current_user.username, suite, binding=binding, source_sha=sha,
-        run_config=run_config)
+        run_config=run_config, trigger_origin="manual")
     record_audit(current_user.username, "execution.queued", ex.id)
     flash(f"Execution {ex.id[:8]} queued.", "info")
     return redirect(url_for("portal.execution_detail", execution_id=ex.id))
@@ -4243,14 +4246,16 @@ def run_schedule_now(schedule_id):
                 raise dispatch.DispatchError("scheduled suite no longer exists")
             ex = dispatch.create_execution(
                 current_user.username, suite, binding=binding,
-                source_sha=sha, run_config=cfg, schedule_id=sched.id)
+                source_sha=sha, run_config=cfg, schedule_id=sched.id,
+                trigger_origin="manual")
         elif sched.target_type == "plan" and sched.plan_id:
             plan = db.session.get(Plan, sched.plan_id)
             if plan is None:
                 raise dispatch.DispatchError("scheduled plan no longer exists")
             _, exs = dispatch.queue_plan_executions(
                 current_user.username, plan, binding=binding,
-                source_sha=sha, schedule_id=sched.id)
+                source_sha=sha, schedule_id=sched.id,
+                trigger_origin="manual")
             ex = exs[0] if exs else None
         else:
             raise dispatch.DispatchError(

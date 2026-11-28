@@ -44,7 +44,7 @@ from .execution import (ApiToken, Artifact, DiscoveredItem, Execution,
                         OutboxEvent, Outcome, Plan, Project, Release,
                         ResourceReservation, Runner,
                         RuntimeConnection, Schedule, Suite, SyncState,
-                        TestResult, utcnow)
+                        TestResult, TRIGGER_ORIGINS, utcnow)
 from sqlalchemy.exc import OperationalError
 
 from .extensions import db
@@ -243,6 +243,7 @@ def create_execution(username: str, suite: Suite = None,
                      extra_snapshot: dict = None,
                      schedule_id: str = "",
                      source_item=None,
+                     trigger_origin: str = "",
                      role: str = "", parent_id: str = "",
                      unit_index=None, unit_key: str = "",
                      commit: bool = True) -> Execution:
@@ -250,6 +251,9 @@ def create_execution(username: str, suite: Suite = None,
     target: a TO suite OR a repository DiscoveredItem — never both,
     never neither. Repo-def runs snapshot their durable identity
     (binding+kind+path+sha) so history survives inventory replacement."""
+    trigger_origin = (trigger_origin or "unknown").strip()
+    if trigger_origin not in TRIGGER_ORIGINS:
+        raise DispatchError("invalid trigger origin")
     if (run_config or {}).get("native_collect"):
         pass                    # collection op — no test target
     elif bool(suite) == bool(source_item):
@@ -645,6 +649,7 @@ def create_execution(username: str, suite: Suite = None,
         environment=(rc.get("environment") or None),
         created_by=username,
         schedule_id=schedule_id or None,
+        trigger_origin=trigger_origin,
         role=role, parent_id=parent_id or None,
         unit_index=unit_index, unit_key=(unit_key or "")[:128],
     )
@@ -926,6 +931,7 @@ def queue_plan_executions(username: str, plan: Plan,
                           entries: list = None,
                           plan_run_id: str = "",
                           schedule_id: str = "",
+                          trigger_origin: str = "",
                           run_config: dict = None) -> tuple:
     """Queue one execution per plan entry under a shared plan_run_id —
     the durable handle that lets summaries, stop-on-failure and
@@ -937,7 +943,7 @@ def queue_plan_executions(username: str, plan: Plan,
             username, entry.suite, binding=binding, source_sha=source_sha,
             plan_id=plan.id, run_config=run_config,
             extra_snapshot={"plan_run_id": run_id},
-            schedule_id=schedule_id))
+            schedule_id=schedule_id, trigger_origin=trigger_origin))
     return run_id, exs
 
 
@@ -985,7 +991,8 @@ def retry_execution(username: str, ex: Execution) -> Execution:
             "plan_run_id": snap.get("plan_run_id") or "",
             "retry_of": ex.id,
             "attempt": int(snap.get("attempt") or 1) + 1,
-        })
+        },
+        trigger_origin=("api" if username.startswith("api:") else "manual"))
     record_audit(username, "execution.retry_queued",
                  f"{new_ex.id} (retry of {ex.id}, attempt "
                  f"{int(snap.get('attempt') or 1) + 1})")
@@ -3766,6 +3773,7 @@ def fire_due_schedules(now=None) -> int:
                                      source_sha=tgt_sha,
                                      run_config=cfg,
                                      schedule_id=sched.id,
+                                     trigger_origin="schedule",
                                      source_item=d_item)
             elif sched.target_type == "plan" and sched.plan_id:
                 plan = db.session.get(Plan, sched.plan_id)
@@ -3774,6 +3782,7 @@ def fire_due_schedules(now=None) -> int:
                 queue_plan_executions(sched.created_by, plan,
                                       binding=binding, source_sha=sha,
                                       schedule_id=sched.id,
+                                      trigger_origin="schedule",
                                       run_config=cfg)
             elif sched.target_type == "suite" and sched.suite_id:
                 suite = db.session.get(Suite, sched.suite_id)
@@ -3781,7 +3790,8 @@ def fire_due_schedules(now=None) -> int:
                     raise DispatchError("scheduled suite no longer exists")
                 create_execution(sched.created_by, suite, binding=binding,
                                  source_sha=sha, run_config=cfg,
-                                 schedule_id=sched.id)
+                                 schedule_id=sched.id,
+                                 trigger_origin="schedule")
             else:
                 raise DispatchError(
                     f"invalid schedule target {sched.target_type!r}")

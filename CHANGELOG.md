@@ -62,6 +62,10 @@
   attribution; app-side/legacy suite targets remain Katalon, unattributed rows
   stay explicitly unknown, and new repository executions snapshot the
   framework-project ID rather than guessing overlapping historical roots.
+  Trigger-origin filtering uses the new explicit execution field: UI launches
+  and retries are manual, scheduler fires are schedule, API creation/retries
+  are api, and ambiguous historical rows remain unknown instead of being
+  guessed from overloaded schedule links or actor names.
   Filter keys and value sizes are
   server-side whitelisted, ownership is enforced on apply/delete, and save /
   delete actions are audited. Shared definitions, scheduled generation and

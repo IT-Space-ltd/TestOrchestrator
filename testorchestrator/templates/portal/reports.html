@@ -37,6 +37,12 @@
     <select name="framework_project_id" id="framework_project_id"><option value="">All framework projects</option>
       {% for fp in framework_projects %}<option value="{{ fp.id }}" {% if filters.get('framework_project_id')==fp.id %}selected{% endif %}>{{ fp.name }} ({{ fp.framework }})</option>{% endfor %}
     </select></div>
+  <div class="field"><label for="trigger">Trigger origin</label>
+    <select name="trigger" id="trigger"><option value="">All origins</option>
+      {% for trig in ("manual", "schedule", "api", "unknown") %}
+      <option value="{{ trig }}" {% if filters.get('trigger')==trig %}selected{% endif %}>{{ trig|capitalize }}</option>
+      {% endfor %}
+    </select></div>
   <div class="field"><label for="state">State</label>
     <select name="state" id="state"><option value="">All</option>
       {% for s in states %}<option value="{{ s }}" {% if filters.get('state')==s %}selected{% endif %}>{{ s }}</option>{% endfor %}

@@ -437,6 +437,9 @@ class SyncState(str, enum.Enum):
     NOT_CONFIGURED = "not-configured"
 
 
+TRIGGER_ORIGINS = ("manual", "schedule", "api", "unknown")
+
+
 class Execution(db.Model):
     """Immutable execution snapshot + live state (§4, §8)."""
 
@@ -488,6 +491,12 @@ class Execution(db.Model):
     # links back to the same schedule row.
     schedule_id = db.Column(db.String(32),
                             db.ForeignKey("schedules.id"), nullable=True)
+    # Explicit creation trigger: manual|schedule|api|unknown. This is
+    # deliberately separate from schedule_id because a manual "run now" can
+    # link a schedule row; historical rows stay unknown rather than being
+    # guessed from that overloaded link.
+    trigger_origin = db.Column(db.String(16), nullable=False,
+                               default="unknown")
     dispatch_id = db.Column(db.String(64), nullable=False, default="")
     workspace_path = db.Column(db.String(512), nullable=False, default="")
     report_dir = db.Column(db.String(512), nullable=False, default="")

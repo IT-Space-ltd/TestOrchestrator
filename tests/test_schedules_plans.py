@@ -34,6 +34,7 @@ def test_schedule_fires_once_then_disables(app):
         ex = Execution.query.filter_by(suite_id=s.id).one()
         assert ex.created_by == "manager"
         assert ex.state == ExecutionState.QUEUED
+        assert ex.trigger_origin == "schedule"
 
 
 def test_interval_schedule_reschedules(app):
@@ -82,6 +83,7 @@ def test_run_now_plan_target_dispatches(app, client, login_as):
         assert len(exs) == 1
         assert exs[0].snapshot()["plan_id"] == plan_id
         assert exs[0].created_by == "admin"
+        assert exs[0].trigger_origin == "manual"
         # next_run_at untouched — the due fire still happens
         assert db.session.get(Schedule, sc_id).next_run_at is not None
 

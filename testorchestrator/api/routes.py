@@ -243,7 +243,8 @@ def create():
                 source_sha=(body.get("source_sha")
                             or (binding.last_synced_sha if binding
                                 else "")),
-                run_config=run_config, source_item=item)
+                run_config=run_config, source_item=item,
+                trigger_origin="api")
         elif body.get("suite_id"):
             suite = db.session.get(Suite, str(body["suite_id"]))
             if suite is None:
@@ -258,7 +259,7 @@ def create():
                 source_sha=(body.get("source_sha")
                             or (binding.last_synced_sha if binding
                                 else "")),
-                run_config=run_config)
+                run_config=run_config, trigger_origin="api")
         else:
             return _error(400, "target",
                           "one of item_id|suite_id is required")

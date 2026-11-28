@@ -285,9 +285,15 @@ app/legacy suite targets are Katalon, otherwise unknown); framework-project
 matching uses the framework-project ID now stored in new execution snapshots.
 Older rows without that immutable ID are not guessed through replaceable
 inventory rows because overlapping roots could otherwise be conflated.
-Trigger filtering is not partially implemented: schedule/manual/API origin is
-not yet reliably attributable in the execution schema, so API-triggered runs
-must not be misclassified as manual. This is deliberately not yet the shared
+Trigger-origin filtering is implemented behind an explicit
+`executions.trigger_origin` column (`manual`, `schedule`, `api`, `unknown`).
+Manual schedule run-now rows keep `schedule_id` as a link but are classified
+as manual; scheduler fires are classified as schedule; API creation and API
+retries are classified as api; direct UI launches and UI retries are manual.
+Legacy rows deliberately remain `unknown` because both `schedule_id` and
+`created_by` were ambiguous historical evidence, so no backfill guesses are
+made. The Reports filter applies identically to raw execution-summary rows
+and final logical runs. This is deliberately not yet the shared
 saved-report-definition/share-link surface; those remain
 authorization-sensitive backlog work. Export-format dependency evaluation is
 now documented in `docs/reports-export-dependency-proposal.md`: fpdf2,

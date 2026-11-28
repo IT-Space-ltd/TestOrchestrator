@@ -152,6 +152,9 @@ def scoped_executions(user, filters, windowed=True, tz=None):
         q = q.filter(func.json_extract(
             Execution.snapshot_json,
             "$.source_target.framework_project_id") == framework_project_id)
+    trigger = (filters.get("trigger") or "").strip().lower()
+    if trigger in ("manual", "schedule", "api", "unknown"):
+        q = q.filter(Execution.trigger_origin == trigger)
     return q, days
 
 
@@ -228,6 +231,10 @@ def _final_matches_filters(final, filters):
         st = final.snapshot().get("source_target") or {}
         if (st.get("framework_project_id") or "") != framework_project_id:
             return False
+    trigger = (filters.get("trigger") or "").strip().lower()
+    if trigger in ("manual", "schedule", "api", "unknown") and \
+            (final.trigger_origin or "unknown") != trigger:
+        return False
     return True
 
 

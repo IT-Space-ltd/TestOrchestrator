@@ -1380,3 +1380,75 @@ def test_reports_framework_filter_inputs_render(app, client, login_as):
     assert 'value="playwright" selected' in body
     assert "UI tests (playwright)" in body
     assert "never guesses overlapping historical roots" in body
+
+
+def test_trigger_origin_filters_compose_raw_and_logical(app, client, login_as):
+    from testorchestrator.reporting.queries import (execution_summary,
+                                                    trend_report)
+    with app.app_context():
+        p = Project(name="TriggerFilters")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        rows = {}
+        for origin in ("manual", "schedule", "api", "unknown"):
+            ex = _terminal(p, Outcome.PASSED, now)
+            ex.trigger_origin = origin
+            rows[origin] = ex.id
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        for report_fn in (execution_summary, trend_report):
+            for origin in rows:
+                report = report_fn(user, {"days": "30", "trigger": origin})
+                assert report["total"] == 1
+            assert report_fn(user, {"days": "30", "trigger": "bogus"})["total"] == 4
+        report = execution_summary(user, {"days": "30", "trigger": "api"})
+        assert [r.id for r in report["rows"]] == [rows["api"]]
+    login_as("admin")
+    resp = client.get("/reports?trigger=api")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert 'name="trigger"' in body
+    import re
+    assert re.search(r'<option value="api"\s+selected', body)
+    assert rows["api"][:8] in body
+    assert rows["manual"][:8] not in body
+
+
+def test_trigger_origin_upgrade_keeps_ambiguous_history_unknown(tmp_path):
+    """The additive migration must not infer legacy trigger attribution.
+
+    In particular, a non-null schedule_id is ambiguous because manual run-now
+    also links the schedule, and an api:* created_by string is only an actor
+    convention. Both stay unknown until newly explicit rows are created.
+    """
+    import sqlalchemy as sa
+    from pathlib import Path
+    from flask_migrate import upgrade
+    from tests.conftest import make_app
+
+    migrations = str(Path(__file__).resolve().parent.parent / "migrations")
+    app = make_app(tmp_path, "trigger-upgrade.db")
+    with app.app_context():
+        upgrade(directory=migrations, revision="a3b4c5d6e7f8")
+    eng = sa.create_engine(f"sqlite:///{tmp_path / 'trigger-upgrade.db'}")
+    row = {
+        "id": "e1", "project_id": "p1", "snapshot_json": "{}",
+        "source_sha": "", "created_by": "api:legacy", "state": "completed",
+        "outcome": "passed", "git_state": "clean", "dispatch_id": "",
+        "workspace_path": "", "report_dir": "", "error_kind": "",
+        "error_text": "", "cancel_reason": "", "schedule_id": "legacy-sched",
+    }
+    with eng.begin() as c:
+        c.execute(sa.text(
+            "INSERT INTO projects (id, name, description) "
+            "VALUES ('p1', 'P', '')"))
+        cols = ", ".join(row)
+        vals = ", ".join(f":{k}" for k in row)
+        c.execute(sa.text(f"INSERT INTO executions ({cols}) VALUES ({vals})"),
+                  row)
+    with app.app_context():
+        upgrade(directory=migrations, revision="head")
+    with eng.begin() as c:
+        value = c.execute(sa.text(
+            "SELECT trigger_origin FROM executions WHERE id='e1'")).scalar_one()
+    assert value == "unknown"
