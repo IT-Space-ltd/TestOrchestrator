@@ -115,6 +115,26 @@ def logical_outcome_trend(rows) -> str:
                          "yaxis": {"title": "Logical runs"}})
 
 
+def failure_kind_bars(rows) -> str:
+    """rows: [{kind, logical_runs}] — non-passed logical-run breakdown."""
+    if not rows:
+        return "null"
+    colors = {"test failure": _PALETTE["failed"],
+              "license": "#6a1b9a", "config": _PALETTE["error"],
+              "infrastructure": _PALETTE["unknown"],
+              "execution": _PALETTE["running"],
+              "uncategorized": _PALETTE["unknown"]}
+    tr = [{"type": "bar", "orientation": "h", "name": "Logical runs",
+           "x": [r["logical_runs"] for r in rows],
+           "y": [r["kind"] for r in rows],
+           "marker": {"color": [colors.get(r["kind"], _PALETTE["unknown"])
+                                for r in rows]}}]
+    return _fig(tr, {"xaxis": {"title": "Logical runs"},
+                     "yaxis": {"automargin": True,
+                               "categoryorder": "total ascending"},
+                     "height": max(215, 34 * len(rows) + 100)})
+
+
 _EXEC_LIST = "/executions"
 
 

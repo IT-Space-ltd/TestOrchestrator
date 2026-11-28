@@ -4,7 +4,7 @@
 
 ### Added
 
-- **Reports main menu — execution summary + trends slices.** A new
+- **Reports main menu — starter report slices.** A new
   top-level Reports page provides a project-scoped execution-summary preview
   with period/state/outcome/environment/source-ref filters, aggregate outcome
   cards, a disclosed 5000-row limit, and CSV export. A second report type,
@@ -13,8 +13,10 @@
   logical-run semantics so retries cannot inflate counts. A third report type
   ranks top-failing test cases and flaky candidates; the flaky heuristic is
   disclosed inline (at least three executed logical runs with both pass and
-  failure/error evidence, ranked by a balanced-instability score). CSV rows
-  carry the generated-at instant, viewer timezone, filter snapshot, and
+  failure/error evidence, ranked by a balanced-instability score). A fourth
+  report type breaks non-passed logical runs down by explicit error kind,
+  test-failure evidence, or an honestly uncategorized bucket. CSV rows carry
+  the generated-at instant, viewer timezone, filter snapshot, and
   truncation metadata. The query layer is scoped to the signed-in user's
   visible projects before filtering; CSV export is audited and
   spreadsheet-formula-leading text is escaped. PDF/docx/xlsx and additional

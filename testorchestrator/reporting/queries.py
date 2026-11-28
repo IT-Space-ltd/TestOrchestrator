@@ -466,6 +466,100 @@ def failure_csv(report):
     return out.getvalue()
 
 
+def failure_analysis_report(user, filters, tz=None):
+    """Failure-kind breakdown over non-passed terminal logical runs.
+
+    Explicit `error_kind` values win. Otherwise a failed logical run with
+    failed/error parsed case evidence is classified as a test failure;
+    non-passed runs with neither evidence nor a recorded kind stay honestly
+    uncategorized instead of being folded into test failure.
+    """
+    selection = _select_logical_runs(user, filters)
+    selected = selection["selected"]
+    sources_by_final, result_execution_ids = _logical_result_sources(selected)
+    result_counts = _result_status_counts(result_execution_ids)
+    by_kind = {}
+    analyzed = 0
+    for _run, final in selected:
+        kind = (final.error_kind or "").strip()
+        counts = {"passed": 0, "failed": 0, "error": 0, "skipped": 0}
+        for source in sources_by_final.get(final.id, [final]):
+            source_counts = result_counts.get(source.id, {})
+            for st in counts:
+                counts[st] += source_counts.get(st, 0)
+        has_test_failure = bool(counts["failed"] or counts["error"])
+        if not kind and _enum_value(final.outcome) == "failed" and has_test_failure:
+            kind = "test failure"
+        elif not kind and _enum_value(final.outcome) != "passed":
+            kind = "uncategorized"
+        if not kind or _enum_value(final.outcome) == "passed":
+            continue
+        analyzed += 1
+        row = by_kind.setdefault(kind, {
+            "kind": kind, "logical_runs": 0, "projects": set(),
+            "latest_finished": None, "example_execution_id": ""})
+        row["logical_runs"] += 1
+        row["projects"].add(final.project_id)
+        if (row["latest_finished"] is None
+                or _aw(final.finished_at) > _aw(row["latest_finished"])):
+            row["latest_finished"] = final.finished_at
+            row["example_execution_id"] = final.id
+    order = {"test failure": 0, "license": 1, "config": 2,
+             "infrastructure": 3, "execution": 4, "uncategorized": 5}
+    rows = list(by_kind.values())
+    rows.sort(key=lambda r: (-r["logical_runs"], order.get(r["kind"], 90),
+                             r["kind"]))
+    for row in rows:
+        row["project_count"] = len(row.pop("projects"))
+        row["share_pct"] = (round(100 * row["logical_runs"] / analyzed, 1)
+                            if analyzed else None)
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "filters": _filter_snapshot(filters),
+        "timezone": _zone_name(tz),
+        "days": selection["days"], "rows": rows,
+        "total": selection["total"], "analyzed_failures": analyzed,
+        "truncated": selection["total"] > selection["bounded_count"],
+        "max_rows": MAX_REPORT_ROWS,
+        "counting": "logical runs; passed runs excluded; explicit error_kind wins; test failure requires failed/error case evidence",
+    }
+
+
+def failure_analysis_csv(report):
+    """Failure-kind rows for the failure-analysis report."""
+    import csv
+    import io
+    import json
+    out = io.StringIO()
+    fields = ["kind", "logical_runs", "share_pct", "project_count",
+              "latest_finished_at_utc", "example_execution_id", "tz",
+              "generated_at_utc", "report_type", "analyzed_failures",
+              "total_logical_runs", "truncated", "max_rows", "filters_json"]
+    w = csv.DictWriter(out, fieldnames=fields)
+    w.writeheader()
+    generated = report["generated_at"].isoformat()
+    filters_json = json.dumps(report.get("filters", {}), sort_keys=True)
+    for r in report["rows"]:
+        w.writerow({
+            "kind": _csv_safe(r["kind"]),
+            "logical_runs": r["logical_runs"],
+            "share_pct": r["share_pct"],
+            "project_count": r["project_count"],
+            "latest_finished_at_utc": _aw(r["latest_finished"]).isoformat()
+                                      if r["latest_finished"] else "",
+            "example_execution_id": r["example_execution_id"],
+            "tz": report["timezone"],
+            "generated_at_utc": generated,
+            "report_type": "failure-analysis",
+            "analyzed_failures": report["analyzed_failures"],
+            "total_logical_runs": report["total"],
+            "truncated": "true" if report["truncated"] else "false",
+            "max_rows": report["max_rows"],
+            "filters_json": filters_json,
+        })
+    return out.getvalue()
+
+
 def trend_csv(report):
     """Daily-row CSV for the pass-rate/duration trend report."""
     import csv

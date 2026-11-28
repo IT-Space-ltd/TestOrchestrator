@@ -354,6 +354,82 @@ def test_failure_report_project_scoping_and_csv_escaping(app):
         assert rows[0]["truncated"] == "false"
 
 
+def test_failure_analysis_classifies_error_kinds_and_test_failures(app):
+    from testorchestrator.reporting.queries import failure_analysis_report
+    with app.app_context():
+        p = Project(name="FailureAnalysis")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        passed = _terminal(p, Outcome.PASSED, now)
+        _case_result(passed, CaseStatus.PASSED, name="ok")
+        test_fail = _terminal(p, Outcome.FAILED, now)
+        _case_result(test_fail, CaseStatus.FAILED, name="bad")
+        config = _terminal(p, Outcome.INCOMPLETE, now)
+        config.error_kind = "config"
+        license_ex = _terminal(p, Outcome.INCOMPLETE, now)
+        license_ex.error_kind = "license"
+        unknown = _terminal(p, Outcome.NONE, now)
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = failure_analysis_report(user, {"days": "30"})
+        rows = {r["kind"]: r for r in report["rows"]}
+        assert report["total"] == 5
+        assert report["analyzed_failures"] == 4
+        assert rows["test failure"]["logical_runs"] == 1
+        assert rows["config"]["logical_runs"] == 1
+        assert rows["license"]["logical_runs"] == 1
+        assert rows["uncategorized"]["logical_runs"] == 1
+        assert "passed" not in rows
+        assert rows["test failure"]["share_pct"] == 25.0
+        assert rows["test failure"]["example_execution_id"] == test_fail.id
+
+
+def test_failure_analysis_csv_and_project_scoping(app):
+    import csv
+    import io
+    from testorchestrator.reporting.queries import (failure_analysis_csv,
+                                                    failure_analysis_report)
+    with app.app_context():
+        visible = Project(name="AnalysisVisible")
+        hidden = Project(name="AnalysisHidden")
+        db.session.add_all([visible, hidden]); db.session.flush()
+        now = datetime.now(timezone.utc)
+        ex = _terminal(visible, Outcome.INCOMPLETE, now)
+        ex.error_kind = "config"
+        ex = _terminal(hidden, Outcome.INCOMPLETE, now)
+        ex.error_kind = "license"
+        po = User.query.filter_by(username="po").one()
+        po.set_assigned_projects([visible.id])
+        db.session.commit()
+        report = failure_analysis_report(po, {"days": "30"})
+        assert [r["kind"] for r in report["rows"]] == ["config"]
+        rows = list(csv.DictReader(io.StringIO(failure_analysis_csv(report))))
+        assert rows[0]["kind"] == "config"
+        assert rows[0]["logical_runs"] == "1"
+        assert rows[0]["report_type"] == "failure-analysis"
+        assert "license" not in failure_analysis_csv(report)
+
+
+def test_reports_failure_analysis_page_and_csv(app, client, login_as):
+    with app.app_context():
+        p = Project(name="AnalysisUi")
+        db.session.add(p); db.session.flush()
+        ex = _terminal(p, Outcome.INCOMPLETE, datetime.now(timezone.utc))
+        ex.error_kind = "license"
+        db.session.commit()
+    login_as("admin")
+    resp = client.get("/reports?report_type=failure-analysis")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert "Failure analysis by error kind" in body
+    assert "license" in body
+    assert "data-plotly-fig" in body
+    csv_resp = client.get("/reports?report_type=failure-analysis&format=csv")
+    assert csv_resp.status_code == 200
+    assert "kind,logical_runs,share_pct" in csv_resp.data.decode()
+    assert "license" in csv_resp.data.decode()
+
+
 def test_failure_report_case_cap_is_disclosed(app, monkeypatch):
     from testorchestrator.reporting import queries
     monkeypatch.setattr(queries, "MAX_CASE_ROWS", 1)

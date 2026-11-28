@@ -10,6 +10,7 @@
       <option value="execution-summary" {% if report_type=='execution-summary' %}selected{% endif %}>Execution summary</option>
       <option value="trends" {% if report_type=='trends' %}selected{% endif %}>Pass-rate and duration trends</option>
       <option value="failures" {% if report_type=='failures' %}selected{% endif %}>Top failing and flaky tests</option>
+      <option value="failure-analysis" {% if report_type=='failure-analysis' %}selected{% endif %}>Failure analysis by error kind</option>
     </select></div>
   <div class="field"><label for="project_id">Project</label>
     <select name="project_id" id="project_id"><option value="">All visible projects</option>
@@ -74,6 +75,21 @@
 <section class="card"><h2>Flaky candidates</h2>
 <table class="data-table"><thead><tr><th>Rank</th><th>Case</th><th>Project</th><th>Suite</th><th>Executed runs</th><th>Pass/fail</th><th>Instability</th></tr></thead><tbody>
 {% for r in report.flaky %}<tr><td>{{ r.flaky_rank }}</td><td>{{ r.display_case }}</td><td>{{ r.project }}</td><td>{{ r.suite }}</td><td>{{ r.executed_runs }}</td><td>{{ r.passed }}/{{ r.failure_count }}</td><td>{{ r.instability_score }}%</td></tr>{% else %}<tr><td colspan="7" class="muted">No flaky candidates match the heuristic.</td></tr>{% endfor %}
+</tbody></table></section>
+<script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
+{% elif report_type == 'failure-analysis' %}
+<p class="muted"><small>Counting: {{ report.counting }}.</small></p>
+<div class="dash-2col">
+  <section class="card"><h2>Failure kinds</h2>
+    {% if figs.failure_kinds != 'null' %}<div data-plotly-fig="{{ figs.failure_kinds }}"></div>{% else %}<p class="muted">No failures match the selected filters.</p>{% endif %}</section>
+  <section class="card"><h2>Applied scope</h2>
+    <div class="metric"><strong>{{ report.analyzed_failures }}</strong><span>non-passed logical runs</span></div>
+    <div class="metric"><strong>{{ report.total }}</strong><span>terminal logical runs</span></div></section>
+</div>
+<section class="card"><h2>Failure analysis</h2>
+<table class="data-table"><thead><tr><th>Kind</th><th>Logical runs</th><th>Share</th><th>Projects</th><th>Latest</th><th>Example</th></tr></thead><tbody>
+{% for r in report.rows %}<tr><td><span class="badge danger">{{ r.kind }}</span></td><td>{{ r.logical_runs }}</td><td>{{ r.share_pct }}%</td><td>{{ r.project_count }}</td><td>{{ r.latest_finished|localtime_short }}</td><td>{% if r.example_execution_id %}<a href="{{ url_for('portal.execution_detail', execution_id=r.example_execution_id) }}"><code>{{ r.example_execution_id[:8] }}</code></a>{% endif %}</td></tr>{% else %}<tr><td colspan="6" class="muted">No failures match the selected filters.</td></tr>{% endfor %}
 </tbody></table></section>
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
