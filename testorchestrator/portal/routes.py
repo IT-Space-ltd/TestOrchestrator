@@ -110,6 +110,8 @@ def reports():
                                      failure_analysis_csv,
                                      failure_analysis_report,
                                      failure_csv, failure_report,
+                                     framework_comparison_csv,
+                                     framework_comparison_report,
                                      schedule_reliability_csv,
                                      schedule_reliability_report,
                                      target_results_csv, target_results_report,
@@ -119,7 +121,8 @@ def reports():
     report_type = request.args.get("report_type") or "execution-summary"
     if report_type not in ("execution-summary", "trends", "failures",
                            "failure-analysis", "schedule-reliability",
-                           "utilization", "target-results"):
+                           "utilization", "target-results",
+                           "framework-comparison"):
         report_type = "execution-summary"
     filters = {
         "project_id": request.args.get("project_id", ""),
@@ -162,6 +165,14 @@ def reports():
         figs = {"failure_kinds": failure_kind_bars(report["rows"])}
         csv_body = failure_analysis_csv(report)
         csv_name = "testorchestrator-failure-analysis.csv"
+    elif report_type == "framework-comparison":
+        from .. import usertz as _utz
+        from ..charts import framework_outcome_bars
+        report = framework_comparison_report(current_user, filters,
+                                             tz=_utz.user_zone(current_user))
+        figs = {"frameworks": framework_outcome_bars(report["rows"])}
+        csv_body = framework_comparison_csv(report)
+        csv_name = "testorchestrator-framework-comparison.csv"
     elif report_type == "target-results":
         from .. import usertz as _utz
         from ..charts import schedule_reliability_bars

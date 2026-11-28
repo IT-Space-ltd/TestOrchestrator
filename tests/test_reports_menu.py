@@ -844,3 +844,95 @@ def test_reports_target_results_page_chart_and_csv(app, client, login_as):
     text = csv_resp.data.decode()
     assert "target_type,target,project" in text
     assert "ui-collection" in text
+
+
+def test_framework_comparison_attributes_counts_cases_and_excludes_collect(app):
+    from testorchestrator.reporting.queries import (framework_comparison_csv,
+                                                    framework_comparison_report)
+    with app.app_context():
+        p = Project(name="FrameworkProject")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        head = _terminal(p, Outcome.FAILED, now - timedelta(hours=1))
+        _merge_snapshot(head, source_target={
+            "binding_id": "b", "kind": "suite", "path": "tests",
+            "name": "pytest-suite", "framework": "pytest"})
+        retry = _terminal(p, Outcome.PASSED, now, attempt=2, retry_of=head.id)
+        _merge_snapshot(retry, source_target={
+            "binding_id": "b", "kind": "suite", "path": "tests",
+            "name": "pytest-suite", "framework": "pytest"})
+        db.session.add(TestResult(execution_id=retry.id, case_name="ok",
+                                  status=CaseStatus.PASSED))
+        db.session.add(TestResult(execution_id=retry.id, case_name="bad",
+                                  status=CaseStatus.FAILED))
+        db.session.add(TestResult(execution_id=retry.id, case_name="skip",
+                                  status=CaseStatus.SKIPPED))
+        suite = Suite(project_id=p.id, name="katalon-suite")
+        db.session.add(suite); db.session.flush()
+        kre = _terminal(p, Outcome.FAILED, now)
+        kre.suite_id = suite.id
+        collect = _terminal(p, Outcome.PASSED, now)
+        _merge_snapshot(collect, run_config={"native_collect": True})
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = framework_comparison_report(user, {"days": "30"})
+        rows = {r["framework"]: r for r in report["rows"]}
+        assert rows["pytest"]["runs"] == 1       # retry chain counts once
+        assert rows["pytest"]["passed"] == 1
+        assert rows["pytest"]["case_passed"] == 1
+        assert rows["pytest"]["case_failed"] == 1
+        assert rows["pytest"]["case_skipped"] == 1
+        assert rows["pytest"]["case_pass_rate"] == 50.0
+        assert rows["katalon"]["runs"] == 1
+        assert rows["katalon"]["failed"] == 1
+        assert report["excluded_collection_ops"] == 1
+        assert report["total"] == 2
+        text = framework_comparison_csv(report)
+        assert "framework,logical_runs,passed" in text
+        assert "pytest" in text and "katalon" in text
+
+
+def test_framework_comparison_partitioned_unit_results_count_once(app):
+    from testorchestrator.reporting.queries import framework_comparison_report
+    with app.app_context():
+        p = Project(name="FrameworkPartition")
+        db.session.add(p); db.session.flush()
+        now = datetime.now(timezone.utc)
+        parent = _terminal(p, Outcome.PASSED, now, role="parent")
+        _merge_snapshot(parent, source_target={
+            "binding_id": "b", "kind": "suite", "path": "robot",
+            "name": "robot-suite", "framework": "robot"})
+        unit = _terminal(p, Outcome.PASSED, now, role="unit",
+                         parent_id=parent.id)
+        db.session.add(TestResult(execution_id=unit.id, case_name="case",
+                                  status=CaseStatus.PASSED))
+        db.session.commit()
+        user = User.query.filter_by(username="admin").one()
+        report = framework_comparison_report(user, {"days": "30"})
+        row = next(r for r in report["rows"] if r["framework"] == "robot")
+        assert row["runs"] == 1
+        assert row["case_passed"] == 1
+        assert row["case_pass_rate"] == 100.0
+
+
+def test_reports_framework_comparison_page_chart_and_csv(app, client, login_as):
+    with app.app_context():
+        p = Project(name="FrameworkUi")
+        db.session.add(p); db.session.flush()
+        ex = _terminal(p, Outcome.PASSED, datetime.now(timezone.utc))
+        _merge_snapshot(ex, source_target={
+            "binding_id": "b", "kind": "suite", "path": "tests",
+            "name": "pytest-suite", "framework": "pytest"})
+        db.session.commit()
+    login_as("admin")
+    resp = client.get("/reports?report_type=framework-comparison")
+    body = resp.data.decode()
+    assert resp.status_code == 200
+    assert "Framework comparison" in body
+    assert "pytest" in body
+    assert "data-plotly-fig" in body
+    csv_resp = client.get("/reports?report_type=framework-comparison&format=csv")
+    assert csv_resp.status_code == 200
+    text = csv_resp.data.decode()
+    assert "framework,logical_runs,passed" in text
+    assert "pytest" in text

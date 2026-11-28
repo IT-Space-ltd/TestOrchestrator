@@ -572,6 +572,135 @@ def _scope_allows(scope_json, visible_ids):
     return bool(visible_ids) and (not allowed or bool(allowed.intersection(visible_ids)))
 
 
+def framework_comparison_report(user, filters, tz=None):
+    """Compare outcome/case/duration metrics by attributed test framework.
+
+    Framework attribution comes from the immutable repository source target;
+    app-side and legacy KRE suites are Katalon. Native collection operations
+    are inventory maintenance, not test executions, and are excluded with a
+    disclosed count. Ambiguous legacy rows remain in an explicit unknown
+    bucket rather than being guessed into a framework.
+    """
+    selection = _select_logical_runs(user, filters)
+    selected = selection["selected"]
+    sources_by_final, result_ids = _logical_result_sources(selected)
+    result_counts = _result_status_counts(result_ids)
+    rows = {}
+    excluded_collection_ops = 0
+
+    def row_for(framework):
+        row = rows.get(framework)
+        if row is None:
+            row = rows[framework] = {
+                "framework": framework, "runs": 0, "passed": 0,
+                "failed": 0, "incomplete": 0, "none": 0,
+                "run_pass_rate": None, "case_passed": 0,
+                "case_failed": 0, "case_error": 0, "case_skipped": 0,
+                "case_pass_rate": None, "duration_total": 0.0,
+                "duration_count": 0, "avg_duration_s": None,
+                "projects": set(), "project_count": 0,
+            }
+        return row
+
+    for _run, final in selected:
+        snap = final.snapshot()
+        rc = snap.get("run_config") or {}
+        if rc.get("native_collect"):
+            excluded_collection_ops += 1
+            continue
+        st = snap.get("source_target") or {}
+        if st.get("framework"):
+            framework = st["framework"]
+        elif st or final.suite_id or snap.get("suite_id"):
+            framework = "katalon"
+        else:
+            framework = "unknown"
+        row = row_for(framework)
+        row["runs"] += 1
+        row["projects"].add(final.project_id)
+        outcome = _enum_value(final.outcome) or "none"
+        row[{"passed": "passed", "failed": "failed",
+             "incomplete": "incomplete"}.get(outcome, "none")] += 1
+        if final.started_at and final.finished_at:
+            row["duration_total"] += max(
+                0.0, (_aw(final.finished_at)
+                      - _aw(final.started_at)).total_seconds())
+            row["duration_count"] += 1
+        for source in sources_by_final.get(final.id, []):
+            counts = result_counts.get(source.id, {})
+            row["case_passed"] += counts.get("passed", 0)
+            row["case_failed"] += counts.get("failed", 0)
+            row["case_error"] += counts.get("error", 0)
+            row["case_skipped"] += counts.get("skipped", 0)
+
+    out = []
+    for row in rows.values():
+        if row["runs"]:
+            row["run_pass_rate"] = round(
+                100 * row["passed"] / row["runs"], 1)
+        denom = row["case_passed"] + row["case_failed"] + row["case_error"]
+        if denom:
+            row["case_pass_rate"] = round(100 * row["case_passed"] / denom, 1)
+        if row["duration_count"]:
+            row["avg_duration_s"] = round(
+                row["duration_total"] / row["duration_count"], 1)
+        row["project_count"] = len(row["projects"])
+        row["projects"] = sorted(row["projects"])
+        row.pop("duration_total", None)
+        row.pop("duration_count", None)
+        out.append(row)
+    out.sort(key=lambda r: (-r["runs"], r["framework"]))
+    return {
+        "generated_at": datetime.now(timezone.utc),
+        "filters": _filter_snapshot(filters),
+        "timezone": _zone_name(tz), "days": selection["days"],
+        "rows": out, "total": sum(r["runs"] for r in out),
+        "excluded_collection_ops": excluded_collection_ops,
+        "truncated": selection["total"] > selection["bounded_count"],
+        "max_rows": MAX_REPORT_ROWS,
+        "counting": "terminal logical runs by immutable framework attribution; retries count once; case pass-rate excludes skipped; native collection operations are excluded and disclosed; ambiguous legacy rows remain unknown",
+    }
+
+
+def framework_comparison_csv(report):
+    """CSV rows for framework comparison."""
+    import csv
+    import io
+    import json as _json
+    out = io.StringIO()
+    fields = ["framework", "logical_runs", "passed", "failed", "incomplete",
+              "none", "run_pass_rate", "case_passed", "case_failed",
+              "case_error", "case_skipped", "case_pass_rate",
+              "avg_duration_s", "project_count", "tz", "generated_at_utc",
+              "report_type", "total_logical_runs", "excluded_collection_ops",
+              "truncated", "max_rows", "filters_json"]
+    w = csv.DictWriter(out, fieldnames=fields)
+    w.writeheader()
+    generated = report["generated_at"].isoformat()
+    filters_json = _json.dumps(report.get("filters", {}), sort_keys=True)
+    for r in report["rows"]:
+        w.writerow({
+            "framework": _csv_safe(r["framework"]),
+            "logical_runs": r["runs"], "passed": r["passed"],
+            "failed": r["failed"], "incomplete": r["incomplete"],
+            "none": r["none"], "run_pass_rate": r["run_pass_rate"],
+            "case_passed": r["case_passed"],
+            "case_failed": r["case_failed"],
+            "case_error": r["case_error"],
+            "case_skipped": r["case_skipped"],
+            "case_pass_rate": r["case_pass_rate"],
+            "avg_duration_s": r["avg_duration_s"],
+            "project_count": r["project_count"],
+            "tz": report["timezone"], "generated_at_utc": generated,
+            "report_type": "framework-comparison",
+            "total_logical_runs": report["total"],
+            "excluded_collection_ops": report["excluded_collection_ops"],
+            "truncated": "true" if report["truncated"] else "false",
+            "max_rows": report["max_rows"], "filters_json": filters_json,
+        })
+    return out.getvalue()
+
+
 def target_results_report(user, filters, tz=None):
     """Results grouped by plan, app-side suite, repository suite/collection.
 

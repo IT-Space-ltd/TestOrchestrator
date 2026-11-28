@@ -166,6 +166,23 @@ def utilization_bars(rows) -> str:
                      "height": max(215, 30 * len(shown) + 100)})
 
 
+def framework_outcome_bars(rows) -> str:
+    """rows: [{framework, passed, failed, incomplete, none}] grouped bars."""
+    if not rows:
+        return "null"
+    x = [r["framework"] for r in rows]
+    traces = []
+    for key in _OUTCOME_ORDER:
+        if any(r.get(key) for r in rows):
+            traces.append({"type": "bar", "name": _OUTCOME_LABEL[key],
+                           "x": x, "y": [r.get(key, 0) for r in rows],
+                           "marker": {"color": _OUTCOME_COLOR[key]}})
+    if not traces:
+        return "null"
+    return _fig(traces, {"barmode": "stack",
+                         "yaxis": {"title": "Logical runs"}})
+
+
 _EXEC_LIST = "/executions"
 
 

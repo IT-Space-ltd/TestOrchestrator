@@ -242,5 +242,12 @@ split repository-target history. Plan rows intentionally aggregate member
 suite logical runs and are labeled as such; they are not whole-plan-run
 rollups yet. Direct test/case executions are outside that target grain and
 are omitted with a disclosed count rather than being folded into a suite row.
-Saved definitions, scheduled generation, share links, whole-plan-run rollups,
-PDF/docx/xlsx and the remaining report types remain open backlog work.
+Framework comparison is also implemented on terminal logical-run semantics.
+Framework attribution uses the immutable repository source target; app-side
+and legacy KRE suites are Katalon, native collection operations are excluded
+as inventory maintenance, and ambiguous legacy rows remain in an explicit
+`unknown` bucket rather than being guessed into a framework. Parsed case
+pass-rates exclude skipped cases and partitioned unit-child results contribute
+once to the parent logical run. Saved definitions, scheduled generation,
+share links, whole-plan-run rollups, PDF/docx/xlsx and the remaining report
+types remain open backlog work.

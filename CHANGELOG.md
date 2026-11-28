@@ -27,8 +27,13 @@
   app-side suite, repository suite, or repository collection using immutable
   snapshot target identity; plan rows are explicitly member-execution rollups
   rather than whole-plan-run outcomes, and direct test/case targets are
-  omitted and disclosed instead of being folded into a suite row. CSV rows
-  carry the generated-at instant, viewer timezone, filter snapshot, and
+  omitted and disclosed instead of being folded into a suite row. An eighth
+  report type compares frameworks by terminal logical-run outcomes, parsed
+  case pass rates (skipped excluded), duration, and project coverage; native
+  collection operations are excluded as inventory maintenance and ambiguous
+  legacy rows remain in an explicit unknown bucket rather than being guessed.
+  CSV rows carry the generated-at instant, viewer timezone, filter snapshot,
+  and
   truncation metadata. The query layer is scoped to the signed-in user's
   visible projects before filtering; CSV export is audited and
   spreadsheet-formula-leading text is escaped. PDF/docx/xlsx and additional

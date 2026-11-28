@@ -14,6 +14,7 @@
       <option value="schedule-reliability" {% if report_type=='schedule-reliability' %}selected{% endif %}>Schedule reliability</option>
       <option value="utilization" {% if report_type=='utilization' %}selected{% endif %}>Runner/runtime utilization</option>
       <option value="target-results" {% if report_type=='target-results' %}selected{% endif %}>Plan/suite/collection results</option>
+      <option value="framework-comparison" {% if report_type=='framework-comparison' %}selected{% endif %}>Framework comparison</option>
     </select></div>
   <div class="field"><label for="project_id">Project</label>
     <select name="project_id" id="project_id"><option value="">All visible projects</option>
@@ -96,7 +97,25 @@
 </tbody></table></section>
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
 <script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
+{% elif report_type == 'framework-comparison' %}
+<p class="muted"><small>Counting: {{ report.counting }}.</small></p>
+{% if report.excluded_collection_ops %}<p class="badge info">{{ report.excluded_collection_ops }} native collection operations excluded because they are inventory maintenance, not test executions.</p>{% endif %}
+<div class="dash-2col">
+  <section class="card"><h2>Framework outcomes</h2>
+    {% if figs.frameworks != 'null' %}<div data-plotly-fig="{{ figs.frameworks }}"></div>{% else %}<p class="muted">No framework-attributed logical runs match the selected filters.</p>{% endif %}</section>
+  <section class="card"><h2>Applied scope</h2>
+    <div class="metric"><strong>{{ report.rows|length }}</strong><span>framework buckets</span></div>
+    <div class="metric"><strong>{{ report.total }}</strong><span>terminal logical runs</span></div>
+    <p class="muted">Rows whose framework cannot be attributed remain in an explicit <code>unknown</code> bucket; they are never guessed into a framework.</p></section>
+</div>
+<section class="card"><h2>Framework comparison</h2>
+<table class="data-table"><thead><tr><th>Framework</th><th>Runs</th><th>Pass/fail/inc/none</th><th>Run pass rate</th><th>Case pass/error/fail/skip</th><th>Case pass rate</th><th>Avg duration s</th><th>Projects</th></tr></thead><tbody>
+{% for r in report.rows %}<tr><td>{{ r.framework }}</td><td>{{ r.runs }}</td><td>{{ r.passed }}/{{ r.failed }}/{{ r.incomplete }}/{{ r.none }}</td><td>{{ r.run_pass_rate if r.run_pass_rate is not none else '—' }}{% if r.run_pass_rate is not none %}%{% endif %}</td><td>{{ r.case_passed }}/{{ r.case_error }}/{{ r.case_failed }}/{{ r.case_skipped }}</td><td>{{ r.case_pass_rate if r.case_pass_rate is not none else '—' }}{% if r.case_pass_rate is not none %}%{% endif %}</td><td>{{ r.avg_duration_s if r.avg_duration_s is not none else '—' }}</td><td>{{ r.project_count }}</td></tr>{% else %}<tr><td colspan="8" class="muted">No framework-attributed results match the selected filters.</td></tr>{% endfor %}
+</tbody></table></section>
+<script src="{{ url_for('static', filename='vendor/plotly.min.js') }}" defer></script>
+<script src="{{ url_for('static', filename='vendor/plot-init.js') }}" defer></script>
 {% elif report_type == 'target-results' %}
+
 <p class="muted"><small>Counting: {{ report.counting }}.</small></p>
 {% if report.omitted_logical_runs %}<p class="badge warn">{{ report.omitted_logical_runs }} direct test/case logical runs are outside this report's plan/suite/collection target grain and are not folded into a suite row.</p>{% endif %}
 <div class="dash-2col">
